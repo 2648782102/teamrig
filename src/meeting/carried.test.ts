@@ -5,7 +5,7 @@ import type { RegisterEvent, UpdateEvent } from '../register/events.ts';
 import type { Task } from '../register/fold.ts';
 import { TaskTree } from '../register/tree.ts';
 import { testTask } from '../testing/task.ts';
-import { answeredKeys, carriedKeys } from './carried.ts';
+import { answeredIds, answeredKeys, carriedKeys } from './carried.ts';
 import type { Decision } from './decision-order.ts';
 
 const START = Date.parse('2030-01-08T09:00:00Z');
@@ -42,6 +42,17 @@ describe('the cards a meeting carries over (T2775)', () => {
       { v: 1, type: 'create', id: 'T5', at: DURING, by: 'lead', task: testTask({ id: 'T5' }) },
     ];
     assert.deepEqual([...answeredKeys([{ events, decidedBy: 'lead', team: undefined }], START)], []);
+  });
+
+  it("takes any session's answer when no recorder is named, as a booked meeting's session met records its own", () => {
+    const events: RegisterEvent[] = [
+      update('T1', { decided: true, by: 'alpha' }),
+      update('T2', { decided: true }),
+      update('T3', { changes: { priority: 1 }, by: 'alpha' }),
+      update('T4', { decided: true, by: 'alpha', at: '2030-01-08T08:59:59.000Z' }),
+    ];
+    assert.deepEqual([...answeredIds(events, START, undefined)], ['T1', 'T2']);
+    assert.deepEqual([...answeredIds(events, START, 'alpha')], ['T1']);
   });
 
   it('carries every asked card with no answer, in the order asked, a card of a team under the lead by its label', () => {
