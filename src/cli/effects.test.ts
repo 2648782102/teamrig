@@ -50,6 +50,7 @@ const EXPECTED = {
   'meeting list': 'read',
   'meeting move': 'write',
   'meeting drop': 'write',
+  'meeting postpone': 'write',
   meet: 'write',
   'owner note': 'write',
   'owner next': 'write',
