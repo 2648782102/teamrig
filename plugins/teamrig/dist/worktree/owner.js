@@ -8,17 +8,27 @@
  * nothing to lose, so any session may remove it. A rebase stopped before its first new commit looks the same; removing
  * it ends that rebase, but its branch keeps every commit. Any other detached HEAD is the lead's alone to remove.
  */
-/** The task a branch is named for: `T12` for `t12-parser` or `T12`; undefined for a branch named for none. */
+/**
+ * The task a plain task branch is named for: `T12` for `t12-parser` or `T12`; undefined for a branch named for none.
+ * The push route (permissions/route-git.ts) reads only this form, so widening it would widen what pushes unasked.
+ */
 export function branchTaskOf(branch) {
     const digits = branch === undefined ? undefined : /^t(\d+)(?:-|$)/i.exec(branch)?.[1];
     return digits === undefined ? undefined : `T${digits}`;
+}
+/**
+ * The task a worktree's branch is named for: {@link branchTaskOf}'s form, or CONTRIBUTING's `<type>/t<id>-<slug>`
+ * (`fix/t12-parser`, T2787), which every ship's branch takes; undefined for a branch named for none.
+ */
+export function worktreeTaskOf(branch) {
+    return branchTaskOf(branch?.replace(/^[a-z]+\//i, ''));
 }
 /** Undefined when the caller may remove the worktree; else why not, naming who may. */
 export function removalRefusal({ caller, branch, mergedInto, ownerOf, tree }) {
     if (caller === tree.lead || (branch === undefined && mergedInto !== undefined)) {
         return undefined;
     }
-    const task = branchTaskOf(branch);
+    const task = worktreeTaskOf(branch);
     const owner = task === undefined ? undefined : ownerOf(task);
     if (owner === caller || (owner !== undefined && tree.leads(caller, owner))) {
         return undefined;
@@ -28,7 +38,7 @@ export function removalRefusal({ caller, branch, mergedInto, ownerOf, tree }) {
         return `the worktree is on no branch, and git does not show every commit of its HEAD on the default branch (as of the last fetch), ${leadAlone}: if it merged, fetch and run this again`;
     }
     if (task === undefined || owner === undefined) {
-        const named = task === undefined ? 'names no task (t<id>-<name>)' : `names ${task}, which the register lacks`;
+        const named = task === undefined ? 'names no task (t<id>-<name> or <type>/t<id>-<name>)' : `names ${task}, which the register lacks`;
         return `the worktree's branch ${branch} ${named}, ${leadAlone}`;
     }
     const may = [owner, ...tree.chainOf(owner)];
