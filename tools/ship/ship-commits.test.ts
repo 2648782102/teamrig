@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { GateVerdict } from './local-gate.ts';
 import type { MainMove, MergeExit } from './merge.ts';
-import { DIST, parseNumstat, SHIP_ATTEMPTS, shipCommits, weighDist, type ShipDeps } from './ship-commits.ts';
+import { DIST, parseNumstat, SHIP_ATTEMPTS, shipCommits, trailerOf, weighDist, type ShipDeps } from './ship-commits.ts';
 import type { Chunk, ShipArgs } from './ship-plan.ts';
 import type { SyncResult } from './sync.ts';
 
@@ -107,6 +107,22 @@ test('takes back an earlier run first, then syncs, typechecks, runs the coverage
     'prove',
     'git log --oneline origin/main..HEAD',
   ]);
+});
+
+test('a chunk whose body already names Claude as a co-author gets no second trailer, so its trailer block stays whole', async () => {
+  const body = `why a\n\n${TRAILER}\nClaude-Session: https://claude.ai/code/session_01`;
+  const { deps, events } = fake();
+  assert.equal(await shipCommits(ARGS, [{ files: ['src/a.ts'], subject: 'core: a', body }, ...CHUNKS.slice(1)], deps), 0);
+  assert.ok(events.includes(`git commit -q -s -m core: a -m ${body}`), events.join('\n'));
+  assert.ok(events.includes(committed('release: 0.134.0', 'raises 0.134.0')), events.join('\n'));
+});
+
+test('trailerOf adds the trailer unless a body line names Claude as a co-author, in any case and for any model', () => {
+  assert.deepEqual(trailerOf('why'), [TRAILER]);
+  assert.deepEqual(trailerOf(`why\n\n${TRAILER}`), []);
+  assert.deepEqual(trailerOf('why\n\nco-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>'), []);
+  assert.deepEqual(trailerOf('why\n\nCo-Authored-By: A Person <person@example.com>'), [TRAILER], "another co-author is not the ship's");
+  assert.deepEqual(trailerOf('why Co-Authored-By: Claude is said mid-line'), [TRAILER], 'only a line that starts with the key counts');
 });
 
 test('commits a rebuilt dist apart, with a Large-commit line only when it goes over the size rule', async () => {
