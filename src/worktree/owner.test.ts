@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { LeadTree } from '../config/lead-tree.ts';
-import { branchTaskOf, removalRefusal, type WorktreeRemover } from './owner.ts';
+import { branchTaskOf, removalRefusal, worktreeTaskOf, type WorktreeRemover } from './owner.ts';
 
 /** The lead over sub-lead `web`, who leads `ui`; `api` answers to the lead. */
 const TREE = new LeadTree({ sessions: ['lead', 'web', 'ui', 'api'], roles: { lead: 'lead' }, leads: { web: ['ui'] } });
@@ -26,8 +26,25 @@ describe('branchTaskOf', () => {
   it('finds none in a branch named for no task', () => {
     assert.equal(branchTaskOf('main'), undefined);
     assert.equal(branchTaskOf('tools-t4'), undefined);
+    assert.equal(branchTaskOf('fix/t4-parser'), undefined, 'the push route reads only the plain form');
     assert.equal(branchTaskOf('t4parser'), undefined);
     assert.equal(branchTaskOf(undefined), undefined);
+  });
+});
+
+describe('worktreeTaskOf', () => {
+  it("reads the plain form and CONTRIBUTING's <type>/t<id>-<slug> form (T2787)", () => {
+    assert.equal(worktreeTaskOf('t4-parser'), 'T4');
+    assert.equal(worktreeTaskOf('fix/t2742-detached-death'), 'T2742');
+    assert.equal(worktreeTaskOf('feat/T224-refresh'), 'T224');
+    assert.equal(worktreeTaskOf('docs/t12'), 'T12');
+  });
+
+  it('finds none past a deeper path or in a slug that only ends in an id', () => {
+    assert.equal(worktreeTaskOf('feat/tools-t4'), undefined);
+    assert.equal(worktreeTaskOf('a/b/t4-parser'), undefined);
+    assert.equal(worktreeTaskOf('main'), undefined);
+    assert.equal(worktreeTaskOf(undefined), undefined);
   });
 });
 
@@ -35,6 +52,11 @@ describe('removalRefusal', () => {
   it("lets a session remove the worktree of a task it owns", () => {
     assert.equal(refusal('ui', 't4-parser'), undefined);
     assert.equal(refusal('api', 't5-routes'), undefined);
+  });
+
+  it("reads the owner from a <type>/t<id>-<slug> branch, as ship's branches take (T2787)", () => {
+    assert.equal(refusal('ui', 'fix/t4-parser'), undefined);
+    assert.equal(refusal('api', 'feat/t4-parser'), "the worktree's branch feat/t4-parser is T4's, which ui owns: only ui or web or lead removes it");
   });
 
   it('lets each leader above the owner remove it, the lead any worktree', () => {
@@ -51,7 +73,7 @@ describe('removalRefusal', () => {
   });
 
   it('leaves a worktree whose branch names no task on the register to the lead', () => {
-    assert.equal(refusal('ui', 'scratch'), "the worktree's branch scratch names no task (t<id>-<name>), so only the lead (lead) removes it");
+    assert.equal(refusal('ui', 'scratch'), "the worktree's branch scratch names no task (t<id>-<name> or <type>/t<id>-<name>), so only the lead (lead) removes it");
     assert.equal(refusal('ui', 't9-gone'), "the worktree's branch t9-gone names T9, which the register lacks, so only the lead (lead) removes it");
     assert.equal(
       refusal('ui', undefined),
