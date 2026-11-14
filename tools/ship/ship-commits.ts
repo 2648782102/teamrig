@@ -15,6 +15,18 @@ export const DIST_SUBJECT = 'build: rebuild the plugin dist';
 
 const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
 
+/** A body line naming Claude as a co-author, whatever the model; git reads a trailer's key in any case. */
+const CLAUDE_CO_AUTHOR = /^co-authored-by:[ \t]*claude\b/im;
+
+/**
+ * The co-author trailer a commit gets: none when the body already names Claude as a co-author. The attribution a
+ * session is asked for ends the body with that line and a Claude-Session line, and a second co-author paragraph after
+ * them would become the commit's trailer block alone, leaving Claude-Session out of it.
+ */
+export function trailerOf(body: string): readonly string[] {
+  return CLAUDE_CO_AUTHOR.test(body) ? [] : [TRAILER];
+}
+
 /** What a ship does to the repo dir and the outside world; ship.ts wires the real ones, specs pass fakes. */
 export interface ShipDeps {
   /** Runs a command in the repo dir with its output shown; throws when it fails. */
@@ -67,7 +79,7 @@ export function weighDist(files: readonly FileChange[]): DistWeight {
 
 function commit(deps: ShipDeps, files: readonly string[], subject: string, body: string, extra: readonly string[] = []): void {
   deps.run('git', ['add', '--', ...files]);
-  deps.run('git', ['commit', '-q', '-s', '-m', subject, '-m', body, ...extra.flatMap((line) => ['-m', line]), '-m', TRAILER]);
+  deps.run('git', ['commit', '-q', '-s', '-m', subject, '-m', body, ...[...extra, ...trailerOf(body)].flatMap((line) => ['-m', line])]);
 }
 
 /**
