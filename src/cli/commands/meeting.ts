@@ -33,7 +33,7 @@ import { loadTree, type KitTree } from '../tree.ts';
 import { weekLineOf } from './budget.ts';
 import { inboxDepsOf, read } from './inbox.ts';
 import { decidedByOf, decisionAgendaOf } from './meeting-registers.ts';
-import { agendaMeetingLines, meetingEndScheduled, meetingStartScheduled } from './meetings.ts';
+import { agendaMeetingLines, bookDailyRest, meetingEndScheduled, meetingPostponeScheduled, meetingStartScheduled, postponeToOf } from './meetings.ts';
 import { taskTreeOf, weekFitOf } from './register.ts';
 import { foldStats, statsTopLines } from './stats.ts';
 
@@ -317,7 +317,18 @@ export async function meetingEnd(args: ParsedArgs, runtime: CliRuntime): Promise
   if (args.flags.has('note')) {
     throw new UsageError('--note goes with meeting end <id>, a scheduled meeting; the daily meeting records its decisions on the tasks');
   }
-  const mk = await meetingKit(args, runtime, 'write');
+  await endDaily(runtime, await meetingKit(args, runtime, 'write'));
+  return EXIT.ok;
+}
+
+/** What ending the daily meeting left: when it started, and the cards it carries over, by decisionKey. */
+interface DailyEnd {
+  readonly startedAt: number;
+  readonly carried: readonly string[];
+}
+
+/** Ends the open or lapsed daily meeting (meetingEnd), printing its lines; refused with none. */
+async function endDaily(runtime: CliRuntime, mk: MeetingKit): Promise<DailyEnd> {
   const phase = phaseOf(await mk.store.read(), mk.now);
   if (phase.kind !== 'open' && phase.kind !== 'lapsed') {
     throw new RefusedError(`no meeting is open; ${KIT_NAME} meeting start opens one`);
@@ -353,6 +364,35 @@ export async function meetingEnd(args: ParsedArgs, runtime: CliRuntime): Promise
   recorded.forEach((line) => runtime.out.stdout(line));
   if (carried.length > 0) {
     runtime.out.stdout(`CARRIED ${carried.length} card(s) with no answer to the next meeting, asked there first: ${carried.join(', ')}`);
+  }
+  return { startedAt, carried };
+}
+
+/**
+ * `meeting postpone --in|--at|--tomorrow` (T2775): the owner stops the daily meeting before its cards are done. It ends
+ * as `meeting end` does, so the answers recorded go to their owners and the open cards carry to the next daily
+ * meeting, asked there first; `--tomorrow` leaves them for it. A time books the rest as a meeting with the lead
+ * (M<n>), on the open cards of the lead's own team; none is booked when every card got an answer. `meeting postpone
+ * <id>` postpones a booked meeting instead (meetings.ts).
+ */
+export async function meetingPostpone(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
+  if (args.positionals.length > 0) {
+    return meetingPostponeScheduled(args, runtime);
+  }
+  if (args.flags.has('note')) {
+    throw new UsageError('--note goes with meeting postpone <id>, a booked meeting; the daily meeting records its decisions on the tasks');
+  }
+  const mk = await meetingKit(args, runtime, 'write');
+  // The time is read before the end, so a wrong one ends nothing.
+  const to = postponeToOf(args, mk.now, mk.zone, true);
+  const { startedAt, carried } = await endDaily(runtime, mk);
+  if (to.kind === 'next-daily') {
+    runtime.out.stdout(`POSTPONED to the next daily meeting: it asks the ${carried.length} open card(s) first`);
+  } else if (carried.length === 0) {
+    runtime.out.stdout('POSTPONED nothing: every card asked got an answer, so no meeting is booked');
+  } else {
+    const about = `the rest of the daily meeting of ${mk.zone.weekdayMinute(new Date(startedAt))}: ${carried.length} open card(s)`;
+    await bookDailyRest(args, runtime, { at: to.at, tasks: carried.filter((key) => !key.includes('/')), about });
   }
   return EXIT.ok;
 }

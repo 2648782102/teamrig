@@ -21,6 +21,8 @@ import {
   type MeetingStatus,
   type ScheduledMeeting,
 } from '../../meeting/schedule.ts';
+import { answeredIds } from '../../meeting/carried.ts';
+import { inMinutes, minutesIn, partHeldNote, POSTPONE_IN_MAX_MINUTES, restOf, type PostponeTo } from '../../meeting/postpone.ts';
 import { SPOTLIGHT_LOG, spotlightLine, startSpotlight, type SpotlightPlace } from '../../meeting/spotlight.ts';
 import { SpotlitStore, spotlitUntil } from '../../meeting/spotlit.ts';
 import { WAKE_TICK_MS } from '../../mod/wake-hand.ts';
@@ -294,16 +296,27 @@ export async function meetingList(args: ParsedArgs, runtime: CliRuntime): Promis
  * is one of `from`; returns the meeting as written.
  */
 async function change(args: ParsedArgs, mk: MeetingsKit, verb: string, from: readonly MeetingStatus[], next: (meeting: ScheduledMeeting) => ScheduledMeeting): Promise<ScheduledMeeting> {
+  return (await changeFrom(args, mk, verb, from, next)).changed;
+}
+
+/** change, returning the meeting as it was before too. */
+async function changeFrom(
+  args: ParsedArgs,
+  mk: MeetingsKit,
+  verb: string,
+  from: readonly MeetingStatus[],
+  next: (meeting: ScheduledMeeting) => ScheduledMeeting,
+): Promise<{ readonly before: ScheduledMeeting; readonly changed: ScheduledMeeting }> {
   const id = onePositional(args, 'meeting id');
   return mk.lock.run(async () => {
-    const meeting = meetingOf(await mk.schedule.read(), id);
-    mayChange(mk, meeting.session, `${verb} ${id}`);
-    if (!from.includes(meeting.status)) {
-      throw new RefusedError(`${id} is ${meeting.status}: meeting ${verb} takes a ${from.join(' or ')} meeting`);
+    const before = meetingOf(await mk.schedule.read(), id);
+    mayChange(mk, before.session, `${verb} ${id}`);
+    if (!from.includes(before.status)) {
+      throw new RefusedError(`${id} is ${before.status}: meeting ${verb} takes a ${from.join(' or ')} meeting`);
     }
-    const changed = { ...next(meeting), by: mk.caller, changedAt: mk.now };
+    const changed = { ...next(before), by: mk.caller, changedAt: mk.now };
     await mk.schedule.write(changed, mk.now);
-    return changed;
+    return { before, changed };
   });
 }
 
@@ -477,6 +490,104 @@ export async function meetingEndScheduled(args: ParsedArgs, runtime: CliRuntime)
   const cameOf = note === null ? '' : `: ${note}`;
   await tell(runtime, mk, ended, `Meeting ${ended.id} with the owner (${mk.zone.weekdayMinute(new Date(ended.at))}) ended${cameOf}`);
   return EXIT.ok;
+}
+
+/**
+ * Where `meeting postpone` moves a meeting, of exactly one of `--in <n>m|<n>h`, `--at <time>` (ahead of now) and, for
+ * the daily meeting only, `--tomorrow`.
+ */
+export function postponeToOf(args: ParsedArgs, now: number, zone: TimeZone, daily: boolean): PostponeTo {
+  const inText = args.flags.get('in');
+  const atText = args.flags.get('at');
+  const tomorrow = args.switches.has('tomorrow');
+  const choices = daily ? '--in <n>m|<n>h, --at <time> or --tomorrow' : '--in <n>m|<n>h or --at <time>';
+  if ([inText !== undefined, atText !== undefined, tomorrow].filter(Boolean).length !== 1) {
+    throw new UsageError(`meeting postpone takes one of ${choices}`);
+  }
+  if (tomorrow) {
+    if (!daily) {
+      throw new UsageError('--tomorrow goes with the daily meeting, whose next one asks the open cards first; a booked meeting takes --in or --at');
+    }
+    return { kind: 'next-daily' };
+  }
+  if (inText !== undefined) {
+    const minutes = minutesIn(inText);
+    if (minutes === undefined) {
+      throw new UsageError(`--in "${inText}" is not a delay like 45m or 2h, of at most ${POSTPONE_IN_MAX_MINUTES / 60}h`);
+    }
+    return { kind: 'at', at: inMinutes(now, minutes) };
+  }
+  const at = instantOf('--at', atText ?? '', { nowMs: now, zone });
+  if (at <= now) {
+    throw new RefusedError(`--at ${zone.weekdayMinute(new Date(at))} is past: a meeting is postponed ahead`);
+  }
+  return { kind: 'at', at };
+}
+
+/** The time a booked meeting's postpone names: never the next daily meeting. */
+function postponedAt(args: ParsedArgs, mk: MeetingsKit): number {
+  const to = postponeToOf(args, mk.now, mk.zone, false);
+  if (to.kind !== 'at') {
+    throw new UsageError('a booked meeting is postponed to a time: --in or --at');
+  }
+  return to.at;
+}
+
+/**
+ * `meeting postpone <id> --in|--at [--note]`: a scheduled meeting moves, as `meeting move` does. A started one goes back
+ * to scheduled at the new time with only the tasks that got no owner's answer since its start (a Decided or a Later,
+ * by anyone: the session met records its own), and a note of the part held, so one meeting keeps one thread; its
+ * spotlight lifts. Those it meets are told.
+ */
+export async function meetingPostponeScheduled(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
+  const mk = await meetingsKit(args, runtime, 'write');
+  const at = postponedAt(args, mk);
+  const note = noteOf(args.flags.get('note'), new SecretScanner(mk.config.register.secretPatterns));
+  const { events } = (await ownRegister(runtime)).own.snapshot.read;
+  const { before, changed: postponed } = await changeFrom(args, mk, 'postpone', ['scheduled', 'started'], (meeting) => {
+    if (meeting.status === 'scheduled') {
+      return { ...meeting, at, notifiedAt: null, note: note ?? meeting.note };
+    }
+    // A start is the meeting's last change before this one, so changedAt is when it started.
+    const rest = restOf(meeting, answeredIds(events, meeting.changedAt, undefined));
+    const heldAt = mk.zone.weekdayMinute(new Date(meeting.changedAt));
+    return { ...meeting, status: 'scheduled', at, notifiedAt: null, tasks: rest.tasks, note: partHeldNote(heldAt, rest, note) };
+  });
+  if (before.status === 'started') {
+    await liftSpotlight(runtime, mk, postponed.id);
+  }
+  runtime.out.stdout(`POSTPONED ${meetingLine(postponed, mk.zone, mk.now)}`);
+  const why = postponed.note === null ? '' : ` (${postponed.note})`;
+  await tell(runtime, mk, postponed, `Meeting ${postponed.id} with the owner postponed: ${bookedText(postponed, mk.zone)}${why}`);
+  return EXIT.ok;
+}
+
+/**
+ * Books the rest of a daily meeting the lead postponed to a time (meeting.ts): a meeting with the lead itself, on the
+ * open cards of the lead's own team, so it tells no one. Prints its line.
+ */
+export async function bookDailyRest(args: ParsedArgs, runtime: CliRuntime, rest: { readonly at: number; readonly tasks: readonly string[]; readonly about: string }): Promise<void> {
+  const mk = await meetingsKit(args, runtime, 'write');
+  const meeting = await mk.lock.run(async () => {
+    const booked: ScheduledMeeting = {
+      id: nextMeetingId(await mk.schedule.read()),
+      at: rest.at,
+      minutes: DEFAULT_MEETING_MINUTES,
+      session: mk.caller,
+      with: [],
+      tasks: rest.tasks,
+      about: rest.about,
+      brief: null,
+      status: 'scheduled',
+      notifiedAt: null,
+      by: mk.caller,
+      changedAt: mk.now,
+      note: null,
+    };
+    await mk.schedule.write(booked, mk.now);
+    return booked;
+  });
+  runtime.out.stdout(`POSTPONED the rest to ${meetingLine(meeting, mk.zone, mk.now)}`);
 }
 
 /** `meeting drop <id> --note`: the meeting will not be held; those it would meet are told why. */

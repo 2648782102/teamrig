@@ -263,6 +263,60 @@ describe('runCli: the daily meeting', () => {
     assert.ok(!ended.stdout.some((line) => line.startsWith('CARRIED')), ended.stdout.join('\n'));
   });
 
+  /** The meeting before the meeting open, with T3 waiting on the owner too, and T1 decided in it. */
+  async function meetingWithT1Decided(): Promise<CliHarness> {
+    const kit = await teamBeforeTheMeeting();
+    await kit.run(['add', '--title', 'Pick the launch date', '--description', 'which one', '--priority', 'p1', '--session', 'alpha']);
+    await kit.run(['set', 'T3', '--status', 'waiting', '--waits', 'decision:owner', '--note', 'two options', ...TEST_OWNER_CARD_FLAGS, '--session', 'alpha']);
+    await kit.run(['meeting', 'start', '--session', 'lead']);
+    await kit.run(['update', 'T1', '--decided', '--note', 'owner decided: the middle tier', '--session', 'lead']);
+    return kit;
+  }
+
+  it('postpones by a time: ends as meeting end does, then books the rest with the lead on the open cards (T2775)', async () => {
+    const kit = await meetingWithT1Decided();
+    const postponed = await kit.run(['meeting', 'postpone', '--in', '1h', '--session', 'lead']);
+    assert.equal(postponed.code, EXIT.ok, postponed.stderr.join('\n'));
+    assert.match(postponed.stdout[0] ?? '', /^MEETING ended .*told 1 session\(s\) the decisions on their tasks$/);
+    assert.deepEqual(postponed.stdout.slice(-2), [
+      'CARRIED 1 card(s) with no answer to the next meeting, asked there first: T3',
+      'POSTPONED the rest to M1 scheduled, Tue 01-08 11:00 UTC, 30 min, lead, tasks T3 | the rest of the daily meeting of Tue 01-08 10:00 UTC: 1 open card(s)',
+    ]);
+    assert.ok((await inboxOf(kit, 'alpha')).some((line) => line.includes('owner decided: the middle tier')));
+    assert.equal((await kit.run(['meeting', 'end', '--session', 'lead'])).code, EXIT.refused, 'the daily meeting is ended');
+  });
+
+  it('postpones to the next daily meeting with --tomorrow, and books nothing once every card got an answer (T2775)', async () => {
+    const kit = await meetingWithT1Decided();
+    const tomorrow = await kit.run(['meeting', 'postpone', '--tomorrow', '--session', 'lead']);
+    assert.equal(tomorrow.code, EXIT.ok, tomorrow.stderr.join('\n'));
+    assert.equal(tomorrow.stdout.at(-1), 'POSTPONED to the next daily meeting: it asks the 1 open card(s) first');
+    assert.deepEqual((await kit.run(['meeting', 'list', '--session', 'lead'])).stdout, ['MEETINGS 0 scheduled or started']);
+
+    const answered = await teamBeforeTheMeeting();
+    await answered.run(['meeting', 'start', '--session', 'lead']);
+    await answered.run(['update', 'T1', '--decided', '--note', 'owner decided: the middle tier', '--session', 'lead']);
+    const none = await answered.run(['meeting', 'postpone', '--at', '2030-01-08 15:00', '--session', 'lead']);
+    assert.equal(none.stdout.at(-1), 'POSTPONED nothing: every card asked got an answer, so no meeting is booked');
+  });
+
+  it('ends nothing on a wrong postpone: no time, a time past, or a --note (T2775)', async () => {
+    const kit = await meetingWithT1Decided();
+    const refusals: [readonly string[], number, RegExp][] = [
+      [[], EXIT.usage, /meeting postpone takes one of --in <n>m\|<n>h, --at <time> or --tomorrow/],
+      [['--at', '2030-01-08 09:00'], EXIT.refused, /is past: a meeting is postponed ahead/],
+      [['--tomorrow', '--note', 'later'], EXIT.usage, /--note goes with meeting postpone <id>, a booked meeting/],
+    ];
+    for (const [flags, code, message] of refusals) {
+      const result = await kit.run(['meeting', 'postpone', ...flags, '--session', 'lead']);
+      assert.equal(result.code, code, flags.join(' '));
+      assert.match([...result.stdout, ...result.stderr].join('\n'), message);
+    }
+    assert.equal((await kit.run(['meeting', 'end', '--session', 'lead'])).code, EXIT.ok, 'the meeting is still open');
+    const none = await kit.run(['meeting', 'postpone', '--tomorrow', '--session', 'lead']);
+    assert.deepEqual([none.code, none.stdout], [EXIT.refused, ['REFUSED no meeting is open; teamrig meeting start opens one']]);
+  });
+
   it('ends a meeting with nothing recorded: posts no line, and says a decision the register lacks reaches no one', async () => {
     const kit = await teamBeforeTheMeeting();
     await kit.run(['meeting', 'start', '--session', 'lead']);

@@ -8,6 +8,7 @@ import { SpotlitStore, type SpotlitMeeting } from '../meeting/spotlit.ts';
 import { FOCUS_EXIT, FOCUS_TITLE_VAR } from '../open/focus.ts';
 import { decodePrompt } from '../open/prompt.ts';
 import { SessionRecordStore } from '../sessions/record.ts';
+import { TEST_OWNER_CARD_FLAGS } from '../testing/card.ts';
 import { APP, CliHarness, TEAM, TEAM_HOME, type CliResult, type RunOptions } from '../testing/cli-harness.ts';
 import { FakeHostMemory } from '../testing/fake-host-memory.ts';
 import { FakePathProbe, FakeProcesses } from '../testing/fake-processes.ts';
@@ -207,6 +208,67 @@ describe('runCli: meeting move, end and drop', () => {
     const daily = await kit.run(['meeting', 'end', '--note', 'done', '--session', 'lead']);
     assert.equal(daily.code, EXIT.usage);
     assert.match(said(daily), /--note goes with meeting end <id>, a scheduled meeting/);
+  });
+});
+
+describe('runCli: meeting postpone <id> (T2775)', () => {
+  it('moves a scheduled meeting from now by --in, so its notification fires again, and tells those it meets', async () => {
+    const kit = await team();
+    await booked(kit, '--session', 'lead');
+    const postponed = await kit.run(['meeting', 'postpone', 'M1', '--in', '2h', '--session', 'lead']);
+    assert.equal(postponed.code, EXIT.ok, postponed.stderr.join('\n'));
+    assert.deepEqual(postponed.stdout, ['POSTPONED M1 scheduled, Tue 01-08 12:00 UTC, 30 min, alpha | the release plan', 'TOLD alpha']);
+    assert.equal((await stored(kit, 'M1'))?.notifiedAt, null);
+    const lines = await inboxOf(kit, 'alpha');
+    assert.ok(lines.some((line) => line.endsWith('Meeting M1 with the owner postponed: Tue 01-08 12:00 UTC (30 min) with alpha: the release plan')), lines.join('\n'));
+  });
+
+  it('takes a started meeting back to scheduled with only its open tasks and a note of the part held, its spotlight lifted', async () => {
+    const kit = await team();
+    await kit.run(['add', '--title', 'Pick the date', '--description', 'which day', '--priority', 'p1', '--session', 'alpha']);
+    const waiting = await kit.run(['set', 'T1', '--status', 'waiting', '--waits', 'decision:owner', '--note', 'two plans', ...TEST_OWNER_CARD_FLAGS, '--session', 'alpha']);
+    assert.equal(waiting.code, EXIT.ok, waiting.stderr.join('\n'));
+    await booked(kit, '--tasks', 'T1,T2', '--session', 'lead');
+    kit.clock.advance(4 * 60 * MS_PER_MINUTE);
+    const options = { ...(await alphaRuns(kit)), platform: 'win32' as const, processes: new FakeProcesses().onRun('powershell.exe', { kind: 'exited', code: 0 }) };
+    assert.equal((await kit.run(['meeting', 'start', 'M1', '--session', 'lead'], options)).code, EXIT.ok);
+    kit.clock.advance(10 * MS_PER_MINUTE);
+    const decided = await kit.run(['update', 'T1', '--decided', '--note', 'owner decided: the short plan', '--session', 'alpha']);
+    assert.equal(decided.code, EXIT.ok, decided.stderr.join('\n'));
+
+    const postponed = await kit.run(['meeting', 'postpone', 'M1', '--at', '2030-01-09 10:00', '--session', 'lead']);
+    assert.equal(postponed.code, EXIT.ok, postponed.stderr.join('\n'));
+    assert.deepEqual(postponed.stdout, ['POSTPONED M1 scheduled, Wed 01-09 10:00 UTC, 30 min, alpha, tasks T2 | the release plan', 'TOLD alpha']);
+    const after = await stored(kit, 'M1');
+    assert.deepEqual([after?.status, after?.tasks, after?.notifiedAt, after?.note], ['scheduled', ['T2'], null, 'part held Tue 01-08 14:00 UTC: 1 of 2 decided']);
+    assert.deepEqual(await spotlitOf(kit), { id: 'M1', startedAt: '2030-01-08T14:00:00.000Z', endedAt: '2030-01-08T14:10:00.000Z' });
+    const lines = await inboxOf(kit, 'alpha');
+    const told = 'Meeting M1 with the owner postponed: Wed 01-09 10:00 UTC (30 min) with alpha: the release plan; tasks T2 (part held Tue 01-08 14:00 UTC: 1 of 2 decided)';
+    assert.ok(lines.some((line) => line.endsWith(told)), lines.join('\n'));
+  });
+
+  it('refuses no time or two, --tomorrow, a bad delay, a time past, a finished meeting and another session', async () => {
+    const kit = await team();
+    await booked(kit, '--session', 'lead');
+    const refusals: [readonly string[], number, RegExp][] = [
+      [[], EXIT.usage, /meeting postpone takes one of --in <n>m\|<n>h or --at <time>/],
+      [['--in', '1h', '--at', '2030-01-08 16:00'], EXIT.usage, /takes one of/],
+      [['--tomorrow'], EXIT.usage, /--tomorrow goes with the daily meeting/],
+      [['--in', 'soon'], EXIT.usage, /--in "soon" is not a delay like 45m or 2h, of at most 24h/],
+      [['--in', '25h'], EXIT.usage, /--in "25h" is not a delay/],
+      [['--at', '2030-01-08 09:00'], EXIT.refused, /--at Tue 01-08 09:00 UTC is past: a meeting is postponed ahead/],
+    ];
+    for (const [flags, code, message] of refusals) {
+      const result = await kit.run(['meeting', 'postpone', 'M1', ...flags, '--session', 'lead']);
+      assert.equal(result.code, code, flags.join(' '));
+      assert.match(said(result), message);
+    }
+    const other = await kit.run(['meeting', 'postpone', 'M1', '--in', '1h', '--session', 'bravo']);
+    assert.match(said(other), /only the lead \(app-lead\) or alpha, the session met, may postpone M1/);
+    await kit.run(['meeting', 'end', 'M1', '--session', 'lead']);
+    const done = await kit.run(['meeting', 'postpone', 'M1', '--in', '1h', '--session', 'lead']);
+    assert.equal(done.code, EXIT.refused);
+    assert.match(said(done), /M1 is done: meeting postpone takes a scheduled or started meeting/);
   });
 });
 
