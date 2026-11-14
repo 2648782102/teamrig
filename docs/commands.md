@@ -123,6 +123,13 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
   meeting end <id> [--note "<what came of it>"] | meeting drop <id> --note "<why>"   the meeting was
       held, or will not be; those it meets are told what came of it, or why; meeting end with no id
       ends the meeting on in the caller's tab (the lead's daily one first)
+  meeting postpone (--in <n>m|<n>h | --at <time> | --tomorrow) [--session <id|name>]   the lead stops
+      the daily meeting before its cards are done: it ends as meeting end does, the open cards carried
+      to the next daily meeting; --in or --at also books the rest with the lead (M<n>) on the open cards
+      of the lead's own team, none when every card got an answer
+  meeting postpone <id> (--in <n>m|<n>h | --at <time>) [--note "<why>"]   a booked meeting later: a
+      scheduled one moves; a started one goes back to scheduled with only its tasks that got no Decided
+      or Later since its start, and a note of the part held; those it meets are told
   decisions | decisions asked [--session <id|name>]   the owner's decisions the lead asks in batches:
       decisions prints the waits on the owner not yet asked and the asked ones past due, as card facts,
       and whether a batch is due (a wait due before the next batch, decisions.batchAt not yet asked, or a
