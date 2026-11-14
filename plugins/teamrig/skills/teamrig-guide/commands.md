@@ -2673,6 +2673,49 @@ RECORDED 1 decision(s), each told to its task's owner
 CARRIED 1 card(s) with no answer to the next meeting, asked there first: T9
 ```
 
+### teamrig meeting postpone
+
+The owner stops a meeting before its cards are done, and what is still open moves to a later slot; what was decided
+stays recorded.
+
+The daily meeting ends as `meeting end` does: the answers go to their tasks' owners, and every card asked with no
+answer carries to the next daily meeting, asked there first. `--tomorrow` leaves them for it. `--in` or `--at` also
+books the rest as a meeting with the lead (`M<n>`, 30 min) on the open cards of the lead's own team; a card of a team
+under the lead stays carried to the next daily meeting. When every card got an answer, none is booked. The time is
+read before the end, so a wrong one ends nothing.
+
+With a meeting id, `meeting postpone M3` postpones a booked meeting. A scheduled one moves, as `meeting move` does. A
+started one goes back to scheduled at the new time with only its tasks that got no Decided or Later since its start
+(whoever recorded it: the session met records its own), and a note of the part held; its spotlight lifts. Its
+notices fire again at the new time, and the session met and those joining, but the caller, are told by one inbox line.
+
+Flags:
+
+- `--in <n>m|<n>h`: from now, at most a day.
+- `--at <time>`: a time ahead, on the team's clock unless marked.
+- `--tomorrow`: the daily meeting only: the open cards wait for the next daily meeting.
+- `--note "<why>"`: with a meeting id only, one line kept after the part-held note.
+- `--session <area>`: who you are: the lead, or for a booked meeting the session met.
+
+Example:
+
+```sh
+teamrig meeting postpone --in 1h --session lead
+teamrig meeting postpone M3 --at "2030-01-09 10:00" --note "the owner was called away" --session lead
+```
+
+Output:
+
+```text
+MEETING ended Thu 10-15 11:25 IDT after 25 min: messages to shop-lead go again; told 1 session(s) the decisions on their tasks
+RECORDED 1 decision(s), each told to its task's owner
+  web T7: owner decided: the middle tier ships first (its wait on the owner cleared: act on it, set its next status)
+CARRIED 2 card(s) with no answer to the next meeting, asked there first: T9, T11
+POSTPONED the rest to M4 scheduled, Thu 10-15 12:25 IDT, 30 min, lead, tasks T9 T11 | the rest of the daily meeting of Thu 10-15 11:00 IDT: 2 open card(s)
+POSTPONED M3 scheduled, Fri 10-16 10:00 IDT, 30 min, web, tasks T12 | the pricing review
+TOLD web
+```
+
 With nothing recorded it says so: a decision the register lacks reaches no one. The `CARRIED` line shows only when a
 card carries. A line the inbox refuses (a team
 secret pattern matched it) prints `NOT TOLD <id>: <why>` first; the rest go on.
