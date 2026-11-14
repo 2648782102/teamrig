@@ -1,4 +1,4 @@
-import { type MergeDeps, pushedHead, realMergeDeps } from './merge.ts';
+import { HEAD_PATTERN, type MergeDeps, pushedHead, realMergeDeps } from './merge.ts';
 import { findOpenPull, openPull } from './pulls.ts';
 import { describeCredential } from './token-check.ts';
 
@@ -28,7 +28,7 @@ export function parseOpenArgs(argv: readonly string[]): OpenArgs {
   for (let i = 0; i < rest.length; i += 2) {
     const [flag, value] = [rest[i], rest[i + 1]];
     if (value === undefined) throw new Error(`${flag ?? ''} needs a value`);
-    if (flag === '--head' && /^[\w./-]+$/.test(value)) parsed.head = value;
+    if (flag === '--head' && HEAD_PATTERN.test(value)) parsed.head = value;
     else if (flag === '--note-file' && !value.startsWith('--')) parsed.noteFile = value;
     else throw new Error(`${OPEN_USAGE} (got ${flag} ${value})`);
   }

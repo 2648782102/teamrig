@@ -488,6 +488,7 @@ test('refuses main itself or a detached HEAD as the head, before any fetch or Gi
     [{ ...ARGS, head: 'main' }, {}, /main is the branch merged into: ship a change branch/],
     [{ ...ARGS, head: null }, { checkedOut: 'main' }, /main is the branch merged into: ship a change branch/],
     [{ ...ARGS, head: null }, { checkedOut: 'HEAD' }, /detached HEAD: pass --head <branch>/],
+    [{ ...ARGS, head: null }, { checkedOut: 'fix;rm' }, /checked-out branch "fix;rm" is not a plain branch name/],
   ] as const) {
     const { deps, gitCalls, ghFor } = runFixture(fixture);
     await assert.rejects(runMerge(args, deps), message);

@@ -246,6 +246,9 @@ export interface MergeArgs {
   noteFile: string | null;
 }
 
+/** What a branch name may hold: a name with a shell or git-option character in it is refused, given or checked out. */
+export const HEAD_PATTERN = /^[\w./-]+$/;
+
 export function parseArgs(argv: readonly string[]): MergeArgs {
   const usage = 'usage: ship.ts merge <repo dir> [--head <branch>] [--timeout-min <n>] [--interval-s <n>] [--note-file <path>]';
   const [dir, ...rest] = argv;
@@ -254,7 +257,7 @@ export function parseArgs(argv: readonly string[]): MergeArgs {
   for (let i = 0; i < rest.length; i += 2) {
     const [flag, value] = [rest[i], rest[i + 1]];
     if (value === undefined) throw new Error(`${flag ?? ''} needs a value`);
-    if (flag === '--head' && /^[\w./-]+$/.test(value)) parsed.head = value;
+    if (flag === '--head' && HEAD_PATTERN.test(value)) parsed.head = value;
     else if (flag === '--timeout-min' && /^\d+$/.test(value) && Number(value) > 0) parsed.timeoutMin = Number(value);
     else if (flag === '--interval-s' && /^\d+$/.test(value) && Number(value) > 0) parsed.intervalS = Number(value);
     else if (flag === '--note-file' && !value.startsWith('--')) parsed.noteFile = value;
@@ -290,10 +293,11 @@ export interface MergeDeps {
   err: (line: string) => void;
 }
 
-/** The branch checked out in the repo dir; a detached HEAD has none. */
+/** The branch checked out in the repo dir; a detached HEAD has none, and a name `--head` would refuse is refused too. */
 function checkedOutBranch(git: MergeDeps['git']): string {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
   if (branch === 'HEAD') throw new Error('the repo dir has a detached HEAD: pass --head <branch>');
+  if (!HEAD_PATTERN.test(branch)) throw new Error(`the checked-out branch ${JSON.stringify(branch)} is not a plain branch name`);
   return branch;
 }
 

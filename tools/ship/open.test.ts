@@ -126,6 +126,7 @@ test("makes merge's checks before the key is read or any GitHub call", () => {
     [ARGS, { subjects: '' }, new RegExp(`${BRANCH} has nothing that main lacks`)],
     [{ ...ARGS, head: 'main' }, {}, /main is the branch merged into: ship a change branch/],
     [{ ...ARGS, head: null }, { checkedOut: 'HEAD' }, /detached HEAD: pass --head <branch>/],
+    [{ ...ARGS, head: null }, { checkedOut: '--upload-pack=x' }, /checked-out branch "--upload-pack=x" is not a plain branch name/],
     [{ ...ARGS, noteFile: 'C:/notes/none.md' }, {}, /--note-file C:\/notes\/none\.md: no such file/],
   ] as const) {
     let keyReads = 0;
