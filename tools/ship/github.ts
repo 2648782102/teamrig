@@ -45,6 +45,8 @@ export interface Run {
   event: string;
   runNumber: number;
   runAttempt: number;
+  /** The branch the run was started for (a pull request's head branch); null for a run of no branch. */
+  headBranch: string | null;
 }
 
 export interface Job {
@@ -75,13 +77,17 @@ export interface CheckOutcome {
 }
 
 export function parseRuns(json: string): Run[] {
-  return listAt(json, 'workflow_runs', 'actions runs').map(run => ({
-    id: numberAt(run, 'id', 'run'),
-    workflowId: numberAt(run, 'workflow_id', 'run'),
-    event: stringAt(run, 'event', 'run'),
-    runNumber: numberAt(run, 'run_number', 'run'),
-    runAttempt: numberAt(run, 'run_attempt', 'run'),
-  }));
+  return listAt(json, 'workflow_runs', 'actions runs').map(run => {
+    const headBranch = run['head_branch'];
+    return {
+      id: numberAt(run, 'id', 'run'),
+      workflowId: numberAt(run, 'workflow_id', 'run'),
+      event: stringAt(run, 'event', 'run'),
+      runNumber: numberAt(run, 'run_number', 'run'),
+      runAttempt: numberAt(run, 'run_attempt', 'run'),
+      headBranch: typeof headBranch === 'string' ? headBranch : null,
+    };
+  });
 }
 
 /** The jobs of `run`'s latest attempt (`jobs?filter=latest`). */
@@ -195,9 +201,14 @@ export function rerunFailedJobs(gh: Gh, repo: string, runId: number): void {
   gh(['api', `repos/${repo}/actions/runs/${runId}/rerun-failed-jobs`, '-X', 'POST']);
 }
 
-/** Every listed check of a commit, read from the Actions jobs and the commit statuses. */
-export function readChecks(gh: Gh, repo: string, sha: string, required: RequiredChecks): CheckOutcome[] {
-  const runs = newestRuns(parseRuns(gh(['api', `repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`])));
+/**
+ * Every listed check of a commit on `branch`, read from the Actions jobs and the commit statuses. Only the runs started
+ * for `branch` count: a commit re-pushed under a new branch name keeps the runs of its old branch's pull request, and
+ * GitHub starts the new pull request's runs a few seconds after it opens, so an old failed or cancelled run would
+ * otherwise be the newest one and fail the new pull request at once.
+ */
+export function readChecks(gh: Gh, repo: string, sha: string, branch: string, required: RequiredChecks): CheckOutcome[] {
+  const runs = newestRuns(parseRuns(gh(['api', `repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`])).filter(run => run.headBranch === branch));
   const jobs = runs.flatMap(run => parseJobs(gh(['api', `repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`]), run));
   const statuses = parseStatuses(gh(['api', `repos/${repo}/commits/${sha}/status`]));
   return evaluate(required.names, jobs, statuses, required.summary);
