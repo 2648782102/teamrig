@@ -365,7 +365,9 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       team's repositories (github.repos; GitHub is the only host so far), with the token saved for the
       owner, else the gh login; refuses an empty body, a secret shape, private data (a home folder
       path, an e-mail address) or a task id in it; a saved token that cannot be read stops it, never the
-      gh login in its place
+      gh login in its place; only the GitHub admin (issue admin) writes on any issue, every other
+      session only on its own: an issue one of its tasks has as its ref, or a pull request from a t<id>-
+      branch of its task; a --session other than the tab's is refused
   issue close <owner/name#n> [--comment <text>]   closes one issue or pull request of the team's
       repositories, first posting --comment when given, with the same checks; a failed comment closes
       nothing
