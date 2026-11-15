@@ -25,7 +25,7 @@ async function teamWithAdmin(credentials: FakeCredentials, admin = 'lead'): Prom
   return kit;
 }
 
-/** Adds a task of alpha with `ref`, as gh migrate or gh sync leaves an issue's task. */
+/** Adds a task of alpha with `ref`, as issue migrate or issue sync leaves an issue's task. */
 async function alphaTask(kit: CliHarness, title: string, ref?: string): Promise<void> {
   const refFlag = ref === undefined ? [] : ['--ref', ref];
   const added = await kit.run(['add', '--title', title, '--description', 'what and why', '--priority', 'p2', '--owner', 'alpha', '--session', 'lead', ...refFlag]);

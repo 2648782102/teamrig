@@ -1364,7 +1364,7 @@ prints an `OFF` line and posts nothing. It prints `COMMENTED <target>`, or `FAIL
 Who may write: the team's GitHub admin, the one session the owner named with
 [owner github-admin](#teamrig-owner-github-admin), on any issue or pull request of `github.repos`; every other
 session only on its own. An issue is a session's own when one of its tasks has it as its ref (`gh:acme/web#7`, as
-`gh sync` and `gh migrate` set it); a pull request when its branch, in the same repository, is a `t<id>-` branch of
+`issue sync` and `issue migrate` set it); a pull request when its branch, in the same repository, is a `t<id>-` branch of
 one of its tasks (a fork's branch never is). Anything else is refused, naming the admin who may write on it. A
 `--session` other than the tab's own `$TEAMRIG_SESSION` is refused, so no session borrows another's right; from a
 tool call, [the exec guard](hooks.md#before-a-shell-command-the-exec-guard) wants `--session` written out as the
