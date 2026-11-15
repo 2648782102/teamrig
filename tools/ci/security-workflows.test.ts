@@ -91,6 +91,19 @@ describe('dependabot.yml', () => {
       assert.match(block, /^ {4}groups:\n {6}[\w-]+:\n {8}patterns: \['\*'\]$/m, ecosystem);
     }
   });
+
+  it('proposes no major of @types/node or typescript, and ignores nothing else', () => {
+    const npm = updates.get('npm') ?? '';
+    const ignored = [...npm.matchAll(/^ {6}- dependency-name: '?([^'\n]+)'?\n {8}update-types: \[(.+)\]$/gm)].map(
+      ([, name, types]) => `${name} ${types}`,
+    );
+    assert.deepEqual(ignored, [
+      "@types/node 'version-update:semver-major'",
+      "typescript 'version-update:semver-major'",
+    ]);
+    assert.equal([...npm.matchAll(/^ {6}- dependency-name: /gm)].length, ignored.length);
+    assert.doesNotMatch(updates.get('github-actions') ?? '', /^ {4}ignore:$/m);
+  });
 });
 
 describe('SECURITY.md', () => {
