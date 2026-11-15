@@ -161,6 +161,21 @@ describe('teamrig issue writes: only the GitHub admin writes on what is not the 
     assert.ok(gh.ran.every((request) => isPullRead(request.args)));
   });
 
+  it("refuses a session claiming another's issue by giving its own task that issue's ref, so it never writes on it (T2705 F1)", async () => {
+    const credentials = new FakeCredentials();
+    const kit = await teamWithAdmin(credentials);
+    const added = await kit.run(['add', '--title', 'Close it', '--description', 'what and why', '--priority', 'p2', '--ref', 'gh:acme/web#7'], AS_ALPHA);
+    assert.equal(added.code, EXIT.refused, printed(added));
+    assert.match(printed(added), /only the lead \(lead\) sets an issue ref by hand/u);
+    await alphaTask(kit, 'Fix the login page');
+    const linked = await kit.run(['update', 'T1', '--ref', 'gh:acme/web#7'], AS_ALPHA);
+    assert.equal(linked.code, EXIT.refused, printed(linked));
+    const gh = new FakeGh();
+    const closed = await kit.run(['issue', 'close', 'acme/web#7'], { ...AS_ALPHA, gh, credentials });
+    assert.equal(closed.code, EXIT.refused, printed(closed));
+    assert.ok(gh.ran.every((request) => isPullRead(request.args)), 'it only read whose the target is');
+  });
+
   it('names a role a session edited as broken, so no session is admin', async () => {
     const credentials = new FakeCredentials();
     const kit = await teamWithAdmin(credentials);

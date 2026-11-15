@@ -56,7 +56,7 @@ describe('RegisterPolicy.add', () => {
   const policy = new RegisterPolicy(testConfig());
 
   it('fills optional fields and trims the title', () => {
-    const verdict = policy.add({ ...INPUT, title: '  Add a health check ' }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, title: '  Add a health check ' }, EMPTY);
     assert.deepEqual(verdict, {
       ok: true,
       value: { title: 'Add a health check', description: 'what and why', owner: 'alpha', source: 'lead', ref: null, priority: 2, due: null, goals: [], noGoal: false, week: null, after: [], size: null, type: null, critical: false, pin: null, workClass: null, prepares: null },
@@ -64,37 +64,37 @@ describe('RegisterPolicy.add', () => {
   });
 
   it('keeps a work class of focus.classes, and refuses any other (T2076)', () => {
-    const verdict = policy.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, workClass: 'Roadmap' }, EMPTY);
     assert.equal(verdict.ok ? verdict.value.workClass : undefined, 'Roadmap');
-    assert.equal(error(policy.add({ ...INPUT, workClass: 'Chores' }, EMPTY)), 'class Chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
+    assert.equal(error(policy.add('lead', { ...INPUT, workClass: 'Chores' }, EMPTY)), 'class Chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
     const own = new RegisterPolicy(testConfig({ focus: { classes: ['Product', 'Upkeep'], roadmapClass: 'Product', maintenanceClass: 'Upkeep', defaultClass: 'Upkeep', allocation: { Product: 70, Upkeep: 30 } } }));
-    assert.equal(error(own.add({ ...INPUT, workClass: 'Product' }, EMPTY)), 'allowed', "a team's own classes");
-    assert.equal(error(own.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY)), 'class Roadmap is not one of focus.classes (Product, Upkeep)');
+    assert.equal(error(own.add('lead', { ...INPUT, workClass: 'Product' }, EMPTY)), 'allowed', "a team's own classes");
+    assert.equal(error(own.add('lead', { ...INPUT, workClass: 'Roadmap' }, EMPTY)), 'class Roadmap is not one of focus.classes (Product, Upkeep)');
   });
 
   it('matches a class in any case and keeps the configured spelling (GeneralA6/teamrig#845)', () => {
-    const verdict = policy.add({ ...INPUT, workClass: 'maintenance' }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, workClass: 'maintenance' }, EMPTY);
     assert.equal(verdict.ok ? verdict.value.workClass : error(verdict), 'Maintenance');
-    assert.equal(error(policy.add({ ...INPUT, workClass: 'chores' }, EMPTY)), 'class chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
+    assert.equal(error(policy.add('lead', { ...INPUT, workClass: 'chores' }, EMPTY)), 'class chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
   });
 
   it("takes teamrig's p0 beside the configured levels, a team with its own levels included", () => {
-    const verdict = policy.add({ ...INPUT, priority: 0 }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, priority: 0 }, EMPTY);
     assert.equal(verdict.ok ? verdict.value.priority : undefined, 0);
     const own = new RegisterPolicy(testConfig({ register: { priorities: [{ id: 2, name: 'soon' }] } }));
-    assert.equal(error(own.add({ ...INPUT, priority: 0 }, EMPTY)), 'allowed');
-    assert.equal(error(own.add({ ...INPUT, priority: 1 }, EMPTY)), 'priority p1 is not one of p0, p2');
+    assert.equal(error(own.add('lead', { ...INPUT, priority: 0 }, EMPTY)), 'allowed');
+    assert.equal(error(own.add('lead', { ...INPUT, priority: 1 }, EMPTY)), 'priority p1 is not one of p0, p2');
   });
 
   it('keeps the type and critical mark it is given', () => {
-    const verdict = policy.add({ ...INPUT, type: 'bug', critical: true }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, type: 'bug', critical: true }, EMPTY);
     assert.deepEqual(verdict.ok ? [verdict.value.type, verdict.value.critical] : undefined, ['bug', true]);
   });
 
   it('refuses a critical mark on an item whose type gives no review, an untyped one included', () => {
     const marked: AddInput[] = [{ ...INPUT, critical: true }, { ...INPUT, type: 'task', critical: true }];
     for (const input of marked) {
-      assert.equal(error(policy.add(input, EMPTY)), 'critical marks only a bug: give --type bug too', String(input.type));
+      assert.equal(error(policy.add('lead', input, EMPTY)), 'critical marks only a bug: give --type bug too', String(input.type));
     }
   });
 
@@ -112,15 +112,15 @@ describe('RegisterPolicy.add', () => {
       [{ title: `rotate ${['pass', 'word'].join('')}=abc` }, /title looks like it holds a secret/],
     ];
     for (const [change, expected] of cases) {
-      assert.match(error(policy.add({ ...INPUT, ...change }, EMPTY)), expected, JSON.stringify(change));
+      assert.match(error(policy.add('lead', { ...INPUT, ...change }, EMPTY)), expected, JSON.stringify(change));
     }
   });
 
   it('refuses a vendor token in every text field, naming its kind and never its value', () => {
     const token = ['ghp', '_', 'a1'.repeat(18)].join('');
-    const refused = error(policy.add({ ...INPUT, ref: `see ${token}` }, EMPTY));
+    const refused = error(policy.add('lead', { ...INPUT, ref: `see ${token}` }, EMPTY));
     assert.equal(refused, 'ref looks like it holds a secret (GitHub token); refer to where it is kept instead');
-    assert.match(error(policy.add({ ...INPUT, title: `rotate ${token}` }, EMPTY)), /^title looks like it holds a secret \(GitHub token\)/);
+    assert.match(error(policy.add('lead', { ...INPUT, title: `rotate ${token}` }, EMPTY)), /^title looks like it holds a secret \(GitHub token\)/);
     assert.match(error(policy.setStatus(TASK, 'alpha', { status: 'waiting', waits: OWNER_DECISION, card: TEST_OWNER_CARD, note: `key ${token}` }, CTX)), /^note looks like it holds a secret/);
     assert.match(error(policy.setStatus(TASK, 'alpha', { status: 'done', note: 'ok', evidence: token, skill: 'none', followups: [] }, CTX)), /^evidence looks like it holds a secret/);
     assert.match(error(policy.update(TASK, 'alpha', { title: 'Add two health checks' }, `see ${token}`, EMPTY)), /^note looks like it holds a secret/);
@@ -128,57 +128,57 @@ describe('RegisterPolicy.add', () => {
 
   it("takes a description that names a key word and a colon in plain prose (GeneralA6/teamrig#852)", () => {
     const description = `Move the ${['api', '_key'].join('')}: to the vault, then rotate it`;
-    assert.equal(error(policy.add({ ...INPUT, description }, EMPTY)), 'allowed');
-    assert.match(error(policy.add({ ...INPUT, description: `${['pass', 'word'].join('')}: hunter2` }, EMPTY)), /^description looks like it holds a secret/);
+    assert.equal(error(policy.add('lead', { ...INPUT, description }, EMPTY)), 'allowed');
+    assert.match(error(policy.add('lead', { ...INPUT, description: `${['pass', 'word'].join('')}: hunter2` }, EMPTY)), /^description looks like it holds a secret/);
   });
 
   it('checks goals and extra secret patterns from the config', () => {
     const strict = new RegisterPolicy(testConfig({ register: { goalPattern: '^G\\d+$', secretPatterns: ['tok_[a-z0-9]{8}'] } }));
-    assert.match(error(strict.add({ ...INPUT, goals: ['G1', 'roadmap'] }, EMPTY)), /goal roadmap does not match/);
-    assert.match(error(strict.add({ ...INPUT, ref: 'tok_abcd1234' }, EMPTY)), /secret/);
-    assert.equal(strict.add({ ...INPUT, goals: ['G1'] }, EMPTY).ok, true);
+    assert.match(error(strict.add('lead', { ...INPUT, goals: ['G1', 'roadmap'] }, EMPTY)), /goal roadmap does not match/);
+    assert.match(error(strict.add('lead', { ...INPUT, ref: 'tok_abcd1234' }, EMPTY)), /secret/);
+    assert.equal(strict.add('lead', { ...INPUT, goals: ['G1'] }, EMPTY).ok, true);
   });
 
   it('keeps a task said to serve no goal, and refuses that mark beside goals (T1730)', () => {
-    const verdict = policy.add({ ...INPUT, noGoal: true }, EMPTY);
+    const verdict = policy.add('lead', { ...INPUT, noGoal: true }, EMPTY);
     assert.deepEqual(verdict.ok ? [verdict.value.goals, verdict.value.noGoal] : undefined, [[], true]);
-    assert.equal(error(policy.add({ ...INPUT, goals: ['A1'], noGoal: true }, EMPTY)), 'goals none says the task serves no goal, so it names none (asked: A1)');
+    assert.equal(error(policy.add('lead', { ...INPUT, goals: ['A1'], noGoal: true }, EMPTY)), 'goals none says the task serves no goal, so it names none (asked: A1)');
   });
 
   it('holds goal tags to the goal records under register.goals checked or required, and any tag passes under free (T1730)', () => {
-    assert.equal(error(policy.add({ ...INPUT, goals: ['Z9'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed', 'free');
+    assert.equal(error(policy.add('lead', { ...INPUT, goals: ['Z9'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed', 'free');
     for (const goals of ['checked', 'required'] as const) {
       const held = new RegisterPolicy(testConfig({ register: { goals } }));
-      assert.equal(error(held.add({ ...INPUT, goals: ['A1', 'Z9'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), UNKNOWN_Z9, goals);
-      assert.equal(error(held.add({ ...INPUT, goals: ['A1'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed', goals);
-      assert.equal(error(held.add({ ...INPUT, goals: ['A1'] }, EMPTY)), 'goal A1 is not a goal record of the team or a team above: teamrig goal list lists them', `${goals}, no records read`);
+      assert.equal(error(held.add('lead', { ...INPUT, goals: ['A1', 'Z9'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), UNKNOWN_Z9, goals);
+      assert.equal(error(held.add('lead', { ...INPUT, goals: ['A1'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed', goals);
+      assert.equal(error(held.add('lead', { ...INPUT, goals: ['A1'] }, EMPTY)), 'goal A1 is not a goal record of the team or a team above: teamrig goal list lists them', `${goals}, no records read`);
     }
   });
 
   it('has an owner-asked or p0/p1 task name its goal or say it serves none under register.goals required (T1730)', () => {
     const required = new RegisterPolicy(testConfig({ register: { goals: 'required' } }));
     const unnamed = (asked: string) => `${asked} task names its goal: --goals <tag>, or --goals none (register.goals is required)`;
-    assert.equal(error(required.add({ ...INPUT, source: 'owner' }, EMPTY)), unnamed('an owner-asked'));
-    assert.equal(error(required.add({ ...INPUT, source: 'owner', priority: 1 }, EMPTY)), unnamed('an owner-asked'), 'the source is named first');
-    assert.equal(error(required.add({ ...INPUT, priority: 1 }, EMPTY)), unnamed('a p1'));
-    assert.equal(error(required.add({ ...INPUT, priority: 0 }, EMPTY)), unnamed('a p0'));
-    assert.equal(error(required.add({ ...INPUT, source: 'owner', priority: 1, goals: ['A1'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed');
-    assert.equal(error(required.add({ ...INPUT, source: 'owner', priority: 1, noGoal: true }, EMPTY)), 'allowed');
-    assert.equal(error(required.add(INPUT, EMPTY)), 'allowed', "a session's p2 task");
+    assert.equal(error(required.add('lead', { ...INPUT, source: 'owner' }, EMPTY)), unnamed('an owner-asked'));
+    assert.equal(error(required.add('lead', { ...INPUT, source: 'owner', priority: 1 }, EMPTY)), unnamed('an owner-asked'), 'the source is named first');
+    assert.equal(error(required.add('lead', { ...INPUT, priority: 1 }, EMPTY)), unnamed('a p1'));
+    assert.equal(error(required.add('lead', { ...INPUT, priority: 0 }, EMPTY)), unnamed('a p0'));
+    assert.equal(error(required.add('lead', { ...INPUT, source: 'owner', priority: 1, goals: ['A1'] }, EMPTY, NO_TASKS_ELSEWHERE, KNOWN_GOALS)), 'allowed');
+    assert.equal(error(required.add('lead', { ...INPUT, source: 'owner', priority: 1, noGoal: true }, EMPTY)), 'allowed');
+    assert.equal(error(required.add('lead', INPUT, EMPTY)), 'allowed', "a session's p2 task");
     const checked = new RegisterPolicy(testConfig({ register: { goals: 'checked' } }));
-    assert.equal(error(checked.add({ ...INPUT, source: 'owner', priority: 1 }, EMPTY)), 'allowed', 'checked has no task name a goal');
+    assert.equal(error(checked.add('lead', { ...INPUT, source: 'owner', priority: 1 }, EMPTY)), 'allowed', 'checked has no task name a goal');
   });
 
   it('refuses an active task with the same title, but not a closed one', () => {
     const open = foldEvents([
       { v: 1, type: 'create', id: 'T4', at: TASK.createdAt, by: 'lead', task: { ...INPUT, description: null, ref: null, due: null, goals: [], noGoal: false, week: null, after: [], size: null, type: null, critical: false, pin: null, workClass: null, prepares: null } },
     ]);
-    assert.match(error(policy.add({ ...INPUT, title: 'add a  HEALTH check' }, open)), /T4 already tracks this \(open, owner alpha\)/);
+    assert.match(error(policy.add('lead', { ...INPUT, title: 'add a  HEALTH check' }, open)), /T4 already tracks this \(open, owner alpha\)/);
     const closed = foldEvents([
       ...[...open.tasks.values()].map((task) => ({ v: 1, type: 'create' as const, id: task.id, at: task.createdAt, by: 'lead', task })),
       { v: 1, type: 'status', id: 'T4', at: TASK.createdAt, by: 'alpha', status: 'dropped', note: 'merged', evidence: null, skill: null },
     ]);
-    assert.equal(policy.add(INPUT, closed).ok, true);
+    assert.equal(policy.add('lead', INPUT, closed).ok, true);
   });
 
   it('accepts only sessions on the roster as callers', () => {
@@ -197,28 +197,28 @@ describe('RegisterPolicy: the description', () => {
   };
 
   it('refuses an add with no description, or a blank one, while register.requireDescription is on', () => {
-    assert.equal(error(policy.add(BARE, EMPTY)), DESCRIPTION_NEEDED);
-    assert.equal(error(policy.add({ ...INPUT, description: ' \n ' }, EMPTY)), DESCRIPTION_NEEDED);
+    assert.equal(error(policy.add('lead', BARE, EMPTY)), DESCRIPTION_NEEDED);
+    assert.equal(error(policy.add('lead', { ...INPUT, description: ' \n ' }, EMPTY)), DESCRIPTION_NEEDED);
     assert.equal(DESCRIPTION_NEEDED, 'add needs --description "<what and why, in plain words>"');
     assert.equal(error(policy.addFromTeam({ ...BARE, owner: 'lead', source: 'app/lead' }, EMPTY)), DESCRIPTION_NEEDED);
   });
 
   it('takes an add with none when the team turns the demand off', () => {
-    assert.equal(fieldsOf(relaxed.add(BARE, EMPTY)).description, null);
-    assert.equal(fieldsOf(relaxed.add({ ...INPUT, description: '  ' }, EMPTY)).description, null);
+    assert.equal(fieldsOf(relaxed.add('lead', BARE, EMPTY)).description, null);
+    assert.equal(fieldsOf(relaxed.add('lead', { ...INPUT, description: '  ' }, EMPTY)).description, null);
   });
 
   it('trims the ends and keeps the newlines between', () => {
-    assert.equal(fieldsOf(policy.add({ ...INPUT, description: '\n  Users lose saved carts.\n\n  Keep them a week.  \n' }, EMPTY)).description, 'Users lose saved carts.\n\n  Keep them a week.');
+    assert.equal(fieldsOf(policy.add('lead', { ...INPUT, description: '\n  Users lose saved carts.\n\n  Keep them a week.  \n' }, EMPTY)).description, 'Users lose saved carts.\n\n  Keep them a week.');
   });
 
   it(`holds up to ${MAX_DESCRIPTION} characters, past maxText, and refuses one more or a secret`, () => {
     const longest = 'd'.repeat(MAX_DESCRIPTION);
-    assert.equal(fieldsOf(policy.add({ ...INPUT, description: longest }, EMPTY)).description, longest);
-    assert.equal(error(policy.add({ ...INPUT, description: `${longest}d` }, EMPTY)), `the description has ${MAX_DESCRIPTION + 1} characters; the limit is ${MAX_DESCRIPTION}`);
-    assert.match(error(policy.add({ ...INPUT, description: `log in at ${credentialUrl()}` }, EMPTY)), /^description looks like it holds a secret \(credentials in a URL\)/);
+    assert.equal(fieldsOf(policy.add('lead', { ...INPUT, description: longest }, EMPTY)).description, longest);
+    assert.equal(error(policy.add('lead', { ...INPUT, description: `${longest}d` }, EMPTY)), `the description has ${MAX_DESCRIPTION + 1} characters; the limit is ${MAX_DESCRIPTION}`);
+    assert.match(error(policy.add('lead', { ...INPUT, description: `log in at ${credentialUrl()}` }, EMPTY)), /^description looks like it holds a secret \(credentials in a URL\)/);
     const strict = new RegisterPolicy(testConfig({ register: { secretPatterns: ['tok_[a-z0-9]{8}'] } }));
-    assert.match(error(strict.add({ ...INPUT, description: 'uses tok_abcd1234' }, EMPTY)), /^description looks like it holds a secret/);
+    assert.match(error(strict.add('lead', { ...INPUT, description: 'uses tok_abcd1234' }, EMPTY)), /^description looks like it holds a secret/);
   });
 
   it('lets the owner give a new description, trimmed, and refuses clearing it while the demand is on', () => {
@@ -1030,6 +1030,42 @@ describe('RegisterPolicy.update', () => {
     assert.equal(error(tree.update(bravos, 'alpha', { ref: 'gh:acme/app#7' }, undefined, EMPTY)), refused, 'a sub-lead does not');
     assert.equal(error(tree.update(bravos, 'charlie', { ref: 'gh:acme/app#7' }, undefined, EMPTY)), 'only the owner (bravo) or a leader above bravo (alpha or lead) changes T9');
   });
+});
+
+describe('RegisterPolicy: who links a task to an issue (T2705 F1)', () => {
+  const policy = new RegisterPolicy(testConfig());
+  const handOnly = (ref: string): string =>
+    `only the lead (lead) sets an issue ref by hand: ${ref} would let the task's owner write on that issue; issue migrate links the issue it opens for a task, issue sync the ones it imports`;
+  const alphas = testTask({ id: 'T9', owner: 'alpha' });
+  const held = stateOf(alphas, testTask({ id: 'T4', owner: 'bravo', status: 'done', ref: 'gh:acme/web#7' }));
+
+  it("refuses a session's own task an issue ref, given on add or by update, however it is spelt, so no session claims another's issue", () => {
+    for (const ref of ['gh:acme/web#7', 'GH:acme/web#7', ' gh:acme/web#7']) {
+      assert.equal(error(policy.add('alpha', { ...INPUT, ref }, EMPTY)), handOnly(ref), ref);
+      assert.equal(error(policy.update(alphas, 'alpha', { ref }, undefined, EMPTY)), handOnly(ref), ref);
+    }
+    assert.equal(error(policy.addFromTeam({ ...INPUT, source: 'web/lead', ref: 'gh:acme/web#7' }, EMPTY)), handOnly('gh:acme/web#7'), "another team's ask");
+    assert.equal(error(policy.add('alpha', { ...INPUT, ref: 'notes/plan.md' }, EMPTY)), 'allowed', 'a ref that is no issue');
+    assert.equal(error(policy.update(alphas, 'alpha', { ref: 'notes/plan.md' }, undefined, EMPTY)), 'allowed');
+    assert.equal(error(policy.update(testTask({ id: 'T9', owner: 'alpha', ref: 'gh:acme/web#7' }), 'alpha', { ref: null }, undefined, EMPTY)), 'allowed', 'nor dropping its own');
+  });
+
+  it('lets the lead set one by hand, on add or update, but never one another task holds, whatever its status or case', () => {
+    assert.equal(error(policy.add('lead', { ...INPUT, title: 'Fix issue 8', ref: 'gh:acme/web#8' }, held)), 'allowed');
+    assert.equal(error(policy.add('lead', { ...INPUT, title: 'Fix issue 7', ref: 'gh:ACME/web#7' }, held)), 'T4 already has ref gh:acme/web#7');
+    assert.equal(error(policy.update(testTask({ id: 'T9', owner: 'lead' }), 'lead', { ref: 'gh:acme/web#7' }, undefined, held)), 'T4 already has ref gh:acme/web#7');
+    assert.equal(error(policy.update(alphas, 'lead', { ref: 'gh:acme/web#8' }, undefined, held)), 'allowed', "on a session's task holding none");
+  });
+
+  it("links a task to the issue opened for it by its owner or the lead only, once, and to an issue no other task holds (issue migrate's path)", () => {
+    assert.deepEqual(policy.linkIssue(alphas, 'alpha', 'gh:acme/web#8', 'ref was: notes/plan.md', held), { ok: true, value: { changes: { ref: 'gh:acme/web#8' }, note: 'ref was: notes/plan.md' } });
+    assert.equal(error(policy.linkIssue(alphas, 'lead', 'gh:acme/web#8', undefined, held)), 'allowed');
+    assert.equal(error(policy.linkIssue(alphas, 'bravo', 'gh:acme/web#8', undefined, held)), 'only the owner (alpha) or the lead (lead) links T9 to the issue opened for it');
+    assert.equal(error(policy.linkIssue(alphas, 'alpha', 'gh:acme/web#7', undefined, held)), 'T4 already has ref gh:acme/web#7');
+    assert.equal(error(policy.linkIssue(testTask({ id: 'T9', owner: 'alpha', ref: 'gh:acme/web#3' }), 'alpha', 'gh:acme/web#8', undefined, held)), 'T9 already links gh:acme/web#3');
+    assert.equal(error(policy.linkIssue(alphas, 'alpha', 'notes/plan.md', undefined, held)), 'notes/plan.md is no issue ref (gh:<owner>/<name>#<number>)');
+    assert.equal(policy.linkProblem(alphas, 'alpha'), undefined);
+  });
 
   it('keeps a class the team renamed out of focus.classes on any other change, and refuses setting one outside them (T2076)', () => {
     const stale = testTask({ workClass: 'Chores' });
@@ -1148,18 +1184,18 @@ describe('RegisterPolicy.update', () => {
 
   it('plans a new task after others, and refuses one that does not exist yet', () => {
     const state = stateOf(testTask({ id: 'T1' }), testTask({ id: 'T2', after: ['T1'] }));
-    const verdict = policy.add({ ...INPUT, title: 'Ship it', after: ['T2', 'T1'] }, state);
+    const verdict = policy.add('lead', { ...INPUT, title: 'Ship it', after: ['T2', 'T1'] }, state);
     assert.equal(verdict.ok && verdict.value.after.join(','), 'T2,T1');
-    assert.equal(error(policy.add({ ...INPUT, title: 'Ship it', after: ['T3'] }, state)), 'no task T3', 'the id it may get is no task yet');
-    assert.equal(error(policy.add({ ...INPUT, title: 'Ship it', after: ['T4'] }, state)), 'no task T4');
+    assert.equal(error(policy.add('lead', { ...INPUT, title: 'Ship it', after: ['T3'] }, state)), 'no task T3', 'the id it may get is no task yet');
+    assert.equal(error(policy.add('lead', { ...INPUT, title: 'Ship it', after: ['T4'] }, state)), 'no task T4');
   });
 
   it("plans a task after another register's of the team tree, which this register's next number may name", () => {
     const state = stateOf(testTask({ id: 'T1' }));
     const elsewhere = elsewhereOf(testTask({ id: 'T2', owner: 'front' }), testTask({ id: 'T5', owner: 'front', status: 'done' }));
-    const added = policy.add({ ...INPUT, title: 'Ship it', after: ['T2', 'T5'] }, state, elsewhere);
+    const added = policy.add('lead', { ...INPUT, title: 'Ship it', after: ['T2', 'T5'] }, state, elsewhere);
     assert.equal(added.ok && added.value.after.join(','), 'T2,T5', 'a finished one too, as on its own register');
-    assert.equal(error(policy.add({ ...INPUT, title: 'Ship it', after: ['T6'] }, state, elsewhere)), 'no task T6');
+    assert.equal(error(policy.add('lead', { ...INPUT, title: 'Ship it', after: ['T6'] }, state, elsewhere)), 'no task T6');
     const open = testTask({ id: 'T1', status: 'open' });
     assert.deepEqual(policy.update(open, 'alpha', { after: ['T2'] }, undefined, state, elsewhere), { ok: true, value: { changes: { after: ['T2'] }, note: null } });
     assert.equal(error(policy.update(open, 'alpha', { after: ['T2'] }, undefined, state)), 'no task T2', 'not without the other registers');
@@ -1270,7 +1306,7 @@ describe('RegisterPolicy.addFromTeam', () => {
   it('refuses an owner off the roster, a bare source, and an address on a team add', () => {
     assert.equal(error(policy.addFromTeam({ ...FROM_TEAM, owner: 'zulu' }, EMPTY)), 'owner zulu is not a session on this team');
     assert.equal(error(policy.addFromTeam({ ...FROM_TEAM, source: 'lead' }, EMPTY)), "source lead is not the asking session's <team>/<id>");
-    assert.match(error(policy.add({ ...INPUT, source: 'app/lead' }, EMPTY)), /source app.lead is neither a session id nor owner/);
+    assert.match(error(policy.add('lead', { ...INPUT, source: 'app/lead' }, EMPTY)), /source app.lead is neither a session id nor owner/);
   });
 
   it("holds its goal tags to this team's goal records, and leaves naming a goal to the asking team (T1730)", () => {
@@ -1325,7 +1361,7 @@ describe('RegisterPolicy, the GitHub import', () => {
   });
 
   it('keeps the github source for the import: a session can neither add nor move a task to it', () => {
-    assert.equal(error(policy.add({ ...INPUT, source: 'github' }, EMPTY)), 'source github is kept for the tasks teamrig issue sync imports');
+    assert.equal(error(policy.add('lead', { ...INPUT, source: 'github' }, EMPTY)), 'source github is kept for the tasks teamrig issue sync imports');
     assert.equal(error(policy.update(TASK, 'alpha', { source: 'github' }, undefined, EMPTY)), 'source github is kept for the tasks teamrig issue sync imports');
     assert.equal(policy.update(IMPORTED, 'bravo', { due: '2030-02-01' }, 'planned', EMPTY).ok, true);
   });

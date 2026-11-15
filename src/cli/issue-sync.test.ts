@@ -154,11 +154,11 @@ describe('teamrig issue sync', () => {
 
   it('adds no second task for an issue a team task links to, and leaves that task alone', async () => {
     const kit = new CliHarness(GITHUB_TEAM);
-    const added = await kit.run(['add', '--title', 'Fix login', '--description', 'what and why', '--priority', 'p1', '--ref', 'gh:acme/web#7'], AS_BRAVO);
+    const added = await kit.run(['add', '--title', 'Fix login', '--description', 'what and why', '--priority', 'p1', '--ref', 'gh:acme/web#7', '--owner', 'bravo'], AS_LEAD);
     assert.equal(added.code, EXIT.ok, added.stdout.join('\n'));
     await expectRun(kit, ['issue', 'sync', '--yes'], twoIssues(), EXIT.ok);
     const { tasks } = register(kit);
-    assert.deepEqual([...tasks.values()].filter((task) => task.ref === 'gh:acme/web#7').map((task) => [task.id, task.source, task.status, task.title]), [['T1', 'bravo', 'open', 'Fix login']]);
+    assert.deepEqual([...tasks.values()].filter((task) => task.ref === 'gh:acme/web#7').map((task) => [task.id, task.source, task.status, task.title]), [['T1', 'lead', 'open', 'Fix login']]);
   });
 
   it('reads nothing when the machine or the team has it off', async () => {

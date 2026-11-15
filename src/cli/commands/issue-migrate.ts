@@ -22,8 +22,8 @@ export const SHOWN_UNROWED = 20;
  * `--yes` it writes nothing but the `--out` preview, a page with every issue in full for a reviewer. `--yes` opens
  * each planned issue through the issue host port (issues/host.ts; on GitHub with the token saved for the repository's
  * owner, else, when none is saved, the gh login; a saved token the store could not read stops the run), then points
- * the task's ref at it as `update <id> --ref` by the caller would, so the sync adds no second
- * task for it; a ref that is no issue gives way, named in the update's note. It stops at the first failure, and a rerun skips each task already holding its issue. Exit 1 when
+ * the task's ref at it (the register's linkIssue: the task's owner or the lead, on a task holding no issue yet; a
+ * hand `update --ref` to an issue is the lead's alone, T2705), so the sync adds no second task for it; a ref that is no issue gives way, named in the update's note. It stops at the first failure, and a rerun skips each task already holding its issue. Exit 1 when
  * gh failed, 2 when the register refused a ref, else 0.
  */
 export async function issueMigrate(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
@@ -44,11 +44,8 @@ export async function issueMigrate(args: ParsedArgs, runtime: CliRuntime): Promi
   }
   const scanner = new SecretScanner(team.config.register.secretPatterns);
   const rows = await rowsAt(runtime, path, scanner);
-  const { snapshot, elsewhere } = await team.register.snapshotWithElsewhere();
-  const judge: RefJudge = (task, ref) => {
-    const verdict = policy.update(task, by, { ref }, refNote(task.ref), snapshot.state, elsewhere);
-    return verdict.ok ? undefined : verdict.error;
-  };
+  const snapshot = await team.register.snapshot();
+  const judge: RefJudge = (task) => policy.linkProblem(task, by);
   const plan = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge);
   const out = args.flags.get('out');
   if (out !== undefined) {
@@ -120,9 +117,9 @@ async function openIssues(runtime: CliRuntime, team: Team, by: string, creates: 
       return EXIT.failed;
     }
     const ref = issueRef(end.target.repo, end.target.number);
-    const verdict = await team.register.update(by, create.id, { ref }, refNote(create.replaces));
+    const verdict = await team.register.linkIssue(by, create.id, ref, refNote(create.replaces));
     if (!verdict.ok) {
-      say(`REFUSED ${create.id}: ${verdict.error}; its issue ${ref} was opened: set it with ${KIT_NAME} update ${create.id} --ref ${ref}`);
+      say(`REFUSED ${create.id}: ${verdict.error}; its issue ${ref} was opened: the lead links it with ${KIT_NAME} update ${create.id} --ref ${ref}`);
       say(stopped(create.id));
       return EXIT.refused;
     }
