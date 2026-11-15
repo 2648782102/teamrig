@@ -161,6 +161,21 @@ describe('clearMerge: the caller is the session its Claude Code tab is bound to 
       assert.match(reasonOf(await clearMergeFrom({ ...env, TEAMRIG_SESSION: 'lead' }, kit.runtime())('t2-fix', HEAD, null)), /this tab is alpha's: a session merges only as itself, not as lead/);
     });
 
+    it("keeps alpha's binding over alpha's own repeated reads", async () => {
+      const kit = await boundKit();
+      assert.equal((await kit.run(['inbox', 'read', '--session', 'alpha'], { env: { CLAUDE_CODE_SESSION_ID: TAB } })).code, EXIT.ok);
+      assert.deepEqual(await clearMergeFrom(env, kit.runtime())('t1-cli', HEAD, HEAD), { kind: 'approved', by: 'lead' });
+    });
+
+    it("refuses a tab that then read the lead's inbox, as alpha and as the lead (security T2987 F1)", async () => {
+      const kit = await boundKit();
+      assert.equal((await kit.run(['inbox', 'read', '--session', 'lead'], { env: { CLAUDE_CODE_SESSION_ID: TAB } })).code, EXIT.ok);
+      const twoSessions = /this tab read more than one session's inbox \(alpha, lead\): merge from a fresh tab/;
+      assert.match(reasonOf(await clearMergeFrom(env, kit.runtime())('t2-fix', HEAD, null)), twoSessions);
+      assert.match(reasonOf(await clearMergeFrom({ ...env, TEAMRIG_SESSION: 'lead' }, kit.runtime())('t2-fix', HEAD, null)), twoSessions);
+      assert.match(reasonOf(await clearMergeFrom({ ...env, TEAMRIG_SESSION: 'alpha' }, kit.runtime())('t1-cli', HEAD, HEAD)), twoSessions);
+    });
+
     it('refuses a stranger, an unbound tab, and an env with no tab', async () => {
       const kit = await boundKit();
       assert.match(reasonOf(await clearMergeFrom({ ...env, TEAMRIG_SESSION: 'stranger' }, kit.runtime())('t1-cli', HEAD, HEAD)), /stranger is not a session on this team/);

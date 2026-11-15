@@ -4,7 +4,6 @@ import { RefusedError } from '../../src/cli/runtime.ts';
 import { mergeStandingOf, type MergeStanding } from '../../src/cli/ship-approval.ts';
 import { ENV, type Env } from '../../src/core/home.ts';
 import { PlainLogFile } from '../../src/core/log-file.ts';
-import { indexMarks } from '../../src/inbox/marks.ts';
 import { JsonlMarkLog } from '../../src/inbox/store.ts';
 import { approvedTaskOf } from '../../src/register/approval.ts';
 
@@ -80,7 +79,7 @@ export interface MergeCaller {
 /** Reads a merge's standing from the register (`mergeStandingOf`); rejects with `RefusedError` when it cannot. */
 export type StandingOf = (team: string, caller: string, taskId: string) => Promise<MergeStanding>;
 
-/** The session Claude Code tab `tab` is bound to on team `team` (its newest inbox mark), or undefined when none is. */
+/** The session Claude Code tab `tab` is bound to on team `team` (the one its inbox marks name), or undefined when none is. */
 export type TabSessionOf = (team: string, tab: string) => Promise<string | undefined>;
 
 /** What `clearMerge` reads: the tab's binding and the register's standing of the caller. */
@@ -126,11 +125,19 @@ export async function clearMerge(caller: MergeCaller, lookups: MergeLookups, bra
   return mergeClearance(standing, taskId, head, approved);
 }
 
-/** The session tab `tab` is bound to on team `team`: the area of its newest mark in the team's inbox marks. */
+/**
+ * The session tab `tab` is bound to on team `team`: the one session every inbox mark of the tab names. A typed
+ * `teamrig inbox read --session <any>` appends a mark naming what it was told, so the newest mark alone would let a tab
+ * become any session (security T2987 F1); a tab whose marks name two sessions is refused (`RefusedError`) instead.
+ */
 export async function tabSessionFrom(reader: KitReader, team: string, tab: string): Promise<string | undefined> {
   const kit = await openKit(reader, team);
   const { marks } = await new JsonlMarkLog(new PlainLogFile(reader.files, kit.paths.inboxMarks)).read();
-  return indexMarks(marks).areaBySession.get(tab);
+  const areas = [...new Set(marks.filter((mark) => mark.claudeSession === tab).map((mark) => mark.area))];
+  if (areas.length > 1) {
+    throw new RefusedError(`this tab read more than one session's inbox (${areas.sort().join(', ')}): merge from a fresh tab`);
+  }
+  return areas[0];
 }
 
 /** The clearance of a merge of `branch` at `head`, on the approved sha the caller names (`--approved`) or null. */
@@ -138,8 +145,9 @@ export type ClearMerge = (branch: string, head: string, approved: string | null)
 
 /**
  * `clearMerge` for the team, tab and claim `env` names (`$TEAMRIG_TEAM`, `$CLAUDE_CODE_SESSION_ID`,
- * `$TEAMRIG_SESSION`), reading the tab's binding and the register through `reader`. Faking the caller now takes
- * another tab's Claude Code session id, not just a session name; the guard stays the trust boundary.
+ * `$TEAMRIG_SESSION`), reading the tab's binding and the register through `reader`. A session name, typed in the env
+ * or in an inbox read's `--session`, clears no one but the tab's own session: a tab that read two sessions' inboxes is
+ * refused. Faking the caller takes another tab's Claude Code session id; the guard stays the trust boundary.
  */
 export function clearMergeFrom(env: Env, reader: KitReader): ClearMerge {
   const caller = { team: env[ENV.team]?.trim(), tab: env[ENV.claudeSession]?.trim(), claimed: env[ENV.session]?.trim() };
