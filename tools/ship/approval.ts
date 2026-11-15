@@ -66,14 +66,30 @@ export function mergeClearance(standing: MergeStanding, taskId: string, head: st
 /** A security reviewer's pass as an approval note names it: `PASS <team>/T<id>`, the reviewer's task of the verdict. */
 const SECURITY_PASS = /\bPASS [\w.-]+\/T\d+\b/;
 
+/** A full commit sha as an approval note names it. */
+const FULL_SHA_RUN = /\b[0-9a-f]{40}\b/g;
+
 /**
- * `mergeClearance` for a contributor's pull request (merge-pr.ts), which also refuses an approved head that changes a
- * guarded path (`guarded`, the paths it changes there) unless the approval's note names a security pass: the T3021
- * design's merge as is keeps the guard-folder rule. A caller nobody approves (a root team's lead) clears itself.
+ * `mergeClearance` for a contributor's pull request (merge-pr.ts), held to the full head sha: its author controls the
+ * head and can grind another commit sharing a short prefix of the approved one (security verdict T3052 F1), so both
+ * `approved` and the approval's note must be the full `head`. It also refuses an approved head that changes a guarded
+ * path (`guarded`, the paths it changes there) unless the note names a security pass: the T3021 design's merge as is
+ * keeps the guard-folder rule. A caller nobody approves (a root team's lead) clears itself.
  */
 export function pullClearance(standing: MergeStanding, taskId: string, head: string, approved: string | null, guarded: readonly string[]): MergeClearance {
   const cleared = mergeClearance(standing, taskId, head, approved);
-  if (cleared.kind !== 'approved' || guarded.length === 0 || SECURITY_PASS.test(standing.task?.answer?.note ?? '')) {
+  if (cleared.kind !== 'approved') {
+    return cleared;
+  }
+  if (approved !== head) {
+    return refused(`--approved ${approved ?? ''} is not the full head ${head}: a contributor's head is approved by its full sha`);
+  }
+  const note = standing.task?.answer?.note ?? '';
+  const named: readonly string[] = note.match(FULL_SHA_RUN) ?? [];
+  if (!named.includes(head)) {
+    return refused(`${cleared.by}'s approval of ${taskId} does not name the full head ${head}: ask ${cleared.by} to approve naming all 40 hex of it`);
+  }
+  if (guarded.length === 0 || SECURITY_PASS.test(note)) {
     return cleared;
   }
   return refused(`the head ${head} changes ${guarded.join(', ')}, which needs a security pass: ${cleared.by}'s approval of ${taskId} names none (PASS <team>/T<id>)`);

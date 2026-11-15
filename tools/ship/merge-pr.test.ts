@@ -16,7 +16,7 @@ const BASE = 'base000aaa';
 const MERGED = 'main999bbb';
 const RELEASED = 'main1000cc';
 /** The contributor's head, and the release head the merge cuts. */
-const SHA = 'abc1234def';
+const SHA = `abc1234def${'0'.repeat(30)}`;
 const RELEASE_SHA = 'rel5678abc';
 const PULL = 7;
 const RELEASE_PULL = 8;
@@ -26,7 +26,7 @@ const VERSION_TS = 'src/core/version.ts';
 const pluginJson = (version: string): string => `{"name":"teamrig","version":"${version}"}`;
 const versionTs = (version: string): string => `export const KIT_VERSION = '${version}';\n`;
 
-const ARGS: MergePrArgs = { dir: 'C:/repo', pull: PULL, approved: 'abc1234', task: 'T3029', raise: 'patch', timeoutMin: 10, intervalS: 60 };
+const ARGS: MergePrArgs = { dir: 'C:/repo', pull: PULL, approved: SHA, task: 'T3029', raise: 'patch', timeoutMin: 10, intervalS: 60 };
 
 interface Fixture {
   /** What the contributor's pull request changes over main. */
@@ -43,6 +43,12 @@ interface Fixture {
   /** Extra paths the release shows changed, as a build that writes outside the dist would. */
   strayRelease?: readonly string[];
   status?: string;
+  /** What the credential lookup finds; a token by default. */
+  credential?: ReturnType<MergePrDeps['credential']>;
+  /** A repo that regenerates nothing, so no release follows the merge. */
+  noRegeneration?: boolean;
+  /** The conclusion of the gates job on the contributor's head. */
+  conclusion?: string;
 }
 
 /** A clock that only moves when the code under test sleeps. */
@@ -143,18 +149,18 @@ function fixture(options: Fixture = {}) {
       const branch = run[1] === SHA ? 'fix-typo' : BRANCH;
       return JSON.stringify({ workflow_runs: [{ id: 1, workflow_id: 1, event: 'pull_request', run_number: 1, run_attempt: 1, head_branch: branch }] });
     }
-    if (path.includes('/actions/runs/1/jobs')) return JSON.stringify({ jobs: [{ name: 'gates', status: 'completed', conclusion: 'success', steps: [{ name: 'Set up job' }] }] });
+    if (path.includes('/actions/runs/1/jobs')) return JSON.stringify({ jobs: [{ name: 'gates', status: 'completed', conclusion: merges === 0 ? (options.conclusion ?? 'success') : 'success', steps: [{ name: 'Set up job' }] }] });
     if (path.endsWith('/status')) return '{"statuses":[]}';
     throw new Error(`unexpected gh ${args.join(' ')}`);
   });
   const out: string[] = [];
   const err: string[] = [];
-  const credential = mock.fn<MergePrDeps['credential']>(() => ({ kind: 'found', secret: SECRET }));
+  const credential = mock.fn<MergePrDeps['credential']>(() => options.credential ?? { kind: 'found', secret: SECRET });
   const clearPull = mock.fn<ClearPull>(() => Promise.resolve(options.clearance ?? { kind: 'approved', by: 'lead' }));
   const sweep = mock.fn<MergePrDeps['sweep']>(() => undefined);
   const deps: MergePrDeps = {
     git,
-    profiles: parseProfiles(`{"${REPO}":{"main":"main","gate":"ci","checks":["gates"],"regenerated":["plugins/teamrig/dist/","${PLUGIN_JSON}","${VERSION_TS}"]}}`),
+    profiles: parseProfiles(`{"${REPO}":{"main":"main","gate":"ci","checks":["gates"],"regenerated":${options.noRegeneration === true ? '[]' : `["plugins/teamrig/dist/","${PLUGIN_JSON}","${VERSION_TS}"]`}}}`),
     credential,
     ghFor: () => gh,
     waiter: waiter(),
@@ -179,17 +185,18 @@ function fixture(options: Fixture = {}) {
 
 describe('parseMergePrArgs', () => {
   it('reads the repo dir, the number, the approval and the task, a patch raise by default', () => {
-    assert.deepEqual(parseMergePrArgs(['C:/repo', '7', '--approved', 'abc1234', '--task', 'T3029']), { ...ARGS, timeoutMin: 45, intervalS: 30 });
-    assert.equal(parseMergePrArgs(['C:/repo', '7', '--task', 'T1', '--approved', 'abc1234', '--raise', 'minor']).raise, 'minor');
+    assert.deepEqual(parseMergePrArgs(['C:/repo', '7', '--approved', SHA, '--task', 'T3029']), { ...ARGS, timeoutMin: 45, intervalS: 30 });
+    assert.equal(parseMergePrArgs(['C:/repo', '7', '--task', 'T1', '--approved', SHA, '--raise', 'minor']).raise, 'minor');
   });
 
   it('refuses a missing approval or task, a bad number, raise or flag', () => {
     assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--task', 'T1']), /--approved and --task are required/);
-    assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', 'abc1234']), /--approved and --task are required/);
-    assert.throws(() => parseMergePrArgs(['C:/repo', '07', '--approved', 'abc1234', '--task', 'T1']), /usage: ship\.ts merge-pr/);
-    assert.throws(() => parseMergePrArgs(['--approved', 'abc1234']), /usage: ship\.ts merge-pr/);
-    assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', 'abc1234', '--task', 'T1', '--raise', 'huge']), /got --raise huge/);
+    assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', SHA]), /--approved and --task are required/);
+    assert.throws(() => parseMergePrArgs(['C:/repo', '07', '--approved', SHA, '--task', 'T1']), /usage: ship\.ts merge-pr/);
+    assert.throws(() => parseMergePrArgs(['--approved', SHA]), /usage: ship\.ts merge-pr/);
+    assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', SHA, '--task', 'T1', '--raise', 'huge']), /got --raise huge/);
     assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', 'HEAD', '--task', 'T1']), /got --approved HEAD/);
+    assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--approved', SHA.slice(0, 12), '--task', 'T1']), /got --approved abc1234def00/, 'a contributor head is approved by its full sha (T3052 F1)');
     assert.throws(() => parseMergePrArgs(['C:/repo', '7', '--task']), /--task needs a value/);
   });
 });
@@ -197,13 +204,17 @@ describe('parseMergePrArgs', () => {
 describe('guardedOf', () => {
   it('keeps the paths under a guarded folder: the guards, CI and the ship tools', () => {
     assert.deepEqual(guardedOf(['docs/a.md', 'src/push-guard/guard.ts', '.github/workflows/ci.yml', 'tools/ship/merge.ts', 'src/cli/a.ts']), ['src/push-guard/guard.ts', '.github/workflows/ci.yml', 'tools/ship/merge.ts']);
-    assert.ok(GUARDED_PATHS.every((path) => path.endsWith('/')));
+  });
+
+  it('keeps what drives the gates and the build too: their libraries, scripts, dependencies and the approval logic (T3052 F2)', () => {
+    const drivers = ['tools/lib/git.ts', 'tools/dco/dco.ts', 'tools/build/build.ts', 'package.json', 'package-lock.json', '.npmrc', 'tsconfig.json', 'tsconfig.build.json', 'src/cli/ship-approval.ts', 'src/register/approval.ts'];
+    assert.deepEqual(guardedOf([...drivers, 'src/register/register.ts', 'docs/package.json.md']), drivers);
   });
 
   it("is the list CONTRIBUTING.md's review rule names, so the doc and the merge gate stay one", () => {
-    const review = /- \*\*Review\*\*:[\s\S]*?also gets a security review/.exec(readFileSync(new URL('../../CONTRIBUTING.md', import.meta.url), 'utf8'));
-    assert.ok(review !== null, 'CONTRIBUTING.md has its Review rule');
-    const named = [...review[0].matchAll(/`([^`]+\/)`/g)].map((match) => match[1]);
+    const review = /- \*\*Review\*\*:[\s\S]*?\(the guarded paths: ([^)]*)\)/.exec(readFileSync(new URL('../../CONTRIBUTING.md', import.meta.url), 'utf8'));
+    assert.ok(review !== null, 'CONTRIBUTING.md has its Review rule with the guarded paths');
+    const named = [...(review[1] ?? '').matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     assert.deepEqual([...named].sort(), [...GUARDED_PATHS].sort());
   });
 });
@@ -236,7 +247,7 @@ describe('runMergePr (T3029)', () => {
     const { deps, calls, ghCalls, out, err, files, clearPull, sweep } = fixture({ distBuilt: ['plugins/teamrig/dist/cli/main.js'] });
     assert.equal(await runMergePr(ARGS, deps), 0, err.join('\n'));
     assert.deepEqual(err, []);
-    assert.deepEqual(clearPull.mock.calls.map((call) => call.arguments), [['T3029', SHA, 'abc1234', []]]);
+    assert.deepEqual(clearPull.mock.calls.map((call) => call.arguments), [['T3029', SHA, SHA, []]]);
     assert.ok(ghCalls.includes(`repos/${REPO}/pulls/${PULL}/merge`));
     assert.ok(out.includes(`MERGED #${PULL} into main, now at ${MERGED.slice(0, 7)}`), out.join('\n'));
     assert.ok(calls.includes(`switch --quiet --create ${BRANCH} ${MERGED}`), 'the release is cut from the merged main');
@@ -257,8 +268,9 @@ describe('runMergePr (T3029)', () => {
 
   it('refuses a head that moved past the approval before any GitHub call: a new commit needs a new approval', async () => {
     const { deps, credential, clearPull, err } = fixture();
-    assert.equal(await runMergePr({ ...ARGS, approved: 'fedcba9' }, deps), 1);
-    assert.match(err[0] ?? '', /head is abc1234de, not the approved fedcba9: a commit pushed after the approval/);
+    const twin = `${SHA.slice(0, 12)}${'f'.repeat(28)}`;
+    assert.equal(await runMergePr({ ...ARGS, approved: twin }, deps), 1);
+    assert.equal(err[0], `REFUSED #7's head is ${SHA}, not the approved ${twin}: a commit pushed after the approval needs the lead's approval of the new head`);
     assert.equal(clearPull.mock.callCount(), 0);
     assert.equal(credential.mock.callCount(), 0);
   });
@@ -309,6 +321,31 @@ describe('runMergePr (T3029)', () => {
     assert.match(err[0] ?? '', /has uncommitted changes, and the release is cut there/);
     assert.ok(!calls.some((call) => call.startsWith('fetch ')));
   });
+
+  it('stops with no GitHub token, saying why', async () => {
+    const { deps, err, ghCalls } = fixture({ credential: { kind: 'missing' } });
+    assert.equal(await runMergePr(ARGS, deps), 1);
+    assert.equal(err.length, 1);
+    assert.deepEqual(ghCalls, []);
+  });
+
+  it('refuses a head whose checks failed, and cuts no release', async () => {
+    const { deps, calls, err, ghCalls } = fixture({ conclusion: 'failure' });
+    assert.equal(await runMergePr({ ...ARGS, timeoutMin: 1 }, deps), 1);
+    assert.match(err[0] ?? '', /^REFUSED /);
+    assert.ok(!ghCalls.some((path) => path.endsWith('/merge')));
+    assert.ok(!calls.some((call) => call.startsWith('switch ')));
+  });
+
+  it("merges on the caller's own clearance in a repo that regenerates nothing: no clean tree needed, no release", async () => {
+    const { deps, calls, out, err } = fixture({ noRegeneration: true, status: ' M src/a.ts', clearance: { kind: 'self' }, pull: { headRepo: null } });
+    assert.equal(await runMergePr(ARGS, deps), 0, err.join('\n'));
+    assert.ok(out.includes(`merge of #${PULL} abc1234de: the caller's own, a root team's lead`), out.join('\n'));
+    assert.ok(out.includes(`#${PULL} https://github.com/${REPO}/pull/${PULL} from a deleted fork`), out.join('\n'));
+    assert.ok(!out.some((line) => line.includes('fix a typo')), "the contributor's title never reaches the output (T3052 N1)");
+    assert.equal(out.at(-1), `MERGED #${PULL} into main, now at ${MERGED.slice(0, 7)}`);
+    assert.ok(!calls.some((call) => call.startsWith('switch ') || call === 'status --porcelain'));
+  });
 });
 
 describe('mergePrCommand', () => {
@@ -331,7 +368,7 @@ describe('mergePrCommand', () => {
         throw new Error('git failed');
       },
     };
-    assert.equal(await mergePrCommand(['C:/repo', '7', '--approved', 'abc1234', '--task', 'T3029'], () => failing), 1);
+    assert.equal(await mergePrCommand(['C:/repo', '7', '--approved', SHA, '--task', 'T3029'], () => failing), 1);
     assert.deepEqual(err, ['git failed']);
   });
 });
