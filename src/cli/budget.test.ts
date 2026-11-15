@@ -134,7 +134,7 @@ describe('teamrig budget', () => {
       '  the team    2.5%   12.4%  25.00M      3',
       '  app-alpha   2.0%    4.1%  20.00M      2',
       '  app-bravo  0.50%    4.1%   5.00M      1',
-      'Spend by class today and this week, in % of the week, against focus.allocation:',
+      'Spend by class today and this week, in % of the week, against priorities.allocation:',
       '  class         today  week  allocation  W today  W week',
       '  Roadmap        0.0%  0.0%       60.0%        0       0',
       '  Maintenance    0.0%  0.0%       25.0%        0       0',

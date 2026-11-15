@@ -6,7 +6,7 @@ import { EXIT } from './runtime.ts';
 const ADD = ['add', '--title', 'Add a health check', '--description', 'what and why', '--priority', 'p2'];
 
 describe('runCli: a task work class, --class on add and update (T2076)', () => {
-  it('adds a task with a class of focus.classes, which show prints, and refuses any other', async () => {
+  it('adds a task with a class of priorities.classes, which show prints, and refuses any other', async () => {
     const kit = new CliHarness();
     const added = await kit.run([...ADD, '--class', 'Roadmap', '--session', 'alpha']);
     assert.equal(added.code, EXIT.ok, added.stderr.join('\n'));
@@ -16,7 +16,7 @@ describe('runCli: a task work class, --class on add and update (T2076)', () => {
 
     const refused = await kit.run(['add', '--title', 'Write the guide', '--description', 'what and why', '--priority', 'p2', '--class', 'Chores', '--session', 'alpha']);
     assert.equal(refused.code, EXIT.refused);
-    assert.match(refused.stdout.join('\n'), /^REFUSED .*class Chores is not one of focus\.classes \(Roadmap, Maintenance, Improvements\)/m);
+    assert.match(refused.stdout.join('\n'), /^REFUSED .*class Chores is not one of priorities.classes \(Roadmap, Maintenance, Improvements\)/m);
   });
 
   it("lets the owner or the lead change a task's class, none clearing it, and refuses a peer", async () => {

@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import type { Files } from '../core/files.ts';
 import type { TeamPaths } from '../core/home.ts';
 import type { TimeZone } from '../core/zone.ts';
@@ -33,7 +33,7 @@ export interface DecisionRegister {
 /** The keys of the team's config its batch reads: its batch times and the weekday of its Improvements batch. */
 export interface TeamDecisionsConfig {
   readonly decisions: BatchConfig;
-  readonly focus: Pick<FocusConfig, 'improvementsDay'>;
+  readonly priorities: Pick<PrioritiesConfig, 'improvementsDay'>;
 }
 
 /** The team's own register first, then those of the teams under it. */
@@ -57,7 +57,7 @@ export async function teamDecisions(
     now,
     askedAt: askedAtOf(asked, meeting),
     config: config.decisions,
-    improvementsDay: config.focus.improvementsDay,
+    improvementsDay: config.priorities.improvementsDay,
   });
 }
 

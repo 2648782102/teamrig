@@ -1,18 +1,18 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { testTask } from '../testing/task.ts';
 import { classOf, goalChain, prepRead, prepStanding, rankOf, servedGoalOf, type RankedGoal, type SlicedGoal } from './focus.ts';
 
 describe('classOf (T2076)', () => {
   it("reads a task's own class, and one with none as the team's default class", () => {
-    assert.equal(classOf(testTask({ workClass: 'Roadmap' }), DEFAULT_FOCUS), 'Roadmap');
-    assert.equal(classOf(testTask({ workClass: null }), DEFAULT_FOCUS), 'Improvements');
+    assert.equal(classOf(testTask({ workClass: 'Roadmap' }), DEFAULT_PRIORITIES), 'Roadmap');
+    assert.equal(classOf(testTask({ workClass: null }), DEFAULT_PRIORITIES), 'Improvements');
     assert.equal(classOf(testTask(), { defaultClass: 'Chores' }), 'Chores');
   });
 
-  it('keeps a class the team has since renamed out of focus.classes, as written', () => {
-    assert.equal(classOf(testTask({ workClass: 'Tech debt' }), DEFAULT_FOCUS), 'Tech debt');
+  it('keeps a class the team has since renamed out of priorities.classes, as written', () => {
+    assert.equal(classOf(testTask({ workClass: 'Tech debt' }), DEFAULT_PRIORITIES), 'Tech debt');
   });
 });
 

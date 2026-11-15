@@ -440,7 +440,7 @@ async function tellAskerOfEnd(runtime: CliRuntime, team: Team, by: string, verdi
 /** A start with the classes past their share of the week, which only the CLI can read: the policy holds no usage store. */
 async function withSpentClasses(runtime: CliRuntime, team: Team, input: StatusInput): Promise<StatusInput> {
   const { config, paths, register } = team;
-  if (input.status !== 'in-progress' || config.focus.wip.mode === 'off') {
+  if (input.status !== 'in-progress' || config.priorities.startHold.mode === 'off') {
     return input;
   }
   const { tasks } = (await register.snapshot()).state;
@@ -489,7 +489,7 @@ export async function set(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCo
   }
   // `report` threw on any refusal, so a hold that gets here is a start warn mode let through.
   if (wip !== undefined) {
-    runtime.out.stderr(`WARN ${wip}; started anyway, as focus.wip.mode is warn`);
+    runtime.out.stderr(`WARN ${wip}; started anyway, as priorities.startHold.mode is warn`);
   }
   if (verdict.ok) {
     warnReviewGap(runtime, team, verdict.value.task, input.status);
@@ -567,7 +567,7 @@ async function startGatesOf(register: Register, goalRecords: Pick<GoalTagsReader
   const due = dueStartHolds(task, input.status, tasks, now, zone, config.register.maxVerifying);
   // The goal records count only for a task with a prep marker, so no other start reads them.
   const goals = task.prepares === null ? undefined : await goalRecords.sliced();
-  const wip = wipHold({ ...input, task, ...(goals === undefined ? {} : { goals }) }, tasks.values(), waitContext(tasks, now, zone, elsewhere), config.focus, config.register.ownerSource);
+  const wip = wipHold({ ...input, task, ...(goals === undefined ? {} : { goals }) }, tasks.values(), waitContext(tasks, now, zone, elsewhere), config.priorities, config.register.ownerSource);
   return { held: holds.length === 0 ? undefined : { task, holds }, due: due.length === 0 ? undefined : { task, due }, wip };
 }
 
@@ -924,7 +924,7 @@ export async function waitingReport(args: ParsedArgs, runtime: CliRuntime): Prom
   const owner = sessionIdOf(own.roster, callerOf(args.flags, runtime.env));
   const tree = taskTreeOf(own, runtime);
   // No parent lead here: a hold counts only when it names the caller, and a wait on the team above never does.
-  const waiting = heldFirst(tree.waitingOn(owner), owner, new LeadTree(own.config), own.config.focus, runtime.clock.now());
+  const waiting = heldFirst(tree.waitingOn(owner), owner, new LeadTree(own.config), own.config.priorities, runtime.clock.now());
   return waitingOnLines(owner, waiting, tree, args.switches.has('all'));
 }
 
@@ -982,7 +982,7 @@ function checkRegister(
     ...peerWaitFlags(tasks, leads, config.roles, config.register.ownerSource),
     ...runFileFlags(tasks, runFiles),
     // In plan order, so the leader reads the most urgent wait first.
-    ...leaderWaitFlags(tree.inPlanOrder(tasks), leads, config.focus, now.getTime()),
+    ...leaderWaitFlags(tree.inPlanOrder(tasks), leads, config.priorities, now.getTime()),
     ...untriagedFlags(tasks, leads),
     ...(progress === undefined ? [] : [progress]),
   ];

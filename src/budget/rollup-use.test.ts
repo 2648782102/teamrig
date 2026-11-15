@@ -58,7 +58,7 @@ describe('planUse', () => {
     assert.deepEqual(use.unplanned, { w: 100, seconds: 10 });
   });
 
-  it('lists a class outside focus.classes after them, with no target', () => {
+  it('lists a class outside priorities.classes after them, with no target', () => {
     const use = fold([day('app', '2030-01-07', [row('alpha', 'T4', 100, 10)])]);
     assert.deepEqual(
       use.classes.map((entry) => [entry.workClass, entry.targetPct]),

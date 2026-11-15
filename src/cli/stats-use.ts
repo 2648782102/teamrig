@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { formatW } from '../budget/format.ts';
 import { parseRollup, rollupDayOf, type TeamDayRollup } from '../budget/rollup-file.ts';
 import { planUse, type ClassUse, type PlanUse, type TaskPlace, type UseTotal } from '../budget/rollup-use.ts';
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import { inWeek } from '../register/done-groups.ts';
 import { classOf } from '../register/focus.ts';
@@ -22,7 +22,7 @@ export interface TeamHistory {
 export interface UseLinesInput {
   readonly teams: readonly TeamHistory[];
   /** The focus the shares are read against: the caller's team's, in a tree too. */
-  readonly focus: FocusConfig;
+  readonly focus: PrioritiesConfig;
   /** The days of the range, as `stats` lists them. */
   readonly days: readonly string[];
   readonly scope?: StatsScope;
@@ -36,7 +36,7 @@ const SECONDS_PER_MINUTE = 60;
  * days before it as they were. A task the team's events never name was another register's, read by its tag of today.
  */
 function placerOf({ rolled, history }: TeamHistory, runtime: CliRuntime): (day: string, id: string) => TaskPlace {
-  const { focus, register } = rolled.config;
+  const { priorities, register } = rolled.config;
   const zone = teamZone(rolled.config, runtime);
   const tags = weekTagsOf(history.read.events);
   return (day, id) => {
@@ -44,7 +44,7 @@ function placerOf({ rolled, history }: TeamHistory, runtime: CliRuntime): (day: 
     const noon = Date.parse(`${day}T12:00:00.000Z`);
     const held = tags.get(id);
     const week = held === undefined ? (task?.week ?? null) : weekTagAt(held, noon + MS_PER_DAY / 2);
-    return { workClass: classOf({ workClass: task?.workClass ?? null }, focus), planned: week !== null && inWeek(week, noon, zone, register.check.weekLengthDays) };
+    return { workClass: classOf({ workClass: task?.workClass ?? null }, priorities), planned: week !== null && inWeek(week, noon, zone, register.check.weekLengthDays) };
   };
 }
 
@@ -92,7 +92,7 @@ function classLine(use: ClassUse): string {
 }
 
 /**
- * The lines of T2076's 3A: how much of the range's task W the plan held, and each class against `focus.allocation`,
+ * The lines of T2076's 3A: how much of the range's task W the plan held, and each class against `priorities.allocation`,
  * from the daily rollups, so only closed UTC days count: today has no file yet. W is raw, as the rollup holds it.
  */
 export async function useLines(runtime: CliRuntime, { teams, focus, days, scope }: UseLinesInput): Promise<string[]> {

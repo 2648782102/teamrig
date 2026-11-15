@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { formatUtcDay } from '../core/time.ts';
 import type { Task } from '../register/fold.ts';
 import { classOf } from '../register/focus.ts';
@@ -8,7 +8,7 @@ import { wSince } from './week.ts';
 
 /**
  * Where the team's W went by work class (T2088), for `teamrig budget`: the W each session's turns put on a task, per
- * class, beside the share of the week `focus.allocation` plans for it. Pure: the caller reads the usage and the tasks.
+ * class, beside the share of the week `priorities.allocation` plans for it. Pure: the caller reads the usage and the tasks.
  */
 
 /** The row of the W no class took: turns that named no task, helpers, and task ids the register does not hold. */
@@ -26,7 +26,7 @@ export interface ClassRow {
   readonly todayW: number;
   /** Undefined while the week's start is unknown. */
   readonly weekW: number | undefined;
-  /** The class's share in `focus.allocation`; undefined for a class it does not list, and for `NO_TASK_ROW`. */
+  /** The class's share in `priorities.allocation`; undefined for a class it does not list, and for `NO_TASK_ROW`. */
   readonly allocationPct: number | undefined;
 }
 
@@ -34,7 +34,7 @@ export interface ClassRowsInput {
   /** The team's sessions' usage. */
   readonly states: readonly UsageState[];
   readonly tasks: Iterable<Pick<Task, 'id' | 'workClass'>>;
-  readonly focus: Pick<FocusConfig, 'classes' | 'defaultClass' | 'allocation'>;
+  readonly focus: Pick<PrioritiesConfig, 'classes' | 'defaultClass' | 'allocation'>;
   /** Where today's use counts from (`WeekReading.todayFrom`). */
   readonly todayFrom: number;
   /** Where the week's use counts from; undefined while no reset is known. */
@@ -46,7 +46,7 @@ export interface SpentClassesInput {
   /** The team's sessions' usage. */
   readonly states: readonly UsageState[];
   readonly tasks: Iterable<Pick<Task, 'id' | 'workClass'>>;
-  readonly focus: Pick<FocusConfig, 'defaultClass' | 'allocation'>;
+  readonly focus: Pick<PrioritiesConfig, 'defaultClass' | 'allocation'>;
   /** Where the week's use counts from. */
   readonly weekFrom: number;
   /** The W one percent of the week comes to, the rate `teamrig budget` prices the rows with. */
@@ -55,7 +55,7 @@ export interface SpentClassesInput {
 }
 
 /** Each task's class, by its id. */
-function classesByTask(tasks: Iterable<Pick<Task, 'id' | 'workClass'>>, focus: Pick<FocusConfig, 'defaultClass'>): ReadonlyMap<string, string> {
+function classesByTask(tasks: Iterable<Pick<Task, 'id' | 'workClass'>>, focus: Pick<PrioritiesConfig, 'defaultClass'>): ReadonlyMap<string, string> {
   const classes = new Map<string, string>();
   for (const task of tasks) {
     classes.set(task.id, classOf(task, focus));
@@ -97,7 +97,7 @@ export function classSpendSince(states: readonly UsageState[], from: number, now
 }
 
 /**
- * The spend by class today and this week: `focus.classes` in their order, then any class a task still holds that the
+ * The spend by class today and this week: `priorities.classes` in their order, then any class a task still holds that the
  * config no longer lists (a class is kept on a task when it leaves the list), then `NO_TASK_ROW`, so the rows add up
  * to the sessions' W.
  */
@@ -119,7 +119,7 @@ export function classRowsOf(input: ClassRowsInput): ClassRow[] {
 }
 
 /**
- * The classes whose week spend has reached their share in `focus.allocation`, which the WIP rule holds until the week
+ * The classes whose week spend has reached their share in `priorities.allocation`, which the WIP rule holds until the week
  * resets (register/wip.ts). A share is a percent of the whole week, never of the spend so far: early in a week a class
  * can hold most of what was spent and still have its share left. A class the allocation does not list has no share to spend.
  */

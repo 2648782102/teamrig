@@ -265,7 +265,7 @@ function todayTable(report: TodayReport, teamW: number, teamCalls: number): stri
 
 /**
  * The team's spend by work class as a table: today's and the week's use in % of the week beside the class's
- * `focus.allocation`, then their W. W alone while the week's W is unknown, and today alone while the week's start is;
+ * `priorities.allocation`, then their W. W alone while the week's W is unknown, and today alone while the week's start is;
  * `aligned` drops a column left empty. A class the allocation does not list, and the no-task row, show `-` for it.
  */
 function classLines(report: TodayReport): string[] {
@@ -287,7 +287,7 @@ function classLines(report: TodayReport): string[] {
   ]);
   const table = aligned([['class', hasPct ? 'today' : '', hasWeekPct ? 'week' : '', hasWeekPct ? 'allocation' : '', 'W today', hasWeek ? 'W week' : ''], ...rows]);
   const notes = hasWeek && !week.covered ? ["The meter does not reach back to the week's start, so the week's W is short."] : [];
-  const heading = `Spend by class today${hasWeek ? ' and this week' : ''}${hasPct ? ', in % of the week' : ''}${hasWeekPct ? ', against focus.allocation' : ''}:`;
+  const heading = `Spend by class today${hasWeek ? ' and this week' : ''}${hasPct ? ', in % of the week' : ''}${hasWeekPct ? ', against priorities.allocation' : ''}:`;
   return [heading, ...indented([...table, ...notes])];
 }
 

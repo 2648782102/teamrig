@@ -37,7 +37,7 @@ export async function merge(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
   const places = deliveryPlaces(delivery, kit.paths);
   const say = logLineOf(runtime, zone);
   const tree = new LeadTree(config);
-  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.focus, zone);
+  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.priorities, zone);
   await refuseUnderParentLock(runtime, lock, say, zone, 'teamrig merge');
   const watching = await watchStarters(runtime, say);
   try {
@@ -53,7 +53,7 @@ export async function merge(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
           review: { reviewPaths: config.pushGuard.reviewPaths, tree, roles: config.roles },
           gated: config.pushGuard.pushToProtected === 'gated' ? { tree, roles: config.roles, commits: config.commits } : undefined,
           tasksFolder: kit.paths.tasks,
-          focus: config.focus,
+          focus: config.priorities,
         },
         {
           git: runtime.mergeGit,

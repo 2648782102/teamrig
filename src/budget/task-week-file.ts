@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import type { Files } from '../core/files.ts';
 import type { SizeBase } from '../register/events.ts';
 import { likeMedians, type LikeTask } from '../register/ranking.ts';
@@ -21,7 +21,7 @@ export interface TasksWeekInput {
   /** The tasks that measure their like tasks (`QueuedWork.likeTasks`). */
   readonly likeTasks: readonly LikeTask[];
   /** The team's focus config, whose default class a task with none is alike under, as `teamrig list` reads it. */
-  readonly focus: Pick<FocusConfig, 'defaultClass'>;
+  readonly focus: Pick<PrioritiesConfig, 'defaultClass'>;
   readonly now: number;
 }
 

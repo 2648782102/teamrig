@@ -337,7 +337,7 @@ export interface GoalRankInput {
 }
 
 /**
- * The cap on open key results (`focus.maxActiveKeyResults`, T2083): a team holds at most `max` goals with a parent
+ * The cap on open key results (`priorities.maxActiveKeyResults`, T2083): a team holds at most `max` goals with a parent
  * whose target is `today` or later, so its key results stay few enough to rank and finish.
  */
 export interface KeyResultCap {
@@ -388,7 +388,7 @@ function keyResultRefusal(goals: ReadonlyMap<string, Goal>, cap: KeyResultCap): 
   if (open < cap.max) {
     return undefined;
   }
-  return `the team holds ${open} key results (goals with a parent) with a target of ${cap.today} or later, the most focus.maxActiveKeyResults allows: finish one or move its target first`;
+  return `the team holds ${open} key results (goals with a parent) with a target of ${cap.today} or later, the most priorities.maxActiveKeyResults allows: finish one or move its target first`;
 }
 
 /** Why `goal rank` cannot write its record over `goals`; undefined when it can. */

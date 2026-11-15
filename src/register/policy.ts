@@ -69,7 +69,7 @@ export interface AddInput {
   readonly type?: ItemType;
   /** Whether it sits in a critical area (`--critical`), which only a type with a review takes. */
   readonly critical?: boolean;
-  /** Its work class (`--class`), one of `focus.classes`; absent: not set, read as `focus.defaultClass` (T2076). */
+  /** Its work class (`--class`), one of `priorities.classes`; absent: not set, read as `priorities.defaultClass` (T2076). */
   readonly workClass?: string;
 }
 
@@ -429,9 +429,9 @@ export class RegisterPolicy {
       return refuse(dueVerifyHold(task, dueVerify));
     }
     // Ranked work goes first and work in progress stays few (T2076); `warn` lets the start through and the CLI warns.
-    const { focus } = this.config;
-    const wip = wipHold({ ...input, task, goals: context.goals }, context.state.tasks.values(), waitContext(context.state.tasks, context.now, context.zone, context.elsewhere), focus, register.ownerSource);
-    if (wip !== undefined && focus.wip.mode === 'refuse') {
+    const { priorities } = this.config;
+    const wip = wipHold({ ...input, task, goals: context.goals }, context.state.tasks.values(), waitContext(context.state.tasks, context.now, context.zone, context.elsewhere), priorities, register.ownerSource);
+    if (wip !== undefined && priorities.startHold.mode === 'refuse') {
       return refuse(wip);
     }
     const note = blankToNull(input.note);
@@ -1315,11 +1315,11 @@ export class RegisterPolicy {
   /**
    * `kept`: the owner and work class an update leaves as they were. An owner stands even once it is no session of the
    * team any more (a retired hire, a session that left at a split), as a task keeps its source, and a class even once
-   * the team renamed it out of `focus.classes`; only a value a write sets is held to the roster or the classes (T1830,
+   * the team renamed it out of `priorities.classes`; only a value a write sets is held to the roster or the classes (T1830,
    * T2076).
    */
   private checkFields(fields: TaskFields, sourceRule: SourceRule, kept: Partial<Pick<TaskFields, 'owner' | 'workClass'>> = {}): string | undefined {
-    const { register, sessions, focus } = this.config;
+    const { register, sessions, priorities } = this.config;
     if (fields.title === '') {
       return 'the title is empty';
     }
@@ -1329,8 +1329,8 @@ export class RegisterPolicy {
     if (fields.owner !== kept.owner && !sessions.includes(fields.owner)) {
       return `owner ${fields.owner} is not a session on this team`;
     }
-    if (fields.workClass !== null && fields.workClass !== kept.workClass && !focus.classes.includes(fields.workClass)) {
-      return `class ${fields.workClass} is not one of focus.classes (${focus.classes.join(', ')})`;
+    if (fields.workClass !== null && fields.workClass !== kept.workClass && !priorities.classes.includes(fields.workClass)) {
+      return `class ${fields.workClass} is not one of priorities.classes (${priorities.classes.join(', ')})`;
     }
     if (fields.critical && !traitsOf(fields).review) {
       return `critical marks only a ${reviewedTypes()}: give --type ${reviewedTypes()} too`;

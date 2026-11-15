@@ -41,14 +41,14 @@ describe('runCli: goal add', () => {
     assert.deepEqual(goal, { tag: 'A1', title: 'Ship the beta', start: '2030-01-08', target: '2030-02-01', parent: null, addedAt: '2030-01-08T10:00:00.000Z', addedBy: 'lead', slips: [], rank: null, slice: null });
   });
 
-  it('refuses a key result past focus.maxActiveKeyResults open ones, and lets a top goal in (T2083)', async () => {
-    const kit = new CliHarness({ ...TEAM, focus: { maxActiveKeyResults: 1 } });
+  it('refuses a key result past priorities.maxActiveKeyResults open ones, and lets a top goal in (T2083)', async () => {
+    const kit = new CliHarness({ ...TEAM, priorities: { maxActiveKeyResults: 1 } });
     ok(await kit.run(ADD_A1));
     ok(await kit.run(['goal', 'add', 'A1.1', '--title', 'Login works', '--target', '2030-01-20', '--parent', 'A1', '--session', 'lead']));
     const before = await goalsText(kit);
     const capped = await kit.run(['goal', 'add', 'A1.2', '--title', 'Billing', '--target', '2030-01-25', '--parent', 'A1', '--session', 'lead']);
     assert.equal(capped.code, EXIT.refused);
-    assert.match(said(capped), /the team holds 1 key results \(goals with a parent\) with a target of 2030-01-08 or later, the most focus\.maxActiveKeyResults allows/);
+    assert.match(said(capped), /the team holds 1 key results \(goals with a parent\) with a target of 2030-01-08 or later, the most priorities.maxActiveKeyResults allows/);
     assert.equal(await goalsText(kit), before);
     ok(await kit.run(['goal', 'add', 'B1', '--title', 'Docs site', '--target', '2030-03-01', '--session', 'lead']));
   });

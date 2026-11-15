@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { quantile } from '../core/quantile.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import type { ItemType } from './events.ts';
@@ -13,7 +13,7 @@ import type { TreeRanking, TreeTask } from './tree.ts';
  */
 
 /** The `focus` keys a ranking reads. */
-export type RankingFocus = Pick<FocusConfig, 'defaultClass' | 'roadmapClass' | 'maintenanceClass' | 'score' | 'expedite' | 'parkAfterDays'>;
+export type RankingFocus = Pick<PrioritiesConfig, 'defaultClass' | 'roadmapClass' | 'maintenanceClass' | 'score' | 'expedite' | 'parkAfterDays'>;
 
 /** What is known of a task's size, as a ranking reads it. */
 export type Sizing = (task: TreeTask) => SizeFacts;
@@ -31,7 +31,7 @@ export interface RankingInput {
 const LIKE_WINDOW_DAYS = 14;
 
 /** The class of a row, which may not carry one. */
-function rowClass(task: Pick<TreeTask, 'workClass'>, focus: Pick<FocusConfig, 'defaultClass'>): string {
+function rowClass(task: Pick<TreeTask, 'workClass'>, focus: Pick<PrioritiesConfig, 'defaultClass'>): string {
   return classOf({ workClass: task.workClass ?? null }, focus);
 }
 
@@ -53,7 +53,7 @@ export function ownSizing(task: Pick<TreeTask, 'size'>): SizeFacts {
 }
 
 /** Which tasks are alike: same class and type. */
-function likeKey(task: Pick<TreeTask, 'workClass' | 'type'>, focus: Pick<FocusConfig, 'defaultClass'>): string {
+function likeKey(task: Pick<TreeTask, 'workClass' | 'type'>, focus: Pick<PrioritiesConfig, 'defaultClass'>): string {
   return `${rowClass(task, focus)}\n${task.type ?? ''}`;
 }
 
@@ -92,7 +92,7 @@ export function likeTasksOf(tasks: Iterable<LikeTask>, now: number): LikeTask[] 
  * a task done before them reads 0 and leaves too, and one started before them reads short; a compaction retires only
  * what the meter has already lost (RETAIN_DAYS).
  */
-function likeMedianMap(tasks: Iterable<LikeTask>, focus: Pick<FocusConfig, 'defaultClass'>, spentOf: (id: string) => number, now: number): Map<string, LikeMedian> {
+function likeMedianMap(tasks: Iterable<LikeTask>, focus: Pick<PrioritiesConfig, 'defaultClass'>, spentOf: (id: string) => number, now: number): Map<string, LikeMedian> {
   const since = windowStart(now);
   const kinds = new Map<string, { readonly workClass: string; readonly type: ItemType | null; readonly spent: number[] }>();
   for (const task of tasks) {
@@ -119,7 +119,7 @@ function likeMedianMap(tasks: Iterable<LikeTask>, focus: Pick<FocusConfig, 'defa
  * for a reader that cannot meter tasks (src/budget/task-week-summary.ts), which sizes by {@link storedSizing}.
  * `spentOf` gives a task's whole cost in percent of the week, 0 when none is known.
  */
-export function likeMedians(tasks: Iterable<LikeTask>, focus: Pick<FocusConfig, 'defaultClass'>, spentOf: (id: string) => number, now: number): LikeMedian[] {
+export function likeMedians(tasks: Iterable<LikeTask>, focus: Pick<PrioritiesConfig, 'defaultClass'>, spentOf: (id: string) => number, now: number): LikeMedian[] {
   return [...likeMedianMap(tasks, focus, spentOf, now).values()].sort((a, b) => a.workClass.localeCompare(b.workClass) || (a.type ?? '').localeCompare(b.type ?? ''));
 }
 
@@ -132,7 +132,7 @@ export type SpendKey = Pick<Task, 'id' | 'sizeBase'>;
  * what was left then; a like task counts in full, as it is measured by all it took. The medians are read once here, not
  * per task.
  */
-export function likeSizing(tasks: Iterable<LikeTask>, focus: Pick<FocusConfig, 'defaultClass'>, spentOf: (task: SpendKey) => number, now: number): Sizing {
+export function likeSizing(tasks: Iterable<LikeTask>, focus: Pick<PrioritiesConfig, 'defaultClass'>, spentOf: (task: SpendKey) => number, now: number): Sizing {
   const medians = likeMedianMap(tasks, focus, (id) => spentOf({ id, sizeBase: null }), now);
   return (task) => ({ size: task.size ?? null, spentPct: spentOf({ id: task.id, sizeBase: task.sizeBase ?? null }), likeMedianPct: medians.get(likeKey(task, focus))?.pct });
 }
@@ -149,7 +149,7 @@ export interface StoredSpend {
  * pane's lists cannot: {@link likeSizing}'s twin, so a task sizes the same in both, the medians matched by the same
  * like key.
  */
-export function storedSizing(stored: StoredSpend, focus: Pick<FocusConfig, 'defaultClass'>): Sizing {
+export function storedSizing(stored: StoredSpend, focus: Pick<PrioritiesConfig, 'defaultClass'>): Sizing {
   const spent = new Map(Object.entries(stored.spentPct));
   const medians = new Map(stored.likeMedians.map((median): [string, number] => [likeKey(median, focus), median.pct]));
   return (task) => ({ size: task.size ?? null, spentPct: spent.get(task.id) ?? 0, likeMedianPct: medians.get(likeKey(task, focus)) });

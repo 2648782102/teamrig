@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import type { Task } from '../register/fold.ts';
 import type { GoalScore } from '../register/goal-board.ts';
@@ -19,7 +19,7 @@ function treeOf(tasks: readonly Task[]): TaskTree {
 
 /** A tree that ranks its tasks, as a real read's does: the decisions' order and INCIDENTS read it. */
 function rankedTreeOf(tasks: readonly Task[]): TaskTree {
-  const ranking = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
+  const ranking = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
   return new TaskTree(new Map(tasks.map((task) => [task.id, task])), new Date(NOW), TimeZone.UTC, null, undefined, ranking);
 }
 
@@ -36,7 +36,7 @@ function inputOf(tasks: readonly Task[], since = NOW - MS_PER_DAY, requireGate =
     lead: 'lead',
     command: 'teamrig',
     board: [],
-    focus: DEFAULT_FOCUS,
+    focus: DEFAULT_PRIORITIES,
     dedicatedOwners: [],
     improvementsDay: 'wed',
     runFiles: new Map(),
@@ -49,7 +49,7 @@ function rankedInputOf(tasks: readonly Task[], below: readonly AgendaTeam[] = []
 }
 
 function teamOf(team: string, tasks: readonly Task[], tree = treeOf(tasks)): AgendaTeam {
-  return { team, tasks, tree, ownerMarker: 'owner', requireGate: true, focus: DEFAULT_FOCUS, dedicatedOwners: [] };
+  return { team, tasks, tree, ownerMarker: 'owner', requireGate: true, focus: DEFAULT_PRIORITIES, dedicatedOwners: [] };
 }
 
 /** The ids of a section's task rows, in order. */

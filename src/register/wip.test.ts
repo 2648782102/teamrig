@@ -14,7 +14,7 @@ const FOCUS: WipFocus = {
   maintenanceClass: 'Maintenance',
   defaultClass: 'Improvements',
   expedite: { critical: true, ownerP1: true },
-  wip: { mode: 'refuse', maxInProgress: 3 },
+  startHold: { mode: 'refuse', maxInProgress: 3 },
 };
 
 const OWNER = 'owner';
@@ -43,7 +43,7 @@ describe('wipHold: a class that has spent its share of the week', () => {
   it('holds the start with no Roadmap work to go first, naming the share, the reset and the way past', () => {
     assert.equal(
       spentHoldOf(TOOLING),
-      "T9 is Improvements work and Improvements has spent its share of the week [focus.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit",
+      "T9 is Improvements work and Improvements has spent its share of the week [priorities.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit",
     );
   });
 
@@ -84,7 +84,7 @@ describe('wipHold: a class that has spent its share of the week', () => {
   });
 
   it('holds nothing with the rule off', () => {
-    assert.equal(spentHoldOf(TOOLING, { ...FOCUS, wip: { mode: 'off', maxInProgress: 3 } }), undefined);
+    assert.equal(spentHoldOf(TOOLING, { ...FOCUS, startHold: { mode: 'off', maxInProgress: 3 } }), undefined);
   });
 });
 
@@ -92,7 +92,7 @@ describe('wipHold: Improvements work behind Roadmap work that can move', () => {
   it('holds the start, naming the Roadmap task and the way past', () => {
     assert.equal(
       holdOf(TOOLING, [ROADMAP]),
-      'T9 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [focus.wip], or, for a one-commit fix, start it with --one-commit',
+      'T9 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [priorities.startHold], or, for a one-commit fix, start it with --one-commit',
     );
   });
 
@@ -150,7 +150,7 @@ describe('wipHold: the in-progress limit', () => {
   it('holds a start at the limit, naming what to finish or put back', () => {
     assert.equal(
       holdOf(ROADMAP, inProgress(3)),
-      'alpha already has 3 tasks in progress, at the limit of 3 [focus.wip.maxInProgress]: finish T101, T102, T103 or put one back (--status open) before T1, or, for a one-commit fix, start it with --one-commit',
+      'alpha already has 3 tasks in progress, at the limit of 3 [priorities.startHold.maxInProgress]: finish T101, T102, T103 or put one back (--status open) before T1, or, for a one-commit fix, start it with --one-commit',
     );
   });
 
@@ -172,8 +172,8 @@ describe('wipHold: the in-progress limit', () => {
   });
 
   it('reads the limit from the config', () => {
-    assert.equal(holdOf(ROADMAP, inProgress(3), { ...FOCUS, wip: { mode: 'refuse', maxInProgress: 4 } }), undefined);
-    assert.match(holdOf(ROADMAP, inProgress(1), { ...FOCUS, wip: { mode: 'refuse', maxInProgress: 1 } }) ?? '', /^alpha already has 1 tasks in progress, at the limit of 1/);
+    assert.equal(holdOf(ROADMAP, inProgress(3), { ...FOCUS, startHold: { mode: 'refuse', maxInProgress: 4 } }), undefined);
+    assert.match(holdOf(ROADMAP, inProgress(1), { ...FOCUS, startHold: { mode: 'refuse', maxInProgress: 1 } }) ?? '', /^alpha already has 1 tasks in progress, at the limit of 1/);
   });
 
   it('names three tasks past a long list, then counts the rest', () => {
@@ -246,11 +246,11 @@ describe('wipHold: what it never judges', () => {
   const heldBoth = [ROADMAP, ...inProgress(3)];
 
   it('holds nothing with the rule off', () => {
-    assert.equal(holdOf(TOOLING, heldBoth, { ...FOCUS, wip: { mode: 'off', maxInProgress: 3 } }), undefined);
+    assert.equal(holdOf(TOOLING, heldBoth, { ...FOCUS, startHold: { mode: 'off', maxInProgress: 3 } }), undefined);
   });
 
   it('says the same in warn mode as in refuse mode: the caller decides what a hold does', () => {
-    assert.equal(holdOf(TOOLING, heldBoth, { ...FOCUS, wip: { mode: 'warn', maxInProgress: 3 } }), holdOf(TOOLING, heldBoth));
+    assert.equal(holdOf(TOOLING, heldBoth, { ...FOCUS, startHold: { mode: 'warn', maxInProgress: 3 } }), holdOf(TOOLING, heldBoth));
   });
 
   it('never holds setting a task in progress again', () => {

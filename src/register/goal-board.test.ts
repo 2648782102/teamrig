@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import { TimeZone } from '../core/zone.ts';
 import { testTask } from '../testing/task.ts';
@@ -35,7 +35,7 @@ function teamOf({ team, tasks, working = tasks, goals, spent = new Map(), likeMe
     tasks,
     tree: new TaskTree(new Map(working.map((task) => [task.id, task])), new Date(NOW), TimeZone.UTC),
     goals,
-    ranking: { focus: DEFAULT_FOCUS, sizingOf: (task) => ({ size: task.size ?? null, spentPct: spent.get(task.id) ?? 0, likeMedianPct }) },
+    ranking: { focus: DEFAULT_PRIORITIES, sizingOf: (task) => ({ size: task.size ?? null, spentPct: spent.get(task.id) ?? 0, likeMedianPct }) },
   };
 }
 
@@ -105,7 +105,7 @@ describe('the goal scoreboard (T2092)', () => {
     const goals = mapOf([goalOf('A1', 1)]);
     const spent = new Map([['T1', 0.5]]);
     const tasks = [testTask({ id: 'T1', goals: ['A1'] }), testTask({ id: 'T2', goals: ['A1'] })];
-    assert.equal(onlyRow(goalScores(goals, [teamOf({ tasks, goals, spent })], NOW)).sizePct, 2 * DEFAULT_FOCUS.score.defaultSizePct);
+    assert.equal(onlyRow(goalScores(goals, [teamOf({ tasks, goals, spent })], NOW)).sizePct, 2 * DEFAULT_PRIORITIES.score.defaultSizePct);
     assert.equal(onlyRow(goalScores(goals, [teamOf({ tasks, goals, spent, likeMedianPct: 4 })], NOW)).sizePct, 8);
   });
 

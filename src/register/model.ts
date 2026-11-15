@@ -57,7 +57,7 @@ export function priorityText(priority: number): string {
 
 /**
  * How a work class is spelled (`Roadmap`, `Tech debt`; T2076): a letter, then up to 31 letters, digits, spaces, `_` or
- * `-`. Kept here so the register's parse and the config's `focus.classes` share it.
+ * `-`. Kept here so the register's parse and the config's `priorities.classes` share it.
  */
 export const WORK_CLASS_NAME = /^[A-Za-z][A-Za-z0-9 _-]{0,31}$/;
 

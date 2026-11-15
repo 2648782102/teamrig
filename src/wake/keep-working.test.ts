@@ -19,11 +19,11 @@ function tasksOf(...tasks: readonly Task[]): ReadonlyMap<string, Task> {
 
 const AWAKE: WakeRest = { quiet: false, held: false };
 
-const { focus, register } = testConfig();
+const { priorities, register } = testConfig();
 const NONE_SPENT: ReadonlySet<string> = new Set();
 
 function workOf(tasks: ReadonlyMap<string, Task>, rest = AWAKE, elsewhere: TasksElsewhere = NO_TASKS_ELSEWHERE, spentClasses = NONE_SPENT): KeepWorking | undefined {
-  return keepWorkingOf({ tasks, elsewhere, session: 'alpha', ask: ASK, now: NOW, zone: TimeZone.UTC, rest, parking: TEST_PARKING, focus, ownerSource: register.ownerSource, spentClasses });
+  return keepWorkingOf({ tasks, elsewhere, session: 'alpha', ask: ASK, now: NOW, zone: TimeZone.UTC, rest, parking: TEST_PARKING, focus: priorities, ownerSource: register.ownerSource, spentClasses });
 }
 
 function idsOf(tasks: ReadonlyMap<string, Task>, elsewhere: TasksElsewhere = NO_TASKS_ELSEWHERE): readonly string[] | undefined {

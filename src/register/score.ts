@@ -1,5 +1,5 @@
 import { NOW_PRIORITY } from '../config/priorities.ts';
-import type { FocusConfig, FocusScoreConfig } from '../config/types.ts';
+import type { PrioritiesConfig, PrioritiesScoreConfig } from '../config/types.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import type { ItemType } from './events.ts';
 
@@ -10,7 +10,7 @@ import type { ItemType } from './events.ts';
  */
 
 /** The part of the `focus` config a score reads. A team may rename its classes, so none is spelled here. */
-export type ScoreFocus = Pick<FocusConfig, 'roadmapClass' | 'maintenanceClass' | 'score' | 'expedite'>;
+export type ScoreFocus = Pick<PrioritiesConfig, 'roadmapClass' | 'maintenanceClass' | 'score' | 'expedite'>;
 
 /** What a task is worth before any date, need or order: its class, its best goal rank (null: none) and its severity. */
 export interface ValueFacts {
@@ -68,7 +68,7 @@ export function valueOf(facts: ValueFacts, focus: Pick<ScoreFocus, 'roadmapClass
 }
 
 /** What the date adds: the overdue value past the due, the due-soon value up to `dueSoonDays` before it, else nothing. */
-export function urgencyOf(dueAt: number | undefined, now: number, score: Pick<FocusScoreConfig, 'overdueValue' | 'dueSoonValue' | 'dueSoonDays'>): number {
+export function urgencyOf(dueAt: number | undefined, now: number, score: Pick<PrioritiesScoreConfig, 'overdueValue' | 'dueSoonValue' | 'dueSoonDays'>): number {
   if (dueAt === undefined) {
     return 0;
   }
@@ -82,12 +82,12 @@ export function urgencyOf(dueAt: number | undefined, now: number, score: Pick<Fo
  * What the tasks that need it add: a share of the best value among them. A value, never their whole cost of delay, so
  * a chain of needs adds one step and a loop of them cannot recurse.
  */
-export function unblocksOf(neededValue: number | undefined, score: Pick<FocusScoreConfig, 'unblocksShare'>): number {
+export function unblocksOf(neededValue: number | undefined, score: Pick<PrioritiesScoreConfig, 'unblocksShare'>): number {
   return neededValue === undefined ? 0 : score.unblocksShare * neededValue;
 }
 
 /** The capped override an owner's order adds; every other priority adds nothing. */
-export function ownerOrderOf(facts: OrderFacts, score: Pick<FocusScoreConfig, 'ownerOrderValues'>): number {
+export function ownerOrderOf(facts: OrderFacts, score: Pick<PrioritiesScoreConfig, 'ownerOrderValues'>): number {
   return facts.ownerSourced ? (score.ownerOrderValues[facts.priority - 1] ?? 0) : 0;
 }
 
@@ -95,7 +95,7 @@ export function ownerOrderOf(facts: OrderFacts, score: Pick<FocusScoreConfig, 'o
  * A task's whole size, whatever it spent so far: its own, else what like tasks took, else the default. What a spend is
  * read against, as the work left has that same spend already taken off.
  */
-export function wholeSizePctOf(facts: SizeFacts, score: Pick<FocusScoreConfig, 'defaultSizePct'>): number {
+export function wholeSizePctOf(facts: SizeFacts, score: Pick<PrioritiesScoreConfig, 'defaultSizePct'>): number {
   return facts.size ?? facts.likeMedianPct ?? score.defaultSizePct;
 }
 
@@ -104,13 +104,13 @@ export function wholeSizePctOf(facts: SizeFacts, score: Pick<FocusScoreConfig, '
  * is the task's whole size less what it spent, so spending lifts a task and can never sink it under the tasks that wait
  * on it (T2109); never under the floor, so a tiny task cannot outrank everything.
  */
-export function sizePctOf(facts: SizeFacts, score: Pick<FocusScoreConfig, 'defaultSizePct' | 'minSizePct'>): number {
+export function sizePctOf(facts: SizeFacts, score: Pick<PrioritiesScoreConfig, 'defaultSizePct' | 'minSizePct'>): number {
   return Math.max(wholeSizePctOf(facts, score) - facts.spentPct, score.minSizePct);
 }
 
 /**
  * The band of a task. A p0 always expedites: it means started ahead of the task in hand, whatever its class or who
- * asked, so no config turns it off. Every other expedite needs its arm on in `focus.expedite`.
+ * asked, so no config turns it off. Every other expedite needs its arm on in `priorities.expedite`.
  */
 export function bandOf(facts: Pick<ScoreFacts, 'workClass' | 'critical' | 'priority' | 'ownerSourced'>, focus: Pick<ScoreFocus, 'roadmapClass' | 'maintenanceClass' | 'expedite'>): Band {
   const maintenance = facts.workClass === focus.maintenanceClass;

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { TimeZone } from '../core/zone.ts';
 import type { Task } from '../register/fold.ts';
 import type { SlicedGoal } from '../register/focus.ts';
@@ -14,13 +14,13 @@ const NOW = new Date('2030-01-08T10:00:00Z');
 const DECISION_WAIT = { status: 'waiting', waits: [{ kind: 'decision', who: 'owner' }] } as const;
 
 function treeOf(tasks: readonly Task[], goals: ReadonlyMap<string, SlicedGoal> = new Map()): TaskTree {
-  const ranking = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals, sizing: ownSizing });
+  const ranking = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals, sizing: ownSizing });
   return new TaskTree(new Map(tasks.map((task) => [task.id, task])), NOW, TimeZone.UTC, null, undefined, ranking);
 }
 
 /** A register's read whose decisions are `decisions`, among `others`. */
 function readOf(decisions: readonly Task[], others: readonly Task[] = [], team?: string, goals?: ReadonlyMap<string, SlicedGoal>): DecisionRead {
-  return { tasks: decisions, tree: treeOf([...decisions, ...others], goals), team, focus: DEFAULT_FOCUS };
+  return { tasks: decisions, tree: treeOf([...decisions, ...others], goals), team, focus: DEFAULT_PRIORITIES };
 }
 
 function ids(decisions: readonly Decision[]): string[] {
@@ -96,7 +96,7 @@ describe('decisionOrder (T2092)', () => {
   it('keeps a tree with no ranking in the order handed in', () => {
     const tasks = [testTask({ id: 'T2', ...DECISION_WAIT }), testTask({ id: 'T1', ...DECISION_WAIT })];
     const tree = new TaskTree(new Map(tasks.map((task) => [task.id, task])), NOW, TimeZone.UTC);
-    assert.deepEqual(ids(decisionOrder([{ tasks, tree, team: undefined, focus: DEFAULT_FOCUS }]).daily), ['T2', 'T1']);
+    assert.deepEqual(ids(decisionOrder([{ tasks, tree, team: undefined, focus: DEFAULT_PRIORITIES }]).daily), ['T2', 'T1']);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import type { Weekday } from '../config/types.ts';
 import { TimeZone } from '../core/zone.ts';
 import type { DecisionFocus } from '../meeting/decision-order.ts';
@@ -39,7 +39,7 @@ function ownerWait(id: string, statusAt: string, overrides: Partial<Task> = {}):
  * A register of `tasks` on the owner marker `owner`, the reader's own unless `team` names another; `requireGate` as
  * `register.requireDecisionCard`, `focus` as its team's focus classes.
  */
-function registerOf(tasks: readonly Task[], team?: string, ownerMarker = 'owner', requireGate = true, focus: DecisionFocus = DEFAULT_FOCUS): BatchRegister {
+function registerOf(tasks: readonly Task[], team?: string, ownerMarker = 'owner', requireGate = true, focus: DecisionFocus = DEFAULT_PRIORITIES): BatchRegister {
   return { team, tasks, tree: new TaskTree(new Map(tasks.map((task) => [task.id, task])), new Date(NOW), TimeZone.UTC), ownerMarker, requireGate, focus, dedicatedOwners: [] };
 }
 
@@ -170,7 +170,7 @@ describe('the decision batch', () => {
   });
 });
 
-// T2113: a decision that frees only Improvements work waits for focus.improvementsDay, as the agenda holds it (T2092).
+// T2113: a decision that frees only Improvements work waits for priorities.improvementsDay, as the agenda holds it (T2092).
 describe('the weekly Improvements batch (T2113)', () => {
   const improvements = { workClass: 'Improvements' } as const;
   const onDay = (input: BatchInput, day: Weekday = 'tue'): DecisionBatch => decisionBatch({ ...input, improvementsDay: day });
@@ -211,7 +211,7 @@ describe('the weekly Improvements batch (T2113)', () => {
       testTask({ id: 'T6', workClass: 'Roadmap', after: ['T5'] }),
       ownerWait('T7', at, improvements),
     ];
-    const ranking = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
+    const ranking = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
     const tree = new TaskTree(new Map(tasks.map((task) => [task.id, task])), new Date(NOW), TimeZone.UTC, null, undefined, ranking);
     const batch = decisionBatch({ ...inputOf([], undefined), registers: [{ ...registerOf(tasks), tree }] });
     assert.deepEqual([ids(batch.pending).sort(), ids(batch.weekly)], [['T1', 'T2', 'T3', 'T4', 'T5'], ['T7']]);
@@ -220,7 +220,7 @@ describe('the weekly Improvements batch (T2113)', () => {
   it("judges each register by its own focus classes, and a child team sees only its registers' held waits", () => {
     const at = '2030-01-08T09:00:00.000Z';
     const product = { workClass: 'Product' } as const;
-    const web = registerOf([ownerWait('T1', at, product), ownerWait('T2', at, improvements)], 'web', 'owner', true, { ...DEFAULT_FOCUS, roadmapClass: 'Product' });
+    const web = registerOf([ownerWait('T1', at, product), ownerWait('T2', at, improvements)], 'web', 'owner', true, { ...DEFAULT_PRIORITIES, roadmapClass: 'Product' });
     const batch = decisionBatch(inputOf([ownerWait('T1', at, product)], undefined, CHECKPOINTS, [web]));
     assert.deepEqual([ids(batch.pending), ids(batch.weekly)], [['web/T1'], ['T1', 'web/T2']], "Product is web's Roadmap class only");
     assert.deepEqual(ids(waitsOfTeams(batch, ['web']).weekly), ['web/T2']);

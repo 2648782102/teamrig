@@ -168,14 +168,14 @@ export {
 export { indexMarks, MARK_VERSION, parseMark, readMarks, type InboxMark, type MarkIndex, type MarkLogRead } from '../inbox/marks.ts';
 export { inboxLines, unreadOf, type LineHash, type ResumeKind, type Unread } from '../inbox/unread.ts';
 
-// The kit config (`config.json`). DEFAULT_REGISTER and DEFAULT_FOCUS are what a config that sets no `register` or
+// The kit config (`config.json`). DEFAULT_REGISTER and DEFAULT_PRIORITIES are what a config that sets no `register` or
 // `focus` key gets: a reader with no config to read names priorities and ranks tasks from them.
-export { DEFAULT_FOCUS, DEFAULT_REGISTER } from '../config/defaults.ts';
+export { DEFAULT_PRIORITIES, DEFAULT_REGISTER } from '../config/defaults.ts';
 export { priorityName } from '../config/priorities.ts';
 export { parseConfigText, type ConfigRead } from '../config/text.ts';
-export { CONFIG_VERSION, type FocusConfig, type KitConfig, type LaunchConfig, type PriorityConfig } from '../config/types.ts';
+export { CONFIG_VERSION, type PrioritiesConfig, type KitConfig, type LaunchConfig, type PriorityConfig } from '../config/types.ts';
 
-// The work class a task counts as (T2076): its own, else the team's `focus.defaultClass`, as the CLI reads it; and the
+// The work class a task counts as (T2076): its own, else the team's `priorities.defaultClass`, as the CLI reads it; and the
 // best rank a task serves over its goals and their parents (T2083).
 export { classOf, rankOf, type RankedGoal } from '../register/focus.ts';
 

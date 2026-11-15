@@ -11,7 +11,7 @@ import {
   migrateConfig,
   RENAME_BLOCKED_TO_WAITING,
   RENAME_TIERS_TO_PRIORITIES,
-  RENAME_TO_DELIVERY, RENAME_TO_PLAIN_WORDS,
+  RENAME_TO_DELIVERY, RENAME_TO_PLAIN_WORDS, RENAME_TO_PRIORITIES,
   type ConfigMigration,
 } from './migrate.ts';
 import { CONFIG_VERSION } from './types.ts';
@@ -390,6 +390,43 @@ describe('the shipped migrations', () => {
       assert.deepEqual(RENAME_TO_DELIVERY.apply(config), { config, changes: [] }, JSON.stringify(config));
     }
     assert.equal(RENAME_TO_DELIVERY.from, 7);
+  });
+
+  it('v8 to v9 renames focus to priorities and its wip to startHold, each key in its place and every value kept', () => {
+    const focus = { classes: ['Roadmap', 'Other'], wip: { mode: 'warn', maxInProgress: 2 }, allocation: { Roadmap: 70, Other: 30 } };
+    const raw: JsonRecord = { configVersion: 8, roles: { lead: 'lead' }, focus, custom: true };
+    const result = migrateConfig(raw);
+    assert.deepEqual(result, {
+      kind: 'migrated',
+      fromVersion: 8,
+      version: 9,
+      config: {
+        configVersion: 9,
+        roles: { lead: 'lead' },
+        priorities: { classes: ['Roadmap', 'Other'], startHold: { mode: 'warn', maxInProgress: 2 }, allocation: { Roadmap: 70, Other: 30 } },
+        custom: true,
+      },
+      changes: ['v8→v9: focus.wip → focus.startHold', 'v8→v9: focus → priorities'],
+      firstRelease: RENAME_TO_PRIORITIES.firstRelease,
+    });
+    const written: JsonRecord = result.kind === 'migrated' ? result.config : {};
+    assert.deepEqual(Object.keys(written), ['configVersion', 'roles', 'priorities', 'custom'], 'a renamed key keeps its place');
+    assert.deepEqual(raw['focus'], focus, 'the input is not mutated');
+  });
+
+  it('v8 to v9 keeps the old key where both are set, as version 8 read only it, and changes nothing without one', () => {
+    assert.deepEqual(RENAME_TO_PRIORITIES.apply({ focus: { wip: { mode: 'off' }, startHold: { mode: 'warn' } }, priorities: { unread: true } }), {
+      config: { priorities: { startHold: { mode: 'off' } } },
+      changes: [
+        'focus.wip → focus.startHold, replacing the focus.startHold version 8 did not read',
+        'focus → priorities, replacing the priorities version 8 did not read',
+      ],
+    });
+    for (const config of [{}, { focus: 'not an object' }, { priorities: { startHold: {} } }, { wip: {} }] satisfies JsonRecord[]) {
+      const changes = RENAME_TO_PRIORITIES.apply(config).changes;
+      assert.deepEqual(changes, 'focus' in config ? ['focus → priorities'] : [], JSON.stringify(config));
+    }
+    assert.equal(RENAME_TO_PRIORITIES.from, 8);
   });
 
   it('a version-1 file reaches the current version through every step', () => {

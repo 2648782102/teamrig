@@ -1,4 +1,4 @@
-import { WEEKDAYS, type FocusConfig, type Weekday } from '../config/types.ts';
+import { WEEKDAYS, type PrioritiesConfig, type Weekday } from '../config/types.ts';
 import type { Task } from '../register/fold.ts';
 import type { Band } from '../register/score.ts';
 import type { TaskTree } from '../register/tree.ts';
@@ -10,7 +10,7 @@ import type { TaskTree } from '../register/tree.ts';
  */
 
 /** The `focus` keys a decision's class reads; each register reads its own. */
-export type DecisionFocus = Pick<FocusConfig, 'roadmapClass' | 'maintenanceClass'>;
+export type DecisionFocus = Pick<PrioritiesConfig, 'roadmapClass' | 'maintenanceClass'>;
 
 /** One register's decisions. */
 export interface DecisionRead {

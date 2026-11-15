@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import { TimeZone } from '../core/zone.ts';
 import { testTask } from '../testing/task.ts';
@@ -17,16 +17,16 @@ function done(id: string, daysAgo: number, fields: Partial<Task> = {}): Task {
 }
 
 function sizingOver(tasks: readonly Task[], spends: Readonly<Record<string, number>>): Sizing {
-  return likeSizing(tasks, DEFAULT_FOCUS, ({ id }) => spends[id] ?? 0, NOW);
+  return likeSizing(tasks, DEFAULT_PRIORITIES, ({ id }) => spends[id] ?? 0, NOW);
 }
 
 const LIKE = testTask({ id: 'T9', workClass: 'Roadmap', type: 'task' });
 
 describe('treeRanking (T2076)', () => {
-  const ranking = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
+  const ranking = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals: new Map(), sizing: ownSizing });
 
   it("hands on the team's focus and owner marker", () => {
-    assert.equal(ranking.focus, DEFAULT_FOCUS);
+    assert.equal(ranking.focus, DEFAULT_PRIORITIES);
     assert.equal(ranking.ownerSource, 'owner');
   });
 
@@ -47,7 +47,7 @@ describe('treeRanking (T2076)', () => {
 
   it('values a Roadmap task by the goal it serves, and names the goal that holds the rank', () => {
     const goals = new Map<string, SlicedGoal>([['A1', { parent: null, rank: 1, slice: null }], ['A1.1', { parent: 'A1', rank: null, slice: null }]]);
-    const ranked = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals, sizing: ownSizing });
+    const ranked = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals, sizing: ownSizing });
     const task = testTask({ id: 'T1', workClass: 'Roadmap', goals: ['A1.1'] });
     const plain = testTask({ id: 'T2', workClass: 'Roadmap' });
     const tree = new TaskTree(new Map([[task.id, task], [plain.id, plain]]), new Date(NOW), TimeZone.UTC, undefined, undefined, ranked);
@@ -58,13 +58,13 @@ describe('treeRanking (T2076)', () => {
 
   it('reads a row with no goals as serving none', () => {
     const goals = new Map<string, SlicedGoal>([['A1', { parent: null, rank: 1, slice: null }]]);
-    const ranked = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals, sizing: ownSizing });
+    const ranked = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals, sizing: ownSizing });
     assert.equal(ranked.goalOf({ id: 'T2', status: 'open', owner: 'alpha', priority: 2, due: null, after: [], waits: [] }), null);
   });
 
   it("reads a prep marker against the goal's open slice, and a row with none as unmarked (T2453)", () => {
     const goals = new Map<string, SlicedGoal>([['A1', { parent: null, rank: 1, slice: 3 }]]);
-    const ranked = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals, sizing: ownSizing });
+    const ranked = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals, sizing: ownSizing });
     assert.deepEqual(ranked.prepOf(testTask({ prepares: { goal: 'A1', slice: 4 } })), { standing: 'near' });
     assert.deepEqual(ranked.prepOf(testTask({ prepares: { goal: 'A1', slice: 6 } })), { standing: 'lapsed', why: 'prepares A1:6, goal A1 is on slice 3' });
     assert.equal(ranked.prepOf({ id: 'T2', status: 'open', owner: 'alpha', priority: 2, due: null, after: [], waits: [] }), null);
@@ -72,7 +72,7 @@ describe('treeRanking (T2076)', () => {
 
   it('ranks a near prep task right after band 0, ahead of a Roadmap task of a higher score, and a lapsed one in its own band (T2453)', () => {
     const goals = new Map<string, SlicedGoal>([['A1', { parent: null, rank: 1, slice: 3 }]]);
-    const ranked = treeRanking({ focus: DEFAULT_FOCUS, ownerSource: 'owner', goals, sizing: ownSizing });
+    const ranked = treeRanking({ focus: DEFAULT_PRIORITIES, ownerSource: 'owner', goals, sizing: ownSizing });
     const lapsed = testTask({ id: 'T2', prepares: { goal: 'A1', slice: 9 } });
     const near = testTask({ id: 'T3', prepares: { goal: 'A1', slice: 3 } });
     const tasks = [testTask({ id: 'T1', workClass: 'Roadmap', goals: ['A1'] }), lapsed, near, testTask({ id: 'T4', priority: 0 })];
@@ -99,7 +99,7 @@ describe('likeSizing (T2076)', () => {
   it("reads a task's own spend from its size base, and a like task's whole cost (T2109)", () => {
     const sizeBase = { day: '2030-01-19', w: 5 };
     const asked: SpendKey[] = [];
-    const sizing = likeSizing([done('T1', 1, { sizeBase })], DEFAULT_FOCUS, (task) => {
+    const sizing = likeSizing([done('T1', 1, { sizeBase })], DEFAULT_PRIORITIES, (task) => {
       asked.push(task);
       return 1;
     }, NOW);
@@ -110,7 +110,7 @@ describe('likeSizing (T2076)', () => {
 
   it('reads a row with no size base from its whole cost', () => {
     const asked: SpendKey[] = [];
-    likeSizing([], DEFAULT_FOCUS, (task) => {
+    likeSizing([], DEFAULT_PRIORITIES, (task) => {
       asked.push(task);
       return 0;
     }, NOW)({ id: 'T2', status: 'open', owner: 'alpha', priority: 2, due: null, after: [], waits: [] });
@@ -153,7 +153,7 @@ describe('likeSizing (T2076)', () => {
 
   it("reads each like task's spend once, not once per task sized", () => {
     const reads: string[] = [];
-    const sizing = likeSizing([done('T1', 1)], DEFAULT_FOCUS, ({ id }) => {
+    const sizing = likeSizing([done('T1', 1)], DEFAULT_PRIORITIES, ({ id }) => {
       reads.push(id);
       return 1;
     }, NOW);
@@ -174,7 +174,7 @@ describe('likeTasksOf (T2194)', () => {
     const spends: Readonly<Record<string, number>> = { T1: 0.2, T2: 0.4, T3: 0.9 };
     const later = NOW + 2 * MS_PER_DAY;
     const kept = likeTasksOf(tasks, NOW);
-    assert.deepEqual(likeMedians(kept, DEFAULT_FOCUS, (id) => spends[id] ?? 0, later), likeMedians(tasks, DEFAULT_FOCUS, (id) => spends[id] ?? 0, later));
+    assert.deepEqual(likeMedians(kept, DEFAULT_PRIORITIES, (id) => spends[id] ?? 0, later), likeMedians(tasks, DEFAULT_PRIORITIES, (id) => spends[id] ?? 0, later));
   });
 });
 
@@ -184,7 +184,7 @@ describe('likeMedians (T2194)', () => {
 
   it('lists each kind with its median, by class and then type, an unset type first', () => {
     const tasks = [done('T1', 1, { type: 'bug' }), done('T2', 1), done('T3', 1, { type: null }), done('T4', 1, { workClass: 'Maintenance' }), done('T5', 1, { type: 'bug' })];
-    assert.deepEqual(likeMedians(tasks, DEFAULT_FOCUS, spentOf, NOW), [
+    assert.deepEqual(likeMedians(tasks, DEFAULT_PRIORITIES, spentOf, NOW), [
       { workClass: 'Maintenance', type: 'task', pct: 0.7 },
       { workClass: 'Roadmap', type: null, pct: 0.5 },
       { workClass: 'Roadmap', type: 'bug', pct: 0.15000000000000002 },
@@ -194,7 +194,7 @@ describe('likeMedians (T2194)', () => {
 
   it('names an unclassed kind by the default class, and lists no kind with no spend', () => {
     const tasks = [done('T1', 1, { workClass: null }), done('T9', 1, { workClass: 'Maintenance' })];
-    assert.deepEqual(likeMedians(tasks, DEFAULT_FOCUS, spentOf, NOW), [{ workClass: DEFAULT_FOCUS.defaultClass, type: 'task', pct: 0.1 }]);
+    assert.deepEqual(likeMedians(tasks, DEFAULT_PRIORITIES, spentOf, NOW), [{ workClass: DEFAULT_PRIORITIES.defaultClass, type: 'task', pct: 0.1 }]);
   });
 });
 
@@ -202,7 +202,7 @@ describe('storedSizing (T2194)', () => {
   const tasks = [done('T1', 1), done('T2', 2), done('T3', 3, { type: 'bug' }), done('T4', 1, { workClass: null, type: null })];
   const spends: Readonly<Record<string, number>> = { T1: 0.1, T2: 0.3, T3: 0.25, T4: 0.6, T8: 0.05 };
   const spentOf = (id: string): number => spends[id] ?? 0;
-  const stored = { spentPct: spends, likeMedians: likeMedians(tasks, DEFAULT_FOCUS, spentOf, NOW) };
+  const stored = { spentPct: spends, likeMedians: likeMedians(tasks, DEFAULT_PRIORITIES, spentOf, NOW) };
   const rows = [
     LIKE,
     testTask({ id: 'T8', workClass: 'Roadmap', type: 'bug', size: 1 }),
@@ -212,18 +212,18 @@ describe('storedSizing (T2194)', () => {
   ];
 
   it('sizes each row as likeSizing does on the same spend', () => {
-    const live = likeSizing(tasks, DEFAULT_FOCUS, ({ id }) => spentOf(id), NOW);
-    const read = storedSizing(stored, DEFAULT_FOCUS);
+    const live = likeSizing(tasks, DEFAULT_PRIORITIES, ({ id }) => spentOf(id), NOW);
+    const read = storedSizing(stored, DEFAULT_PRIORITIES);
     assert.deepEqual(rows.map(read), rows.map(live));
   });
 
   it("reads a task's spend from its entry, and one with none as 0", () => {
-    const read = storedSizing(stored, DEFAULT_FOCUS);
+    const read = storedSizing(stored, DEFAULT_PRIORITIES);
     assert.equal(read(testTask({ id: 'T8', sizeBase: { day: '2030-01-19', w: 5 } })).spentPct, 0.05);
     assert.equal(read(testTask({ id: 'T99' })).spentPct, 0);
   });
 
   it('takes no entry for an inherited key', () => {
-    assert.equal(storedSizing(stored, DEFAULT_FOCUS)(testTask({ id: 'constructor' })).spentPct, 0);
+    assert.equal(storedSizing(stored, DEFAULT_PRIORITIES)(testTask({ id: 'constructor' })).spentPct, 0);
   });
 });

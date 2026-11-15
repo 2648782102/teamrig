@@ -10,7 +10,6 @@ import type {
   ContextFilesConfig,
   DbWriteGuardConfig,
   DecisionsConfig,
-  FocusConfig,
   GithubConfig,
   HeadroomConfig,
   IdleConfig,
@@ -23,6 +22,7 @@ import type {
   OpenConfig,
   PackageGuardConfig,
   PermissionsConfig,
+  PrioritiesConfig,
   PromptsConfig,
   SecretGuardConfig,
   PushGuardConfig,
@@ -363,7 +363,7 @@ export const DEFAULT_STATUS_LINE: StatusLineConfig = { folder: true, branch: tru
  * session keeps one shippable slice open, a second only while the first waits (owner orders 11-07, T2201, T2215), and
  * none needing a new owner decision opens while 5 wait in the tree, about what one daily meeting answers (T2215).
  */
-export const DEFAULT_FOCUS: FocusConfig = {
+export const DEFAULT_PRIORITIES: PrioritiesConfig = {
   classes: ['Roadmap', 'Maintenance', 'Improvements'],
   roadmapClass: 'Roadmap',
   maintenanceClass: 'Maintenance',
@@ -387,7 +387,7 @@ export const DEFAULT_FOCUS: FocusConfig = {
     minSizePct: 0.05,
   },
   expedite: { critical: true, ownerP1: true },
-  wip: { mode: 'refuse', maxInProgress: 3 },
+  startHold: { mode: 'refuse', maxInProgress: 3 },
   allocation: { Roadmap: 60, Maintenance: 25, Improvements: 15 },
   leaderWaitMinutes: 60,
   parkAfterDays: 14,

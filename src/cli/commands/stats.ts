@@ -53,7 +53,7 @@ export async function stats(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
   const scope: StatsScope | undefined = tree || !args.flags.has('session') ? undefined : { team: rolled.own.team, session: sessionIdOf(rolled.own.roster, callerOf(args.flags, runtime.env)) };
   const histories = await historiesOf(runtime, rolled);
   const folded = await foldHistories(runtime, rolled, histories, range, scope);
-  const use = await useLines(runtime, { teams: histories, focus: rolled.own.config.focus, days: folded.stats.days.map((day) => day.day), ...(scope === undefined ? {} : { scope }) });
+  const use = await useLines(runtime, { teams: histories, focus: rolled.own.config.priorities, days: folded.stats.days.map((day) => day.day), ...(scope === undefined ? {} : { scope }) });
   const name = scope === undefined ? rolled.own.team : formatAddress({ team: scope.team, id: scope.session });
   [...statsLines(folded, name, rolled.teams.map((team) => team.team)), ...use].forEach((line) => runtime.out.stdout(line));
   return EXIT.ok;

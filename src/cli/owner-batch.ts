@@ -64,7 +64,7 @@ function registerOf(runtime: CliRuntime, { config, tasks, elsewhere, ranking }: 
     zone: teamZone(config, runtime),
     elsewhere,
     ranking,
-    focus: config.focus,
+    focus: config.priorities,
     dedicatedOwners: config.decisions.dedicatedOwners,
   };
 }

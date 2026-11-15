@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import type { StatsScope } from '../register/stats.ts';
 import type { TeamDayRollup } from './rollup-file.ts';
 
@@ -14,14 +14,14 @@ export interface TaskPlace {
   readonly planned: boolean;
 }
 
-/** One work class's task W, split by the plan, against `focus.allocation`. */
+/** One work class's task W, split by the plan, against `priorities.allocation`. */
 export interface ClassUse {
   readonly workClass: string;
   readonly planned: UseTotal;
   readonly unplanned: UseTotal;
   /** The class's percent of the W with a task; null when there is none. */
   readonly sharePct: number | null;
-  /** The class's percent in `focus.allocation`; null for a class it does not name. */
+  /** The class's percent in `priorities.allocation`; null for a class it does not name. */
   readonly targetPct: number | null;
 }
 
@@ -33,7 +33,7 @@ export interface PlanUse {
   /** Planned W as a percent of the W with a task; null when there is none. */
   readonly coveragePct: number | null;
   readonly targetPct: number;
-  /** `focus.classes` in their order, each even at no W, then any other class a task holds, by name. */
+  /** `priorities.classes` in their order, each even at no W, then any other class a task holds, by name. */
   readonly classes: readonly ClassUse[];
 }
 
@@ -41,7 +41,7 @@ export interface PlanUseInput {
   readonly days: readonly TeamDayRollup[];
   /** Where team `team`'s work on `task` counts on `day`. */
   readonly placeOf: (team: string, day: string, task: string) => TaskPlace;
-  readonly focus: Pick<FocusConfig, 'classes' | 'allocation' | 'plannedTargetPct'>;
+  readonly focus: Pick<PrioritiesConfig, 'classes' | 'allocation' | 'plannedTargetPct'>;
   /** Only this session's rows, when given. */
   readonly session?: StatsScope;
 }

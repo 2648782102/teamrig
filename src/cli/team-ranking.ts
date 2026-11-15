@@ -16,7 +16,7 @@ import { KitTreeGoals } from './tree-goals.ts';
 export async function teamRanking(
   runtime: CliRuntime,
   paths: StoredWeekPaths & Pick<TeamPaths, 'goals'>,
-  config: Pick<KitConfig, 'team' | 'focus' | 'register' | 'sessions' | 'budget'>,
+  config: Pick<KitConfig, 'team' | 'priorities' | 'register' | 'sessions' | 'budget'>,
   tasks: Iterable<LikeTask>,
 ): Promise<TreeRanking> {
   const now = runtime.clock.now();
@@ -25,5 +25,5 @@ export async function teamRanking(
     readTaskSpend(runtime, paths, config, now).catch(() => undefined),
   ]);
   const spentOf = (task: SpendKey): number => spend?.(task) ?? 0;
-  return treeRanking({ focus: config.focus, ownerSource: config.register.ownerSource, goals, sizing: likeSizing(tasks, config.focus, spentOf, now) });
+  return treeRanking({ focus: config.priorities, ownerSource: config.register.ownerSource, goals, sizing: likeSizing(tasks, config.priorities, spentOf, now) });
 }

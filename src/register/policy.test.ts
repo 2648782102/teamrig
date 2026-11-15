@@ -63,13 +63,13 @@ describe('RegisterPolicy.add', () => {
     });
   });
 
-  it('keeps a work class of focus.classes, and refuses any other (T2076)', () => {
+  it('keeps a work class of priorities.classes, and refuses any other (T2076)', () => {
     const verdict = policy.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY);
     assert.equal(verdict.ok ? verdict.value.workClass : undefined, 'Roadmap');
-    assert.equal(error(policy.add({ ...INPUT, workClass: 'Chores' }, EMPTY)), 'class Chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
-    const own = new RegisterPolicy(testConfig({ focus: { classes: ['Product', 'Upkeep'], roadmapClass: 'Product', maintenanceClass: 'Upkeep', defaultClass: 'Upkeep', allocation: { Product: 70, Upkeep: 30 } } }));
+    assert.equal(error(policy.add({ ...INPUT, workClass: 'Chores' }, EMPTY)), 'class Chores is not one of priorities.classes (Roadmap, Maintenance, Improvements)');
+    const own = new RegisterPolicy(testConfig({ priorities: { classes: ['Product', 'Upkeep'], roadmapClass: 'Product', maintenanceClass: 'Upkeep', defaultClass: 'Upkeep', allocation: { Product: 70, Upkeep: 30 } } }));
     assert.equal(error(own.add({ ...INPUT, workClass: 'Product' }, EMPTY)), 'allowed', "a team's own classes");
-    assert.equal(error(own.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY)), 'class Roadmap is not one of focus.classes (Product, Upkeep)');
+    assert.equal(error(own.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY)), 'class Roadmap is not one of priorities.classes (Product, Upkeep)');
   });
 
   it("takes teamrig's p0 beside the configured levels, a team with its own levels included", () => {
@@ -479,7 +479,7 @@ describe('RegisterPolicy.setStatus: the WIP rule holds a start (T2076)', () => {
   it('refuses a start of Improvements work while its owner holds Roadmap work that can move', () => {
     assert.equal(
       error(policy.setStatus(tooling, 'alpha', { status: 'in-progress' }, context)),
-      'T2 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [focus.wip], or, for a one-commit fix, start it with --one-commit',
+      'T2 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [priorities.startHold], or, for a one-commit fix, start it with --one-commit',
     );
   });
 
@@ -507,7 +507,7 @@ describe('RegisterPolicy.setStatus: the WIP rule holds a start (T2076)', () => {
     const full = { ...CTX, state: stateOf(started('T1'), started('T2'), started('T3'), fourth) };
     assert.equal(
       error(policy.setStatus(fourth, 'alpha', { status: 'in-progress' }, full)),
-      'alpha already has 3 tasks in progress, at the limit of 3 [focus.wip.maxInProgress]: finish T1, T2, T3 or put one back (--status open) before T4, or, for a one-commit fix, start it with --one-commit',
+      'alpha already has 3 tasks in progress, at the limit of 3 [priorities.startHold.maxInProgress]: finish T1, T2, T3 or put one back (--status open) before T4, or, for a one-commit fix, start it with --one-commit',
     );
   });
 
@@ -535,7 +535,7 @@ describe('RegisterPolicy.setStatus: the WIP rule holds a start (T2076)', () => {
 
   it('leaves a warning to the CLI under warn, and holds nothing under off', () => {
     for (const mode of ['warn', 'off']) {
-      const relaxed = new RegisterPolicy(testConfig({ focus: { wip: { mode, maxInProgress: 3 } } }));
+      const relaxed = new RegisterPolicy(testConfig({ priorities: { startHold: { mode, maxInProgress: 3 } } }));
       assert.equal(relaxed.setStatus(tooling, 'alpha', { status: 'in-progress' }, context).ok, true, mode);
     }
   });
@@ -1019,10 +1019,10 @@ describe('RegisterPolicy.update', () => {
     assert.equal(error(tree.update(bravos, 'charlie', { ref: 'gh:acme/app#7' }, undefined, EMPTY)), 'only the owner (bravo) or a leader above bravo (alpha or lead) changes T9');
   });
 
-  it('keeps a class the team renamed out of focus.classes on any other change, and refuses setting one outside them (T2076)', () => {
+  it('keeps a class the team renamed out of priorities.classes on any other change, and refuses setting one outside them (T2076)', () => {
     const stale = testTask({ workClass: 'Chores' });
     assert.equal(policy.update(stale, 'alpha', { title: 'Add two health checks' }, undefined, EMPTY).ok, true, 'a kept class stands');
-    assert.equal(error(policy.update(stale, 'alpha', { workClass: 'Toil' }, undefined, EMPTY)), 'class Toil is not one of focus.classes (Roadmap, Maintenance, Improvements)');
+    assert.equal(error(policy.update(stale, 'alpha', { workClass: 'Toil' }, undefined, EMPTY)), 'class Toil is not one of priorities.classes (Roadmap, Maintenance, Improvements)');
     assert.equal(policy.update(stale, 'alpha', { workClass: null }, undefined, EMPTY).ok, true, 'clearing it');
     assert.equal(policy.update(stale, 'alpha', { workClass: 'Roadmap' }, undefined, EMPTY).ok, true, 'one of the classes');
   });

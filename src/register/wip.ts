@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { canMove } from './can-move.ts';
 import type { Task } from './fold.ts';
 import { classOf, prepStanding, type SlicedGoal } from './focus.ts';
@@ -9,7 +9,7 @@ import type { WaitContext } from './waits.ts';
 /**
  * The WIP rule (T2076): a session finishes what the team ranked first before it opens more. A start of anything but
  * Roadmap or Maintenance work is held while its owner holds Roadmap work that can move, or until the week resets once
- * its class has spent its share of the week, and any start is held past `focus.wip.maxInProgress`, as work spread over
+ * its class has spent its share of the week, and any start is held past `priorities.startHold.maxInProgress`, as work spread over
  * many tasks finishes none of them.
  */
 
@@ -27,7 +27,7 @@ const ONE_COMMIT_WAY = 'or, for a one-commit fix, start it with --one-commit';
 const NOT_A_START: readonly TaskStatus[] = ['in-progress', 'verifying', 'done'];
 
 /** The part of the `focus` config the rule reads. */
-export type WipFocus = Pick<FocusConfig, 'roadmapClass' | 'maintenanceClass' | 'defaultClass' | 'expedite' | 'wip'>;
+export type WipFocus = Pick<PrioritiesConfig, 'roadmapClass' | 'maintenanceClass' | 'defaultClass' | 'expedite' | 'startHold'>;
 
 /** The status change the rule judges: the task as it stands, the status asked for, and whether `--one-commit` came with it. */
 export interface WipStart {
@@ -69,23 +69,23 @@ function namedIds(tasks: readonly Task[]): string {
  */
 export function wipHold({ task, status, oneCommit, spentClasses, goals }: WipStart, tasks: Iterable<Task>, context: WaitContext, focus: WipFocus, ownerSource: string): string | undefined {
   const workClass = classOf(task, focus);
-  if (focus.wip.mode === 'off' || status !== 'in-progress' || NOT_A_START.includes(task.status) || oneCommit === true || isExempt(task, workClass, focus, ownerSource)) {
+  if (focus.startHold.mode === 'off' || status !== 'in-progress' || NOT_A_START.includes(task.status) || oneCommit === true || isExempt(task, workClass, focus, ownerSource)) {
     return undefined;
   }
   const others = [...tasks].filter((held) => held.owner === task.owner && held.id !== task.id);
   const nearPrep = goals !== undefined && prepStanding(task, goals) === 'near';
   if (!nearPrep && workClass !== focus.roadmapClass && workClass !== focus.maintenanceClass) {
     if (spentClasses?.has(workClass) === true) {
-      return `${task.id} is ${workClass} work and ${workClass} has spent its share of the week [focus.allocation]: it waits for the week's reset, ${ONE_COMMIT_WAY}`;
+      return `${task.id} is ${workClass} work and ${workClass} has spent its share of the week [priorities.allocation]: it waits for the week's reset, ${ONE_COMMIT_WAY}`;
     }
     const first = others.filter((held) => classOf(held, focus) === focus.roadmapClass && movesNow(held, context));
     if (first.length > 0) {
-      return `${task.id} is ${workClass} work and ${task.owner} holds ${focus.roadmapClass} work that can move: ${namedIds(first)}; work that first [focus.wip], ${ONE_COMMIT_WAY}`;
+      return `${task.id} is ${workClass} work and ${task.owner} holds ${focus.roadmapClass} work that can move: ${namedIds(first)}; work that first [priorities.startHold], ${ONE_COMMIT_WAY}`;
     }
   }
   const started = others.filter((held) => held.status === 'in-progress');
-  const max = focus.wip.maxInProgress;
+  const max = focus.startHold.maxInProgress;
   return started.length < max
     ? undefined
-    : `${task.owner} already has ${started.length} tasks in progress, at the limit of ${max} [focus.wip.maxInProgress]: finish ${namedIds(started)} or put one back (--status open) before ${task.id}, ${ONE_COMMIT_WAY}`;
+    : `${task.owner} already has ${started.length} tasks in progress, at the limit of ${max} [priorities.startHold.maxInProgress]: finish ${namedIds(started)} or put one back (--status open) before ${task.id}, ${ONE_COMMIT_WAY}`;
 }

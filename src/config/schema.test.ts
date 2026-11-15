@@ -151,8 +151,8 @@ const LIMIT_PATHS: { readonly [Name in keyof typeof CONFIG_LIMITS]: string } = {
   overSizeMultiple: 'register.check.overSizeMultiple',
   stopgapFiles: 'register.check.stopgapFiles',
   persistentFailureHours: 'alerts.persistentFailureHours',
-  slicesPerSession: 'focus.slicesPerSession',
-  maxOwnerDecisions: 'focus.maxOwnerDecisions',
+  slicesPerSession: 'priorities.slicesPerSession',
+  maxOwnerDecisions: 'priorities.maxOwnerDecisions',
   shareFloorPct: 'budget.shareFloorPct',
   decisionBatchTimes: 'decisions.batchTimesUtc',
   dedicatedOwners: 'decisions.dedicatedOwners',
@@ -261,7 +261,7 @@ function nodeAt(schema: JsonRecord, path: string): JsonRecord {
 }
 
 /**
- * Every key of the parsed config, with its value, its schema node and, for a key of a map such as `focus.allocation`,
+ * Every key of the parsed config, with its value, its schema node and, for a key of a map such as `priorities.allocation`,
  * the map's node: JSON Schema states no default per map key, so the map's own default holds them.
  */
 function* walkConfig(config: JsonRecord, schema: JsonRecord, path: string): Generator<[string, unknown, JsonRecord | undefined, JsonRecord | undefined]> {

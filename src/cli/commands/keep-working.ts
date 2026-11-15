@@ -48,7 +48,7 @@ export async function keepWorkingReasonOf(runtime: CliRuntime, scope: BudgetScop
   const zone = teamZone(config, runtime);
   const { tasks } = snapshot.state;
   // As a start reads them (cli/commands/register.ts), so the push names only work a start would not hold.
-  const spentClasses = config.focus.wip.mode === 'off' ? new Set<string>() : await readSpentClasses(runtime, kit.paths, config, tasks.values(), now);
-  const work = keepWorkingOf({ tasks, elsewhere, session: id, ask, now, zone, rest, parking: parkRulesOf(config), focus: config.focus, ownerSource: config.register.ownerSource, spentClasses });
+  const spentClasses = config.priorities.startHold.mode === 'off' ? new Set<string>() : await readSpentClasses(runtime, kit.paths, config, tasks.values(), now);
+  const work = keepWorkingOf({ tasks, elsewhere, session: id, ask, now, zone, rest, parking: parkRulesOf(config), focus: config.priorities, ownerSource: config.register.ownerSource, spentClasses });
   return work === undefined ? undefined : keepWorkingReason(id, work, zone, id === config.roles.lead && config.leadBoundary.enabled);
 }

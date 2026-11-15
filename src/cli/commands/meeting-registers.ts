@@ -16,7 +16,7 @@ export function agendaRegisterOf(rolled: RolledTeam, runtime: CliRuntime): Omit<
     tree: taskTreeOf(rolled, runtime),
     ownerMarker: rolled.config.register.ownerSource,
     requireGate: rolled.config.register.requireDecisionCard,
-    focus: rolled.config.focus,
+    focus: rolled.config.priorities,
     dedicatedOwners: rolled.config.decisions.dedicatedOwners,
   };
 }
@@ -30,7 +30,7 @@ export function decisionAgendaOf({ own, teams }: RollUp, runtime: CliRuntime, no
     ...agendaRegisterOf(own, runtime),
     below: teams.filter((rolled) => rolled.team !== own.team).map((rolled) => ({ team: rolled.team, ...agendaRegisterOf(rolled, runtime) })),
     now,
-    improvementsDay: own.config.focus.improvementsDay,
+    improvementsDay: own.config.priorities.improvementsDay,
     carried,
   };
 }

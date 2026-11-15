@@ -133,7 +133,7 @@ export async function pipeline(_args: ParsedArgs, runtime: CliRuntime): Promise<
   const { delivery } = config;
   const zone = teamZone(config, runtime);
   const places = deliveryPlaces(delivery, kit.paths);
-  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.focus, zone);
+  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.priorities, zone);
   const state = await lock.state();
   const shares = await lock.shares();
   const tabs = await new TabHolds(tabHoldsDir(places.hostLock), runtime).held();

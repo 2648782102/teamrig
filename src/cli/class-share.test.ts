@@ -12,7 +12,7 @@ import { openTeam } from './commands/register-team.ts';
 /** 1% of the week is 10M W, so Improvements' 15% is 150M W. */
 const LIMITED: JsonRecord = { ...TEAM, budget: { weeklyLimitW: 1_000_000_000 } };
 /** A share that is spent before any W, so a read with no week or no rate shows it held nothing. */
-const NO_SHARE: JsonRecord = { focus: { allocation: { Roadmap: 75, Maintenance: 25, Improvements: 0 } } };
+const NO_SHARE: JsonRecord = { priorities: { allocation: { Roadmap: 75, Maintenance: 25, Improvements: 0 } } };
 const USAGE = join(TEAM_HOME, 'state', 'usage');
 const TASKS = [{ id: 'T2', workClass: 'Improvements' }];
 
@@ -67,6 +67,6 @@ describe('readSpentClasses', () => {
     const { spent, warnings } = await read(kit, new FaultyFiles(kit.files).fail('read', join(USAGE, 'alpha.json'), systemError('EIO')));
     assert.deepEqual(spent, []);
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0] ?? '', /^WARN the week's spend by class could not be read, so no class is held for its share \[focus\.allocation\]: .*EIO/);
+    assert.match(warnings[0] ?? '', /^WARN the week's spend by class could not be read, so no class is held for its share \[priorities.allocation\]: .*EIO/);
   });
 });

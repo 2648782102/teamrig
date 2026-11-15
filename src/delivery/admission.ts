@@ -15,7 +15,7 @@ export function isAdmissionMode(value: unknown): value is AdmissionMode {
   return ADMISSION_MODES.some((mode) => mode === value);
 }
 
-/** What orders the host lock's line: the team's `delivery.queue` admission keys and its `focus.defaultClass`. */
+/** What orders the host lock's line: the team's `delivery.queue` admission keys and its `priorities.defaultClass`. */
 export interface AdmissionRules {
   readonly mode: AdmissionMode;
   /** A waiting step's priority rises one level per this many minutes waited, never to p0; 0 ages nothing. */

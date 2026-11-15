@@ -9,12 +9,12 @@ import { treeHarness } from '../testing/team-tree.ts';
 import { EXIT } from './runtime.ts';
 
 const START = ['set', 'T2', '--status', 'in-progress', '--session', 'alpha'];
-const HOLD = 'T2 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [focus.wip], or, for a one-commit fix, start it with --one-commit';
-const SPENT_HOLD = "T1 is Improvements work and Improvements has spent its share of the week [focus.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit";
+const HOLD = 'T2 is Improvements work and alpha holds Roadmap work that can move: T1; work that first [priorities.startHold], or, for a one-commit fix, start it with --one-commit';
+const SPENT_HOLD = "T1 is Improvements work and Improvements has spent its share of the week [priorities.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit";
 const START_T1 = ['set', 'T1', '--status', 'in-progress', '--session', 'alpha'];
 /** 1% of the week is 10M W, so Improvements' 15% is 150M W. */
 const LIMITED: JsonRecord = { ...TEAM, budget: { weeklyLimitW: 1_000_000_000 } };
-const WARNED: JsonRecord = { ...LIMITED, focus: { wip: { mode: 'warn', maxInProgress: 3 } } };
+const WARNED: JsonRecord = { ...LIMITED, priorities: { startHold: { mode: 'warn', maxInProgress: 3 } } };
 
 /** The harness holding alpha's open T1, Improvements work, with `w` W stored on it this week. */
 async function spentOn(kit: CliHarness, w = 150_000_000): Promise<CliHarness> {
@@ -60,19 +60,19 @@ describe('runCli: set and the WIP rule', () => {
   });
 
   it('starts a held task in warn mode, warning that it did', async () => {
-    const kit = await ranked(new CliHarness({ ...TEAM, focus: { wip: { mode: 'warn', maxInProgress: 3 } } }));
+    const kit = await ranked(new CliHarness({ ...TEAM, priorities: { startHold: { mode: 'warn', maxInProgress: 3 } } }));
     const start = await kit.run(START);
     assert.equal(start.code, EXIT.ok, start.stdout.join('\n'));
-    assert.deepEqual(start.stderr, [`WARN ${HOLD}; started anyway, as focus.wip.mode is warn`]);
+    assert.deepEqual(start.stderr, [`WARN ${HOLD}; started anyway, as priorities.startHold.mode is warn`]);
   });
 
   it('warns of nothing for near-term prep, read from the goal records, and of a lapsed marker as of any start (T2453)', async () => {
-    const kit = await ranked(new CliHarness({ ...TEAM, focus: { wip: { mode: 'warn', maxInProgress: 3 } } }));
+    const kit = await ranked(new CliHarness({ ...TEAM, priorities: { startHold: { mode: 'warn', maxInProgress: 3 } } }));
     await kit.run(['goal', 'add', 'A1', '--title', 'Ship the beta', '--target', '2030-02-01', '--session', 'lead']);
     await kit.run(['goal', 'rank', 'A1', '1', '--session', 'lead']);
     await kit.run(['goal', 'set', 'A1', '--slice', '1', '--note', 'slice 1 open', '--session', 'lead']);
     await kit.run(['update', 'T2', '--prepares', 'A1:3', '--session', 'lead']);
-    assert.deepEqual((await kit.run(START)).stderr, [`WARN ${HOLD}; started anyway, as focus.wip.mode is warn`]);
+    assert.deepEqual((await kit.run(START)).stderr, [`WARN ${HOLD}; started anyway, as priorities.startHold.mode is warn`]);
     await kit.run(['set', 'T2', '--status', 'open', '--session', 'alpha']);
     await kit.run(['update', 'T2', '--prepares', 'A1:2', '--session', 'lead']);
     const start = await kit.run(START);
@@ -80,19 +80,19 @@ describe('runCli: set and the WIP rule', () => {
   });
 
   it('takes --one-commit in warn mode with no warning, as nothing held the start', async () => {
-    const kit = await ranked(new CliHarness({ ...TEAM, focus: { wip: { mode: 'warn', maxInProgress: 3 } } }));
+    const kit = await ranked(new CliHarness({ ...TEAM, priorities: { startHold: { mode: 'warn', maxInProgress: 3 } } }));
     assert.deepEqual((await kit.run([...START, '--one-commit'])).stderr, []);
   });
 
   it('says nothing with the rule off', async () => {
-    const kit = await ranked(new CliHarness({ ...TEAM, focus: { wip: { mode: 'off', maxInProgress: 3 } } }));
+    const kit = await ranked(new CliHarness({ ...TEAM, priorities: { startHold: { mode: 'off', maxInProgress: 3 } } }));
     const start = await kit.run(START);
     assert.deepEqual([start.code, start.stderr], [EXIT.ok, []]);
   });
 
   it('reopens a finished task past a hold, in refuse and in warn mode, with no warning', async () => {
     for (const mode of ['refuse', 'warn'] as const) {
-      const kit = new CliHarness({ ...TEAM, focus: { wip: { mode, maxInProgress: 3 } } });
+      const kit = new CliHarness({ ...TEAM, priorities: { startHold: { mode, maxInProgress: 3 } } });
       await kit.run(['add', '--title', 'Tidy the tooling', '--description', 'what and why', '--priority', 'p2', '--class', 'Improvements', '--session', 'alpha']);
       await kit.run(['set', 'T1', '--status', 'in-progress', '--session', 'alpha']);
       const closed = await kit.run(['set', 'T1', '--status', 'done', '--note', 'shipped', '--evidence', 'abc1234', '--skill', 'none', '--followups', 'none', '--session', 'alpha']);
@@ -104,7 +104,7 @@ describe('runCli: set and the WIP rule', () => {
   });
 
   it('counts Roadmap work planned after a task another team of the tree holds as unable to move', async () => {
-    const kit = await treeHarness({ focus: { wip: { mode: 'warn', maxInProgress: 3 } } });
+    const kit = await treeHarness({ priorities: { startHold: { mode: 'warn', maxInProgress: 3 } } });
     await kit.run(['add', '--title', 'Build the feed', '--description', 'what and why', '--priority', 'p2', '--owner', 'front', '--session', 'lead'], { env: { TEAMRIG_TEAM: 'web' } });
     await kit.run(['add', '--title', 'Ship the chart', '--description', 'what and why', '--priority', 'p2', '--class', 'Roadmap', '--after', 'T1', '--session', 'alpha']);
     await kit.run(['add', '--title', 'Tidy the tooling', '--description', 'what and why', '--priority', 'p2', '--class', 'Improvements', '--session', 'alpha']);
@@ -136,7 +136,7 @@ describe('runCli: set and a class past its share of the week', () => {
     const kit = await spentOn(new CliHarness(WARNED));
     const start = await kit.run(START_T1);
     assert.equal(start.code, EXIT.ok, start.stdout.join('\n'));
-    assert.deepEqual(start.stderr, [`WARN ${SPENT_HOLD}; started anyway, as focus.wip.mode is warn`]);
+    assert.deepEqual(start.stderr, [`WARN ${SPENT_HOLD}; started anyway, as priorities.startHold.mode is warn`]);
   });
 
   it('starts anything once the week has reset', async () => {
@@ -156,7 +156,7 @@ describe('runCli: set and a class past its share of the week', () => {
   });
 
   it('reads no usage with the rule off', async () => {
-    const kit = await spentOn(new CliHarness({ ...LIMITED, focus: { wip: { mode: 'off', maxInProgress: 3 } } }));
+    const kit = await spentOn(new CliHarness({ ...LIMITED, priorities: { startHold: { mode: 'off', maxInProgress: 3 } } }));
     const files = new FaultyFiles(kit.files).fail('read', join(TEAM_HOME, 'state', 'usage', 'alpha.json'), systemError('EIO'));
     const start = await kit.run(START_T1, { files });
     assert.deepEqual([start.code, start.stderr], [EXIT.ok, []]);

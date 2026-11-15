@@ -1694,7 +1694,7 @@
         "pace": { "description": "Where the team's pace line stands now, beside the week's use, as in week 63% (pace 53%): the line teamrig budget reads, from the week's start, after a reset inside the week from that reset, by the team's budget.targetPct, budget.paceEndHoursBeforeReset and budget.quietHours. Outside a team, none.", "type": "boolean", "default": true }
       }
     },
-    "focus": {
+    "priorities": {
       "description": "Goal-first ranking: the work classes a task is filed under (teamrig add and update --class), how its WSJF score is made (cost of delay over size), the WIP rule and the share of the week each class is planned to take. When classes, roadmapClass, maintenanceClass, defaultClass and allocation disagree, each problem is reported and all five take their defaults.",
       "type": "object",
       "properties": {
@@ -1740,7 +1740,7 @@
             "ownerP1": { "description": "An owner-sourced p1 task.", "type": "boolean", "default": true }
           }
         },
-        "wip": {
+        "startHold": {
           "description": "The WIP rule: an Improvements start is held while its owner has a Roadmap task that can move, or until the week resets once Improvements has spent its allocation, and a start past maxInProgress is held. --one-commit, a reopen of a verifying or done task, an expedited task and an owner-sourced task are exempt.",
           "type": "object",
           "properties": {
@@ -1749,7 +1749,7 @@
           }
         },
         "allocation": {
-          "description": "The % of the whole week each class is planned to take, by class; every key one of classes, the shares summing to 100. A class outside roadmapClass and maintenanceClass that reaches its share has its starts held until the week resets, unless wip's mode is off; a class left out is never held, and one at 0 is held from the week's start.",
+          "description": "The % of the whole week each class is planned to take, by class; every key one of classes, the shares summing to 100. A class outside roadmapClass and maintenanceClass that reaches its share has its starts held until the week resets, unless startHold's mode is off; a class left out is never held, and one at 0 is held from the week's start.",
           "type": "object",
           "propertyNames": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9 _-]{0,31}$" },
           "additionalProperties": { "description": "The class's share of the whole week, in %.", "type": "number", "minimum": 0, "maximum": 100 },

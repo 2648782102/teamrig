@@ -98,7 +98,7 @@ describe('the read entry', () => {
     const config = read.parseConfigText(JSON.stringify({ configVersion: read.CONFIG_VERSION, sessions: ['lead', 'alpha'], roles: { lead: 'lead' } }));
     assert.ok(config.status === 'loaded');
     const now = Date.parse('2030-02-01T00:00:00Z');
-    const park = { focus: read.DEFAULT_FOCUS, ownerSource: read.DEFAULT_REGISTER.ownerSource, now, needed: () => false };
+    const park = { focus: read.DEFAULT_PRIORITIES, ownerSource: read.DEFAULT_REGISTER.ownerSource, now, needed: () => false };
     const quiet = { id: 'T1', status: 'open', workClass: 'Improvements', updatedAt: '2030-01-01T00:00:00.000Z' } as const;
     assert.deepEqual([read.wouldPark(quiet, park), read.wouldPark({ ...quiet, workClass: null }, park)], [true, false]);
     const leaders = new read.LeadTree(config.config);

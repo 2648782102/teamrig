@@ -117,7 +117,7 @@ describe('runCli: ROADMAP-WAITS-ON-LEAD', () => {
   });
 
   it('reads the limit from the team config', async () => {
-    const kit = await asking('Roadmap', new CliHarness({ ...TEAM, focus: { leaderWaitMinutes: 120 } }));
+    const kit = await asking('Roadmap', new CliHarness({ ...TEAM, priorities: { leaderWaitMinutes: 120 } }));
     kit.clock.advance(61 * MS_PER_MINUTE);
     assert.equal(flagged(await checkOf(kit)), false);
   });

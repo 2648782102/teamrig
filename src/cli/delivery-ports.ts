@@ -1,7 +1,7 @@
 import { resolveReset } from '../budget/pace.ts';
 import { weekUseAt } from '../budget/snapshot.ts';
 import { readFolderWeek } from '../budget/week-summary.ts';
-import type { BudgetConfig, FocusConfig, HeadroomConfig, QueueConfig } from '../config/types.ts';
+import type { BudgetConfig, PrioritiesConfig, HeadroomConfig, QueueConfig } from '../config/types.ts';
 import type { AdmissionRules } from '../delivery/admission.ts';
 import { CpuGate } from '../delivery/cpu.ts';
 import { FREEZES_LOCK_TTL_MS } from '../delivery/freeze-store.ts';
@@ -34,7 +34,7 @@ type LockRuntime = Pick<CliRuntime, 'files' | 'clock' | 'sleep' | 'pid' | 'sessi
  * `delivery.queue.memoryFloorMb` plus the step's reserve (`heavyReserveMb` at least for a step that takes the lock),
  * and the commit charge under `open.headroom.commitMaxPct` with the reserve counted, the tabs still loading beside the
  * lock (`tabHoldsDir(path)`, written by `open`) holding their MB of both. Its line is ordered as
- * `delivery.queue.admission` says, a ticket naming no class counting as `focus.defaultClass`; a heavy step joins another
+ * `delivery.queue.admission` says, a ticket naming no class counting as `priorities.defaultClass`; a heavy step joins another
  * heavy one only while `delivery.queue.heavyIdleCpuPct` of the host's CPU is idle. A waiter's ticket says what it waits
  * on with the times on `zone`'s clock.
  */
@@ -43,7 +43,7 @@ export function hostLockOf(
   path: string,
   queue: Pick<QueueConfig, 'lockTtlMinutes' | 'memoryFloorMb' | 'heavyReserveMb' | 'admission' | 'agingMinutes' | 'memoryPassMinutes' | 'perSessionRunning' | 'maxHeavyParallel' | 'heavyIdleCpuPct'>,
   headroom: Pick<HeadroomConfig, 'commitMaxPct'>,
-  focus: Pick<FocusConfig, 'defaultClass'>,
+  focus: Pick<PrioritiesConfig, 'defaultClass'>,
   zone: TimeZone,
 ): HostLock {
   const tabs = new TabHolds(tabHoldsDir(path), runtime);

@@ -270,7 +270,7 @@ describe('goalAddRefusal', () => {
     }
   });
 
-  describe('the key-result cap (focus.maxActiveKeyResults, T2083)', () => {
+  describe('the key-result cap (priorities.maxActiveKeyResults, T2083)', () => {
     // A1 holds two key results: A1.1 due on today's day, A1.2 due before it.
     const held = foldGoals([
       add(),
@@ -294,7 +294,7 @@ describe('goalAddRefusal', () => {
     it('refuses a key result past the cap, and a past-target one frees its slot', () => {
       assert.match(
         goalAddRefusal(keyResult, held, cap(1)) ?? '',
-        /the team holds 1 key results \(goals with a parent\) with a target of 2030-01-10 or later, the most focus\.maxActiveKeyResults allows: finish one or move its target first/,
+        /the team holds 1 key results \(goals with a parent\) with a target of 2030-01-10 or later, the most priorities.maxActiveKeyResults allows: finish one or move its target first/,
       );
       assert.equal(goalAddRefusal(keyResult, held, cap(2)), undefined);
       assert.match(goalAddRefusal(keyResult, held, { max: 2, today: '2030-01-09' }) ?? '', /the team holds 2 key results/);

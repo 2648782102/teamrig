@@ -1,5 +1,5 @@
 import type { LeadTree } from '../config/lead-tree.ts';
-import type { FocusConfig, KitConfig } from '../config/types.ts';
+import type { PrioritiesConfig, KitConfig } from '../config/types.ts';
 import { MS_PER_DAY } from '../core/time.ts';
 import type { Task } from './fold.ts';
 
@@ -9,7 +9,7 @@ import type { Task } from './fold.ts';
  * imports, as the sweep, the reads of the tree and the pane all judge a task by this one rule.
  */
 
-export type ParkFocus = Pick<FocusConfig, 'roadmapClass' | 'maintenanceClass' | 'parkAfterDays'>;
+export type ParkFocus = Pick<PrioritiesConfig, 'roadmapClass' | 'maintenanceClass' | 'parkAfterDays'>;
 
 /** What the rule reads of a task; only `id` and `status` are sure, as a tree row may come from a smaller read. */
 export type ParkRow = Pick<Task, 'id' | 'status'> & Partial<Pick<Task, 'updatedAt' | 'workClass' | 'pin' | 'critical' | 'source'>>;
@@ -26,8 +26,8 @@ export interface ParkInput {
 /** The team's part of the rule: a read that holds no tree, as the wake's, takes it from the config. */
 export type ParkRules = Pick<ParkInput, 'focus' | 'ownerSource'>;
 
-export function parkRulesOf(config: Pick<KitConfig, 'focus' | 'register'>): ParkRules {
-  return { focus: config.focus, ownerSource: config.register.ownerSource };
+export function parkRulesOf(config: Pick<KitConfig, 'priorities' | 'register'>): ParkRules {
+  return { focus: config.priorities, ownerSource: config.register.ownerSource };
 }
 
 /**

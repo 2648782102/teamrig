@@ -6,7 +6,7 @@ import { ownSizing } from '../register/ranking.ts';
 import type { ScoreFocus } from '../register/score.ts';
 import type { ServedGoal, TreeRanking } from '../register/tree.ts';
 
-/** A team's `focus`, as far as a score and the park rule read it, with round weights a test can add up by hand. */
+/** A team's `priorities`, as far as a score and the park rule read it, with round weights a test can add up by hand. */
 export const TEST_FOCUS: ScoreFocus & ParkFocus = {
   roadmapClass: 'Roadmap',
   maintenanceClass: 'Maintenance',

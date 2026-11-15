@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { storedDeadline } from '../core/time.ts';
 import { TimeZone } from '../core/zone.ts';
 import { MeetingStore } from '../meeting/state.ts';
@@ -18,7 +18,7 @@ import { teamDecisions, type DecisionRegister, type TeamDecisionsConfig } from '
 /** A Tuesday. */
 const NOW = Date.parse('2030-01-08T10:00:00Z');
 const PATHS = { decisionsAsked: '/kit/state/decisions-asked.json', meeting: '/kit/state/meeting.json' };
-const CONFIG: TeamDecisionsConfig = { decisions: { batchTimesUtc: ['13:03', '19:03'], batchAt: 5 }, focus: { improvementsDay: 'wed' } };
+const CONFIG: TeamDecisionsConfig = { decisions: { batchTimesUtc: ['13:03', '19:03'], batchAt: 5 }, priorities: { improvementsDay: 'wed' } };
 
 function ownerWait(id: string, statusAt: string, who = 'owner'): Task {
   return testTask({ id, status: 'waiting', waits: [{ kind: 'decision', who }], card: TEST_OWNER_CARD, statusAt });
@@ -36,7 +36,7 @@ function tasksOf(...tasks: readonly Task[]): Map<string, Task> {
 
 /** The team's own register of `tasks`, its marker for the owner `owner`, on `zone`'s clock. */
 function own(tasks: ReadonlyMap<string, Task>, zone = TimeZone.UTC): DecisionRegister {
-  return { team: undefined, tasks, ownerMarker: 'owner', requireGate: true, zone, elsewhere: NO_TASKS_ELSEWHERE, ranking: testRanking(), focus: DEFAULT_FOCUS, dedicatedOwners: [] };
+  return { team: undefined, tasks, ownerMarker: 'owner', requireGate: true, zone, elsewhere: NO_TASKS_ELSEWHERE, ranking: testRanking(), focus: DEFAULT_PRIORITIES, dedicatedOwners: [] };
 }
 
 const TASKS = tasksOf(ownerWait('T1', '2030-01-07T08:00:00.000Z'), ownerWait('T2', '2030-01-08T09:00:00.000Z'));
@@ -106,12 +106,12 @@ describe("a team's decision batch", () => {
     );
   });
 
-  // T2113: the team's focus.improvementsDay says when a wait that frees only Improvements work is asked.
+  // T2113: the team's priorities.improvementsDay says when a wait that frees only Improvements work is asked.
   it("holds a wait that frees only Improvements work until the team's Improvements day", async () => {
     const improvements = tasksOf(testTask({ ...ownerWait('T1', '2030-01-08T09:00:00.000Z'), workClass: 'Improvements' }));
     const held = await teamDecisions(new MemoryFiles(), PATHS, CONFIG, [own(improvements)], NOW);
     assert.deepEqual([held.pending, held.weekly.map((wait) => wait.task.id), held.improvementsDay], [[], ['T1'], 'wed']);
-    const today = await teamDecisions(new MemoryFiles(), PATHS, { ...CONFIG, focus: { improvementsDay: 'tue' } }, [own(improvements)], NOW);
+    const today = await teamDecisions(new MemoryFiles(), PATHS, { ...CONFIG, priorities: { improvementsDay: 'tue' } }, [own(improvements)], NOW);
     assert.deepEqual([today.pending.map((wait) => wait.task.id), today.weekly], [['T1'], []]);
   });
 });

@@ -29,11 +29,11 @@ const SCHEMA: JsonRecord = {
       },
     },
     budget: { type: 'object', properties: { targetPct: { description: 'The week target.', type: 'number', default: 99.5 } } },
-    focus: {
+    priorities: {
       type: 'object',
       properties: {
         allocation: { description: 'Shares.', type: 'object', additionalProperties: { type: 'number' } },
-        wip: { description: 'The WIP limit.', type: 'integer', default: 1 },
+        startHold: { description: 'The WIP limit.', type: 'integer', default: 1 },
       },
     },
   },
@@ -71,8 +71,8 @@ describe('settingRows', () => {
         'register.aliases',
         'register.unset',
         'budget.targetPct',
-        'focus.allocation',
-        'focus.wip',
+        'priorities.allocation',
+        'priorities.startHold',
       ],
     );
     assert.equal(rowAt(rows, 'messages.maxLines').group, 'messages');
@@ -127,8 +127,8 @@ describe('settingRows', () => {
 
   it('marks owner-gated keys with their gate, a sibling of a gated key left editable', () => {
     assert.deepEqual([rowAt(rows, 'budget.targetPct').gatedBy, rowAt(rows, 'budget.targetPct').readOnly, rowAt(rows, 'budget.targetPct').editable], ['budget', 'owner gate: budget', false]);
-    assert.equal(rowAt(rows, 'focus.allocation').gatedBy, 'budget');
-    assert.deepEqual([rowAt(rows, 'focus.wip').gatedBy, rowAt(rows, 'focus.wip').editable], [undefined, true]);
+    assert.equal(rowAt(rows, 'priorities.allocation').gatedBy, 'budget');
+    assert.deepEqual([rowAt(rows, 'priorities.startHold').gatedBy, rowAt(rows, 'priorities.startHold').editable], [undefined, true]);
   });
 
   it('picks the rows at a path or under it, none for an unknown one', () => {
@@ -156,7 +156,7 @@ describe('settingRows over the shipped schema', async () => {
     const gated = rows.filter((row) => gatedGroups.includes(row.group));
     assert.ok(gated.length > 0);
     assert.deepEqual(gated.filter((row) => row.editable || row.gatedBy === undefined).map((row) => row.path), []);
-    assert.equal(rowAt(rows, 'focus.allocation').gatedBy, 'budget');
+    assert.equal(rowAt(rows, 'priorities.allocation').gatedBy, 'budget');
   });
 
   it('leaves a plain key editable at its default', () => {

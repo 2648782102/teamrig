@@ -236,7 +236,7 @@ export function runFileFlags(tasks: Iterable<Task>, runFiles: RunFiles): Flag[] 
 }
 
 /**
- * ROADMAP-WAITS-ON-LEAD: Roadmap work held on a leader's answer past `focus.leaderWaitMinutes` ({@link leaderHolds}), in
+ * ROADMAP-WAITS-ON-LEAD: Roadmap work held on a leader's answer past `priorities.leaderWaitMinutes` ({@link leaderHolds}), in
  * the order of `tasks`: the work the team ranked highest stands still until the leader answers, so the leader answers it
  * first. Apart from {@link checkTasks}, whose register config names neither the lead nor the focus.
  */

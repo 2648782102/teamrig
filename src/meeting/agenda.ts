@@ -75,7 +75,7 @@ export interface AgendaInput {
   readonly focus: DecisionFocus;
   /** `decisions.dedicatedOwners`: the sessions whose waits on the owner go to DEDICATED, not to the cards (T868). */
   readonly dedicatedOwners: readonly string[];
-  /** `focus.improvementsDay`: the UTC weekday the Improvements batch is asked. */
+  /** `priorities.improvementsDay`: the UTC weekday the Improvements batch is asked. */
   readonly improvementsDay: Weekday;
   /** What the hand step file of each card asked, the lead's team's and those under it, hashes to now (T2312). */
   readonly runFiles: RunFiles;

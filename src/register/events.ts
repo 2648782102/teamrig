@@ -76,8 +76,8 @@ export interface TaskFields {
   /** The leader who pinned the task to the top of its owner's list, above priority; null: not pinned. Absent on older lines: not pinned. */
   readonly pin: string | null;
   /**
-   * The work class (T2076), one of the team's `focus.classes` when written; null when no one set it, which counts as the
-   * team's `focus.defaultClass` (focus.ts). Parsing checks only its spelling, so a class a team later renames still
+   * The work class (T2076), one of the team's `priorities.classes` when written; null when no one set it, which counts as the
+   * team's `priorities.defaultClass` (focus.ts). Parsing checks only its spelling, so a class a team later renames still
    * reads. Absent on older lines: not set.
    */
   readonly workClass: string | null;

@@ -114,7 +114,7 @@ describe('GoalStore', () => {
 
     const write = await goals.add({ ...A1, tag: 'A1.2', parent: 'A1' }, LATER, { ...CAP, max: 1 });
 
-    assert.match(write.kind === 'refused' ? write.reason : '', /holds 1 key results .* focus\.maxActiveKeyResults/);
+    assert.match(write.kind === 'refused' ? write.reason : '', /holds 1 key results .* priorities.maxActiveKeyResults/);
     assert.equal(files.get(PATH), before);
     assert.equal((await goals.add({ ...A1, tag: 'B1' }, LATER, { ...CAP, max: 1 })).kind, 'written');
   });

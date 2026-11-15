@@ -4,7 +4,7 @@ import type { AdmissionMode } from '../delivery/admission.ts';
 import type { NeedKind } from '../tabs/need-kind.ts';
 
 /** The config format this code reads and writes. Older files are migrated in memory on load. */
-export const CONFIG_VERSION = 8;
+export const CONFIG_VERSION = 9;
 
 export interface RolesConfig {
   /** Owns priorities, team rules and the owner's decision queue; may re-prioritize and reassign tasks; hands the work itself to others (`leadBoundary`). */
@@ -1373,7 +1373,7 @@ export interface StatusLineConfig {
   readonly pace: boolean;
 }
 
-/** What the WIP rule does to a start it holds (`focus.wip.mode`): refuse it, let it through with a warning, or nothing. */
+/** What the WIP rule does to a start it holds (`priorities.startHold.mode`): refuse it, let it through with a warning, or nothing. */
 export const WIP_MODES = ['refuse', 'warn', 'off'] as const;
 export type WipMode = (typeof WIP_MODES)[number];
 
@@ -1385,7 +1385,7 @@ export function isWipMode(value: unknown): value is WipMode {
  * The WSJF score's parts (T2076): score = cost of delay / size, where cost of delay = value + urgency + unblocks +
  * owner order, and size is in percent of the week.
  */
-export interface FocusScoreConfig {
+export interface PrioritiesScoreConfig {
   /** The value of a Roadmap task whose best goal rank is 1, 2 and so on; a rank past the list takes the last. */
   readonly rankValues: readonly number[];
   /** The value of a Roadmap task that serves no ranked goal. */
@@ -1414,7 +1414,7 @@ export interface FocusScoreConfig {
 }
 
 /** Which tasks go ahead of every score (band 0), beside a p0, which always does. */
-export interface FocusExpediteConfig {
+export interface PrioritiesExpediteConfig {
   /** A Maintenance task marked critical. */
   readonly critical: boolean;
   /** An owner-sourced p1 task. */
@@ -1422,7 +1422,7 @@ export interface FocusExpediteConfig {
 }
 
 /** The WIP rule: an Improvements start held while its owner has a Roadmap task that can move, and an in-progress cap. */
-export interface FocusWipConfig {
+export interface StartHoldConfig {
   readonly mode: WipMode;
   /** The in-progress tasks a session may hold before a further start is held. */
   readonly maxInProgress: number;
@@ -1432,7 +1432,7 @@ export interface FocusWipConfig {
  * Goal-first ranking (T2076): the work classes a task is filed under, how its WSJF score is made, the WIP rule, and
  * the spend each class is planned to take. Every number is a default a team overrides.
  */
-export interface FocusConfig {
+export interface PrioritiesConfig {
   /** The classes `--class` takes, each spelled as WORK_CLASS_NAME. */
   readonly classes: readonly string[];
   /** The class ranked by its goals' rank, which the WIP rule protects. */
@@ -1456,9 +1456,9 @@ export interface FocusConfig {
    * attention. Each lead's rules print its own team's value, so a tree keeps one value.
    */
   readonly maxOwnerDecisions: number;
-  readonly score: FocusScoreConfig;
-  readonly expedite: FocusExpediteConfig;
-  readonly wip: FocusWipConfig;
+  readonly score: PrioritiesScoreConfig;
+  readonly expedite: PrioritiesExpediteConfig;
+  readonly startHold: StartHoldConfig;
   /** The percent of the whole week each class is planned to take, by class; the shares sum to 100. */
   readonly allocation: Readonly<Record<string, number>>;
   /** How long a Roadmap task may wait on a leader's decision or approval before it is flagged. */
@@ -1633,7 +1633,7 @@ export interface KitConfig {
   /** What `teamrig statusline` shows. */
   readonly statusLine: StatusLineConfig;
   /** Goal-first ranking: work classes, the WSJF score, the WIP rule and the class allocation (T2076). */
-  readonly focus: FocusConfig;
+  readonly priorities: PrioritiesConfig;
   /** Each session's Claude Code model and effort, by id; the lead's unset keys take `DEFAULT_LEAD_LAUNCH`. */
   readonly launch: Readonly<Record<string, LaunchConfig>>;
   readonly paths: PathsConfig;

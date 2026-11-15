@@ -72,7 +72,7 @@ describe('teamrig stats: the USE lines', () => {
   });
 
   it('prints a class the allocation does not name with no target', async () => {
-    const kit = new CliHarness({ ...TEAM, focus: { classes: ['Roadmap', 'Maintenance', 'Improvements', 'Research'] } });
+    const kit = new CliHarness({ ...TEAM, priorities: { classes: ['Roadmap', 'Maintenance', 'Improvements', 'Research'] } });
     await addTask(kit, 'Look into it', '--class', 'Research');
     await rollup(kit, '2030-01-08', [row('alpha', 'T1', 500, 60)]);
     assert.equal((await useNextDay(kit)).at(-1), 'USE Research 100% of task W: planned 0 W, 0 min; unplanned 500 W, 1 min');

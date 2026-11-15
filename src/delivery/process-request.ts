@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { isNonNegativeInteger, isRecord } from '../core/guards.ts';
 import { classOf } from '../register/focus.ts';
 import type { Task } from '../register/fold.ts';
@@ -40,16 +40,16 @@ export function processRequest(kind: StepKind, task: string | undefined, priorit
 export type LineTask = Pick<Task, 'priority' | 'workClass'>;
 
 /** What the line reads of the team's focus: the class a task with none counts as, and each class's planned share of the week. */
-export type RequestFocus = Pick<FocusConfig, 'defaultClass' | 'allocation'>;
+export type RequestFocus = Pick<PrioritiesConfig, 'defaultClass' | 'allocation'>;
 
 /**
  * What a step in the host lock's line asks, as its ticket says, so admission can order the line by it (T2210): its
  * request, the work class its task counts as, and that class's planned percent of the week.
  */
 export interface LineRequest extends ProcessRequest {
-  /** Its task's class (`classOf`), else the team's `focus.defaultClass`: a step with no task, or one the register lacks, counts as team tooling. */
+  /** Its task's class (`classOf`), else the team's `priorities.defaultClass`: a step with no task, or one the register lacks, counts as team tooling. */
   readonly class: string;
-  /** `focus.allocation` for its class when it queued; 0 for a class the allocation gives no share. */
+  /** `priorities.allocation` for its class when it queued; 0 for a class the allocation gives no share. */
   readonly classPct: number;
 }
 

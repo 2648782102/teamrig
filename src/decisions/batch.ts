@@ -16,7 +16,7 @@ import { taskLabel } from '../register/views.ts';
  * waiting, so setting it waiting again with a new card does not ask it again. A wait the owner put off (Later, T1295)
  * stays out of the batch until its time passed, and then counts from that time (askableSince), so it is asked again.
  * A wait whose decision frees only Improvements work (waitsForWeeklyBatch, the agenda's rule) is asked only on
- * `focus.improvementsDay`: another day it is held, out of the batch and its triggers; on that day only an ask that day
+ * `priorities.improvementsDay`: another day it is held, out of the batch and its triggers; on that day only an ask that day
  * asks it, so it is asked again each week while it waits, as the agenda shows it each one. A wait of a session in its
  * register's `decisions.dedicatedOwners` (T868) is in no batch: the owner decides it in that session's own meeting.
  */
@@ -70,7 +70,7 @@ export interface DecisionBatch {
   readonly overdue: readonly OwnerWait[];
   /** The waits held for the weekly Improvements batch, in the same order; none on its day, when they are in the batch. */
   readonly weekly: readonly OwnerWait[];
-  /** `focus.improvementsDay`: the UTC weekday the weekly waits are asked. */
+  /** `priorities.improvementsDay`: the UTC weekday the weekly waits are asked. */
   readonly improvementsDay: Weekday;
   /** Why the batch is due now; undefined while it waits for the next one. */
   readonly trigger: BatchTrigger | undefined;
@@ -105,7 +105,7 @@ export interface BatchInput {
   /** When the lead last asked the owner a batch (askedAtOf); undefined: never. */
   readonly askedAt: number | undefined;
   readonly config: BatchConfig;
-  /** The batch's own team's `focus.improvementsDay`: the UTC weekday the weekly waits are asked. */
+  /** The batch's own team's `priorities.improvementsDay`: the UTC weekday the weekly waits are asked. */
   readonly improvementsDay: Weekday;
 }
 

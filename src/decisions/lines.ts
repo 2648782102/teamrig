@@ -27,12 +27,12 @@ export function batchHead(batch: DecisionBatch, ownerMarker: string, zone: TimeZ
   return `DECISIONS ${batch.pending.length} to ask ${ownerMarker}, ${batch.overdue.length} asked and past due; ${when}`;
 }
 
-/** `the weekly Improvements batch on wed UTC (focus.improvementsDay)`. */
+/** `the weekly Improvements batch on wed UTC (priorities.improvementsDay)`. */
 function weeklyBatchText(day: Weekday): string {
-  return `the weekly Improvements batch on ${day} UTC (focus.improvementsDay)`;
+  return `the weekly Improvements batch on ${day} UTC (priorities.improvementsDay)`;
 }
 
-/** `IMPROVEMENTS 2 held for the weekly Improvements batch on wed UTC (focus.improvementsDay): T5, web/T7`; none with none held. */
+/** `IMPROVEMENTS 2 held for the weekly Improvements batch on wed UTC (priorities.improvementsDay): T5, web/T7`; none with none held. */
 function weeklyLines(batch: DecisionBatch): string[] {
   const labels = batch.weekly.map((wait) => taskLabel(wait.task, wait.team)).join(', ');
   return batch.weekly.length === 0 ? [] : [`IMPROVEMENTS ${batch.weekly.length} held for ${weeklyBatchText(batch.improvementsDay)}: ${labels}`];

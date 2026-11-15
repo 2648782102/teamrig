@@ -398,7 +398,7 @@ describe('todayLines', () => {
   describe('the spend by class', () => {
     it("tables each class's today and week in % of the week beside its allocation, then their W", () => {
       assert.deepEqual(classBlock({ ...REPORT, classes: CLASSES }), [
-        'Spend by class today and this week, in % of the week, against focus.allocation:',
+        'Spend by class today and this week, in % of the week, against priorities.allocation:',
         '  class         today   week  allocation  W today   W week',
         '  Roadmap        2.0%  10.0%       60.0%   15.00M   75.00M',
         '  Improvements   0.0%  20.0%       15.0%        0  150.00M',

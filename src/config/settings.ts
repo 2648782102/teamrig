@@ -40,7 +40,7 @@ export interface SettingRow {
  */
 const GATED_KEYS: ReadonlyMap<string, string> = new Map([
   ['budget', 'budget'],
-  ['focus.allocation', 'budget'],
+  ['priorities.allocation', 'budget'],
   ['permissions', 'permissions'],
   ['pushGuard', 'permissions'],
   ['secretGuard', 'permissions'],

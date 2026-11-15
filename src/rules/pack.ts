@@ -413,16 +413,16 @@ export function renderKeptRules(conflicts: readonly KeptRule[], command: string)
  * a wrong call from standing because the leader who made it is the only one asked.
  */
 export function renderLeadRules(config: KitConfig, command: string): string {
-  const { focus } = config;
+  const { priorities } = config;
   return [
     'As the lead, also:',
     '- Bring the owner only verified results, decisions, owner-gate or business questions and incidents.',
     `- Relay each owner order as an approved task in the same turn: \`${command} add --owner <id> --source ${config.register.ownerSource}\` [register.ownerSource].`,
     `- Plan the week from \`${command} plan\` and run \`${command} check\` at each checkpoint, never from memory.`,
-    "- Plan by shippable slices: each ranked goal's next one (the fewest tasks that ship something working, proven live) gets an owner, ship date and live proof;" +
-      ` at most ${focus.slicesPerSession} open per session, one more only while one waits on another session or the owner;` +
-      ` none needing a new owner decision opens while ${focus.maxOwnerDecisions} wait in the tree;` +
-      ` other work waits (incidents and ${focus.maintenanceClass} exempt) [focus.slicesPerSession, focus.maxOwnerDecisions, focus.maintenanceClass];` +
+    "- Plan by shippable slices: each ranked goal's next one (fewest tasks that ship something working, proven live) gets an owner, ship date and live proof;" +
+      ` at most ${priorities.slicesPerSession} open per session, one more only while one waits on a peer or the owner;` +
+      ` none needing a new owner decision opens while ${priorities.maxOwnerDecisions} wait in the tree;` +
+      ` other work waits (incidents and ${priorities.maintenanceClass} exempt) [priorities.slicesPerSession, priorities.maxOwnerDecisions, priorities.maintenanceClass];` +
       " answer an open slice's waits first.",
     ...(config.budget.enabled ? [weekSplitLine(config.budget)] : []),
     '- Answer approval waits on you per the `approvals` skill; owner-gated content goes to the owner.',

@@ -1,4 +1,4 @@
-import type { FocusConfig } from '../config/types.ts';
+import type { PrioritiesConfig } from '../config/types.ts';
 import { isRecord } from '../core/guards.ts';
 import type { Task } from './fold.ts';
 import { ACTIVE_STATUSES } from './model.ts';
@@ -48,7 +48,7 @@ export interface SweepGoal {
 }
 
 /** The part of the `focus` config the sweep reads. A team may rename its classes, so none is spelled here. */
-export type SweepFocus = Pick<FocusConfig, 'roadmapClass' | 'maintenanceClass' | 'defaultClass' | 'parkAfterDays'>;
+export type SweepFocus = Pick<PrioritiesConfig, 'roadmapClass' | 'maintenanceClass' | 'defaultClass' | 'parkAfterDays'>;
 
 /** What the sweep reads of a task. */
 export type SweepTask = Pick<Task, 'id' | 'title' | 'owner' | 'goals' | 'type' | 'critical' | 'status' | 'pin' | 'source' | 'updatedAt' | 'workClass'>;

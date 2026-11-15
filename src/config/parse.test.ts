@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_FREEZES, DEFAULT_COMMITS, DEFAULT_FOCUS, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_PERMISSIONS, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_STATUS_LINE, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING } from './defaults.ts';
+import { DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_FREEZES, DEFAULT_COMMITS, DEFAULT_PRIORITIES, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_PERMISSIONS, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_STATUS_LINE, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING } from './defaults.ts';
 import { HIRE_CAP_DROPPED, IDLE_RETIRE_DROPPED } from './migrate.ts';
 import { parseConfig } from './parse.ts';
 import { CONFIG_VERSION, type AccountBudget, type BudgetConfig } from './types.ts';
@@ -1544,18 +1544,18 @@ describe('parseConfig', () => {
     assert.deepEqual(bad.config.statusLine, DEFAULT_STATUS_LINE);
   });
 
-  it('reads the focus block, each key at its default when absent', () => {
-    assert.deepEqual(parseConfig(ROSTER).config.focus, DEFAULT_FOCUS);
+  it('reads the priorities block, each key at its default when absent', () => {
+    assert.deepEqual(parseConfig(ROSTER).config.priorities, DEFAULT_PRIORITIES);
     const set = parseConfig({
       ...ROSTER,
-      focus: {
+      priorities: {
         classes: ['Product', 'Upkeep', 'Tooling'],
         roadmapClass: 'Product',
         maintenanceClass: 'Upkeep',
         defaultClass: 'Tooling',
         allocation: { Product: 70, Upkeep: 20, Tooling: 10 },
         score: { rankValues: [30, 10], minSizePct: 0.1 },
-        wip: { mode: 'warn', maxInProgress: 2 },
+        startHold: { mode: 'warn', maxInProgress: 2 },
         expedite: { ownerP1: false },
         parkAfterDays: 7,
         improvementsDay: 'mon',
@@ -1564,71 +1564,81 @@ describe('parseConfig', () => {
       },
     });
     assert.deepEqual(set.issues, []);
-    const { focus } = set.config;
-    assert.equal(focus.improvementsDay, 'mon');
-    assert.equal(focus.slicesPerSession, 2);
-    assert.equal(focus.maxOwnerDecisions, 8);
-    assert.deepEqual([focus.classes, focus.roadmapClass, focus.maintenanceClass, focus.defaultClass], [['Product', 'Upkeep', 'Tooling'], 'Product', 'Upkeep', 'Tooling']);
-    assert.deepEqual(focus.allocation, { Product: 70, Upkeep: 20, Tooling: 10 });
-    assert.deepEqual([focus.score.rankValues, focus.score.minSizePct, focus.score.maintenanceValue], [[30, 10], 0.1, DEFAULT_FOCUS.score.maintenanceValue]);
-    assert.deepEqual([focus.wip, focus.expedite, focus.parkAfterDays], [{ mode: 'warn', maxInProgress: 2 }, { critical: true, ownerP1: false }, 7]);
+    const { priorities } = set.config;
+    assert.equal(priorities.improvementsDay, 'mon');
+    assert.equal(priorities.slicesPerSession, 2);
+    assert.equal(priorities.maxOwnerDecisions, 8);
+    assert.deepEqual([priorities.classes, priorities.roadmapClass, priorities.maintenanceClass, priorities.defaultClass], [['Product', 'Upkeep', 'Tooling'], 'Product', 'Upkeep', 'Tooling']);
+    assert.deepEqual(priorities.allocation, { Product: 70, Upkeep: 20, Tooling: 10 });
+    assert.deepEqual([priorities.score.rankValues, priorities.score.minSizePct, priorities.score.maintenanceValue], [[30, 10], 0.1, DEFAULT_PRIORITIES.score.maintenanceValue]);
+    assert.deepEqual([priorities.startHold, priorities.expedite, priorities.parkAfterDays], [{ mode: 'warn', maxInProgress: 2 }, { critical: true, ownerP1: false }, 7]);
   });
 
-  it('refuses each bad focus value, which takes its default', () => {
+  it('refuses each bad priorities value, which takes its default', () => {
     const cases: readonly [Record<string, unknown>, string][] = [
-      [{ classes: [] }, 'focus.classes'],
-      [{ classes: ['Roadmap', 'Roadmap'] }, 'focus.classes'],
-      [{ classes: ['9lives'] }, 'focus.classes[0]'],
-      [{ maxActiveKeyResults: 0 }, 'focus.maxActiveKeyResults'],
-      [{ slicesPerSession: 0 }, 'focus.slicesPerSession'],
-      [{ slicesPerSession: 6 }, 'focus.slicesPerSession'],
-      [{ slicesPerSession: 1.5 }, 'focus.slicesPerSession'],
-      [{ maxOwnerDecisions: 0 }, 'focus.maxOwnerDecisions'],
-      [{ maxOwnerDecisions: 21 }, 'focus.maxOwnerDecisions'],
-      [{ maxOwnerDecisions: 2.5 }, 'focus.maxOwnerDecisions'],
-      [{ score: { rankValues: [20, -1] } }, 'focus.score.rankValues[1]'],
-      [{ score: { ownerOrderValues: [] } }, 'focus.score.ownerOrderValues'],
-      [{ score: { dueSoonDays: 61 } }, 'focus.score.dueSoonDays'],
-      [{ score: { unblocksShare: 11 } }, 'focus.score.unblocksShare'],
-      [{ score: { minSizePct: 0 } }, 'focus.score.minSizePct'],
-      [{ wip: { mode: 'ask' } }, 'focus.wip.mode'],
-      [{ wip: { maxInProgress: 51 } }, 'focus.wip.maxInProgress'],
-      [{ expedite: { critical: 'yes' } }, 'focus.expedite.critical'],
-      [{ allocation: { Roadmap: 101 } }, 'focus.allocation.Roadmap'],
-      [{ leaderWaitMinutes: -1 }, 'focus.leaderWaitMinutes'],
-      [{ parkAfterDays: 0 }, 'focus.parkAfterDays'],
-      [{ plannedTargetPct: 101 }, 'focus.plannedTargetPct'],
-      [{ improvementsDay: 'someday' }, 'focus.improvementsDay'],
+      [{ classes: [] }, 'priorities.classes'],
+      [{ classes: ['Roadmap', 'Roadmap'] }, 'priorities.classes'],
+      [{ classes: ['9lives'] }, 'priorities.classes[0]'],
+      [{ maxActiveKeyResults: 0 }, 'priorities.maxActiveKeyResults'],
+      [{ slicesPerSession: 0 }, 'priorities.slicesPerSession'],
+      [{ slicesPerSession: 6 }, 'priorities.slicesPerSession'],
+      [{ slicesPerSession: 1.5 }, 'priorities.slicesPerSession'],
+      [{ maxOwnerDecisions: 0 }, 'priorities.maxOwnerDecisions'],
+      [{ maxOwnerDecisions: 21 }, 'priorities.maxOwnerDecisions'],
+      [{ maxOwnerDecisions: 2.5 }, 'priorities.maxOwnerDecisions'],
+      [{ score: { rankValues: [20, -1] } }, 'priorities.score.rankValues[1]'],
+      [{ score: { ownerOrderValues: [] } }, 'priorities.score.ownerOrderValues'],
+      [{ score: { dueSoonDays: 61 } }, 'priorities.score.dueSoonDays'],
+      [{ score: { unblocksShare: 11 } }, 'priorities.score.unblocksShare'],
+      [{ score: { minSizePct: 0 } }, 'priorities.score.minSizePct'],
+      [{ startHold: { mode: 'ask' } }, 'priorities.startHold.mode'],
+      [{ startHold: { maxInProgress: 51 } }, 'priorities.startHold.maxInProgress'],
+      [{ expedite: { critical: 'yes' } }, 'priorities.expedite.critical'],
+      [{ allocation: { Roadmap: 101 } }, 'priorities.allocation.Roadmap'],
+      [{ leaderWaitMinutes: -1 }, 'priorities.leaderWaitMinutes'],
+      [{ parkAfterDays: 0 }, 'priorities.parkAfterDays'],
+      [{ plannedTargetPct: 101 }, 'priorities.plannedTargetPct'],
+      [{ improvementsDay: 'someday' }, 'priorities.improvementsDay'],
     ];
-    for (const [focus, path] of cases) {
-      const bad = parseConfig({ ...ROSTER, focus });
-      assert.ok(paths(bad.issues).includes(path), `${JSON.stringify(focus)}: ${JSON.stringify(paths(bad.issues))}`);
+    for (const [priorities, path] of cases) {
+      const bad = parseConfig({ ...ROSTER, priorities });
+      assert.ok(paths(bad.issues).includes(path), `${JSON.stringify(priorities)}: ${JSON.stringify(paths(bad.issues))}`);
     }
-    assert.deepEqual(parseConfig({ ...ROSTER, focus: { score: { rankValues: [20, -1] } } }).config.focus.score.rankValues, DEFAULT_FOCUS.score.rankValues);
+    assert.deepEqual(parseConfig({ ...ROSTER, priorities: { score: { rankValues: [20, -1] } } }).config.priorities.score.rankValues, DEFAULT_PRIORITIES.score.rankValues);
   });
 
   it('flags the cap across the tree it no longer reads, and keeps one slice per session (T2215)', () => {
-    const { config, issues } = parseConfig({ ...ROSTER, focus: { maxOpenSlices: 3 } });
-    assert.deepEqual(paths(issues), ['focus.maxOpenSlices']);
-    assert.match(issues[0]?.message ?? '', /^is no longer read: .*focus\.slicesPerSession open; delete it$/);
-    assert.equal(config.focus.slicesPerSession, DEFAULT_FOCUS.slicesPerSession);
+    const { config, issues } = parseConfig({ ...ROSTER, priorities: { maxOpenSlices: 3 } });
+    assert.deepEqual(paths(issues), ['priorities.maxOpenSlices']);
+    assert.match(issues[0]?.message ?? '', /^is no longer read: .*priorities\.slicesPerSession open; delete it$/);
+    assert.equal(config.priorities.slicesPerSession, DEFAULT_PRIORITIES.slicesPerSession);
+  });
+
+  it('names the new key for a hand-written focus block and its wip hold, and reads neither (T2851)', () => {
+    const { config, issues } = parseConfig({ ...ROSTER, focus: { slicesPerSession: 2 }, priorities: { wip: { mode: 'warn' } } });
+    assert.deepEqual(issues, [
+      { path: 'focus', message: 'was renamed: use priorities' },
+      { path: 'priorities.wip', message: 'was renamed: use priorities.startHold' },
+    ]);
+    assert.equal(config.priorities.slicesPerSession, DEFAULT_PRIORITIES.slicesPerSession);
+    assert.deepEqual(config.priorities.startHold, DEFAULT_PRIORITIES.startHold);
   });
 
   it('falls back to the default classes together when the classes, the roles and the allocation disagree', () => {
-    const bad = parseConfig({ ...ROSTER, focus: { classes: ['Product', 'Tooling'], defaultClass: 'Tooling', allocation: { Product: 50, Tooling: 40 } } });
-    assert.deepEqual(paths(bad.issues), ['focus.roadmapClass', 'focus.maintenanceClass', 'focus.allocation']);
-    assert.match(bad.issues[0]?.message ?? '', /Roadmap is not one of focus\.classes \(Product, Tooling\)/);
+    const bad = parseConfig({ ...ROSTER, priorities: { classes: ['Product', 'Tooling'], defaultClass: 'Tooling', allocation: { Product: 50, Tooling: 40 } } });
+    assert.deepEqual(paths(bad.issues), ['priorities.roadmapClass', 'priorities.maintenanceClass', 'priorities.allocation']);
+    assert.match(bad.issues[0]?.message ?? '', /Roadmap is not one of priorities\.classes \(Product, Tooling\)/);
     assert.match(bad.issues[2]?.message ?? '', /the shares sum to 90, not 100/);
-    const { classes, roadmapClass, maintenanceClass, defaultClass, allocation } = bad.config.focus;
+    const { classes, roadmapClass, maintenanceClass, defaultClass, allocation } = bad.config.priorities;
     assert.deepEqual({ classes, roadmapClass, maintenanceClass, defaultClass, allocation }, {
-      classes: DEFAULT_FOCUS.classes,
-      roadmapClass: DEFAULT_FOCUS.roadmapClass,
-      maintenanceClass: DEFAULT_FOCUS.maintenanceClass,
-      defaultClass: DEFAULT_FOCUS.defaultClass,
-      allocation: DEFAULT_FOCUS.allocation,
+      classes: DEFAULT_PRIORITIES.classes,
+      roadmapClass: DEFAULT_PRIORITIES.roadmapClass,
+      maintenanceClass: DEFAULT_PRIORITIES.maintenanceClass,
+      defaultClass: DEFAULT_PRIORITIES.defaultClass,
+      allocation: DEFAULT_PRIORITIES.allocation,
     });
-    const unknown = parseConfig({ ...ROSTER, focus: { allocation: { Roadmap: 60, Maintenance: 25, Tooling: 15 } } });
-    assert.deepEqual(paths(unknown.issues), ['focus.allocation.Tooling']);
+    const unknown = parseConfig({ ...ROSTER, priorities: { allocation: { Roadmap: 60, Maintenance: 25, Tooling: 15 } } });
+    assert.deepEqual(paths(unknown.issues), ['priorities.allocation.Tooling']);
   });
 
   it('reads where the team sits in a tree, and leaves it unset in an older config', () => {

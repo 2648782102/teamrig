@@ -177,7 +177,7 @@ async function written(runtime: CliRuntime, gk: GoalsKit, verb: string, write: G
 
 /**
  * `goal add <tag> --title "<title>" --target <YYYY-MM-DD> [--start <YYYY-MM-DD>] [--parent <tag>]`: the lead adds a
- * goal; its start is today by default. A key result (a goal with a parent) is refused past focus.maxActiveKeyResults
+ * goal; its start is today by default. A key result (a goal with a parent) is refused past priorities.maxActiveKeyResults
  * open ones.
  */
 export async function goalAdd(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
@@ -195,7 +195,7 @@ export async function goalAdd(args: ParsedArgs, runtime: CliRuntime): Promise<Ex
     target: dayOf('target', requiredFlag(args.flags, 'target')),
     parent: parent === undefined || parent === '' ? null : parent,
   };
-  const cap = { max: gk.config.focus.maxActiveKeyResults, today };
+  const cap = { max: gk.config.priorities.maxActiveKeyResults, today };
   return written(runtime, gk, 'ADDED', await gk.store.add(input, writer, cap));
 }
 

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FOCUS } from '../config/defaults.ts';
+import { DEFAULT_PRIORITIES } from '../config/defaults.ts';
 import { TimeZone } from '../core/zone.ts';
 import type { Task } from '../register/fold.ts';
 import { TaskTree } from '../register/tree.ts';
@@ -25,7 +25,7 @@ function ownerWait(id: string, statusAt: string, overrides: Partial<Task> = {}):
  */
 function viewOf(tasks: readonly Task[], config: BatchConfig = CHECKPOINTS): BatchView & { readonly tree: TaskTree } {
   const tree = new TaskTree(new Map(tasks.map((task) => [task.id, task])), new Date(NOW), TimeZone.UTC);
-  const register = { team: undefined, tasks, tree, ownerMarker: 'owner', requireGate: true, focus: DEFAULT_FOCUS, dedicatedOwners: [] };
+  const register = { team: undefined, tasks, tree, ownerMarker: 'owner', requireGate: true, focus: DEFAULT_PRIORITIES, dedicatedOwners: [] };
   const batch = decisionBatch({ registers: [register], now: NOW, askedAt: ASKED_AT, config, improvementsDay: 'wed' });
   return { batch, tree, ownerMarker: 'owner', command: 'teamrig', lead: 'lead', askedBy: undefined, zone: TimeZone.UTC, runFiles: new Map() };
 }
@@ -36,7 +36,7 @@ function ownOf(task: Task): { readonly task: Task; readonly team: undefined } {
 }
 
 const IMPROVEMENTS = { workClass: 'Improvements' } as const;
-const WEEKLY_LINE = 'IMPROVEMENTS 1 held for the weekly Improvements batch on wed UTC (focus.improvementsDay): T5';
+const WEEKLY_LINE = 'IMPROVEMENTS 1 held for the weekly Improvements batch on wed UTC (priorities.improvementsDay): T5';
 
 describe('the decisions listing', () => {
   it('heads with the counts and when the next batch is, alone when nothing waits on the owner', () => {
@@ -119,7 +119,7 @@ describe('when the owner hears of a new wait', () => {
     const view = viewOf([held]);
     const weekly = waitTiming(view.batch, ownOf(held), view.tree, NOW);
     assert.deepEqual(weekly, { kind: 'weekly', day: 'wed' });
-    assert.equal(timingText(weekly, TimeZone.UTC), 'asked in the weekly Improvements batch on wed UTC (focus.improvementsDay)');
+    assert.equal(timingText(weekly, TimeZone.UTC), 'asked in the weekly Improvements batch on wed UTC (priorities.improvementsDay)');
     assert.equal(waitTiming(view.batch, { task: held, team: 'web' }, view.tree, NOW).kind, 'at-once', "web's T5 is another task than the batch's own T5");
   });
 });

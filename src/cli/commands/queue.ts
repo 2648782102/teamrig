@@ -541,7 +541,7 @@ export async function queue(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
   const exclusive = exclusiveOf(args, small);
   const maxRunMinutes = maxRunMinutesOf(args, delivery.queue, small);
   const places = deliveryPlaces(delivery, kit.paths);
-  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.focus, zone);
+  const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.priorities, zone);
   const parent = await parentLockOf(runtime, lock, say);
   const session = await sessionOf(args, runtime, kit, await rosterOf(runtime, kit, config), parent);
   const gate: StartGate = { cutoffUtc: delivery.schedule.queueCutoffUtc, pipelineFreezes: places.pipelineFreezes, kind: request.kind, zone };
@@ -571,7 +571,7 @@ export async function queue(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
     await refuseUnstartable(runtime, gate);
     // The register is read only for a step that queues: a nested step or one refused at once records nothing.
     const register = new JsonlEventLog(runtime.files, kit.paths.events);
-    const line = await lineRequestOf(request, async (id) => (await register.read()).state.tasks.get(id), config.focus);
+    const line = await lineRequestOf(request, async (id) => (await register.read()).state.tasks.get(id), config.priorities);
     // Only the ticket carries the class for now: the ledger's start and refusal records keep the fields their readers take.
     const owner: StepOwner = { session, ...processRequest(line.kind, line.task, line.priority) };
     const waits = new WaitLog(runtime.clock, runtime.memory.freeMb());

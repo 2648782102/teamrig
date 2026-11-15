@@ -103,7 +103,7 @@ const CHILD_TAKES: Readonly<Record<Exclude<keyof KitConfig, keyof typeof REWORKE
   hiring: 'copy',
   burst: 'copy',
   statusLine: 'copy',
-  focus: 'copy',
+  priorities: 'copy',
 };
 
 const TAKES: ReadonlyMap<string, ChildTake> = new Map(Object.entries(CHILD_TAKES));
