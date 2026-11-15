@@ -49,7 +49,7 @@ export class Register {
     add(caller, input) {
         return this.asCaller(caller, async () => {
             const goalTags = await this.goalTagsFor(input.goals);
-            return this.writeNew(({ state }, id, elsewhere) => single(this.created(caller, id, this.deps.policy.add(input, state, elsewhere, goalTags))));
+            return this.writeNew(({ state }, id, elsewhere) => single(this.created(caller, id, this.deps.policy.add(caller, input, state, elsewhere, goalTags))));
         });
     }
     /**
@@ -159,6 +159,13 @@ export class Register {
                 return { ok: true, value: [...unpins, event] };
             }));
         });
+    }
+    /** Issue migrate's link of task `id` to the issue it just opened for it, judged under the lock (policy linkIssue, T2705 F1). */
+    linkIssue(caller, id, ref, note) {
+        return this.asCaller(caller, () => this.write((snapshot, elsewhere) => onTask(snapshot, elsewhere, id, (task) => {
+            const change = this.deps.policy.linkIssue(task, caller, ref, note, snapshot.state);
+            return single(change.ok ? { ok: true, value: this.updateEvent(id, caller, change.value, undefined) } : change);
+        })));
     }
     /** A confirmed sweep row, by the task's owner or a leader over it on this team (T2086). */
     triage(caller, id, changes, sizeBase) {

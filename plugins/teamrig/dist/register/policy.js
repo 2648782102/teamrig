@@ -58,6 +58,16 @@ function ok(value) {
 function refuse(error) {
     return { ok: false, error };
 }
+/** True for a ref that names an issue (`gh:<owner>/<name>#<n>`), however it is spaced or cased: the rules on who sets one read it so. */
+function isIssueRef(ref) {
+    return ref.trim().toLowerCase().startsWith(ISSUE_REF_PREFIX);
+}
+/** Why `ref` may not go on task `id`: another task, of any status, holds it, and an issue is one task's. */
+function heldRefProblem(ref, id, state) {
+    const wanted = ref.trim().toLowerCase();
+    const holder = [...state.tasks.values()].find((task) => task.id !== id && task.ref?.trim().toLowerCase() === wanted);
+    return holder === undefined ? undefined : `${holder.id} already has ref ${holder.ref ?? ref}`;
+}
 /** The import's source rule: its tasks carry GITHUB_SOURCE, which it sets itself. */
 const importSource = (source) => (source === GITHUB_SOURCE ? undefined : `source ${source} is not ${GITHUB_SOURCE}`);
 export class RegisterPolicy {
@@ -99,9 +109,10 @@ export class RegisterPolicy {
      * `elsewhere`: the tasks the team tree's other registers hold, which `--after` may name. `goalTags`: the tags of the
      * goal records of the team and every team above it, which a goal tag must be under `register.goals` checked or
      * required; under required, an owner-asked or p0/p1 task also names its goal or says it serves none (T1730).
+     * `caller`: the session adding it, whom an issue ref is held to (handLinkProblem).
      */
-    add(input, state, elsewhere = NO_TASKS_ELSEWHERE, goalTags = NO_GOAL_TAGS) {
-        return this.withNamedGoal(this.create(input, state, (source) => this.teamSourceProblem(source), elsewhere, goalTags));
+    add(caller, input, state, elsewhere = NO_TASKS_ELSEWHERE, goalTags = NO_GOAL_TAGS) {
+        return this.withNamedGoal(this.create(input, state, (source) => this.teamSourceProblem(source), elsewhere, goalTags, caller));
     }
     /**
      * A task a session of another team in the tree asks of this team (T1141): its source is the asker's `<team>/<id>`,
@@ -127,7 +138,8 @@ export class RegisterPolicy {
         const unnamed = created.ok ? this.unnamedGoalProblem(created.value) : undefined;
         return unnamed === undefined ? created : refuse(unnamed);
     }
-    create(input, state, sourceRule, elsewhere, goalTags) {
+    /** `linker`: the team's session adding the task, or undefined for another team's, which never links this team's issues. */
+    create(input, state, sourceRule, elsewhere, goalTags, linker) {
         const fields = {
             title: input.title.trim(),
             description: blankToNull(input.description),
@@ -151,7 +163,7 @@ export class RegisterPolicy {
         if (fields.description === null && this.config.register.requireDescription) {
             return refuse(DESCRIPTION_NEEDED);
         }
-        const problem = this.checkFields(fields, sourceRule) ?? afterProblem(null, fields.after, state, elsewhere) ?? this.goalProblem(fields.goals, goalTags);
+        const problem = this.checkFields(fields, sourceRule) ?? afterProblem(null, fields.after, state, elsewhere) ?? this.goalProblem(fields.goals, goalTags) ?? this.handLinkProblem(linker, fields.ref, undefined, state);
         if (problem !== undefined) {
             return refuse(problem);
         }
@@ -868,13 +880,42 @@ export class RegisterPolicy {
         if (marked !== undefined) {
             return refuse(marked);
         }
-        if (caller !== task.owner) {
-            const problem = this.leaderUpdateProblem(task, caller, names, changes);
-            if (problem !== undefined) {
-                return refuse(problem);
-            }
+        const leader = caller === task.owner ? undefined : this.leaderUpdateProblem(task, caller, names, changes);
+        const linked = changes.ref === undefined || changes.ref === task.ref ? undefined : this.handLinkProblem(caller, changes.ref, task.id, state);
+        const problem = leader ?? linked;
+        return problem === undefined ? this.fieldChange(task, changes, text, state, elsewhere, goalTags) : refuse(problem);
+    }
+    /**
+     * Issue migrate's link of `task` to the issue it just opened for it (T2550): by its owner or the lead, on a task
+     * holding no issue yet, to an issue no other task holds. A hand `update --ref` to an issue stays the lead's
+     * (handLinkProblem), so this is the one path on which a session links its own task to an issue (T2705 F1).
+     */
+    linkIssue(task, caller, ref, note, state) {
+        const problem = this.linkProblem(task, caller) ?? (isIssueRef(ref) ? heldRefProblem(ref, task.id, state) : `${ref} is no issue ref (${ISSUE_REF_PREFIX}<owner>/<name>#<number>)`);
+        return problem === undefined ? this.fieldChange(task, { ref }, blankToNull(note), state, NO_TASKS_ELSEWHERE, NO_GOAL_TAGS) : refuse(problem);
+    }
+    /** Why `caller` may not link `task` to an issue opened for it (linkIssue), or undefined when it may: what issue migrate plans by. */
+    linkProblem(task, caller) {
+        if (caller !== task.owner && caller !== this.tree.lead) {
+            return `only the owner (${task.owner}) or the lead (${this.tree.lead}) links ${task.id} to the issue opened for it`;
         }
-        return this.fieldChange(task, changes, text, state, elsewhere, goalTags);
+        return task.ref !== null && isIssueRef(task.ref) ? `${task.id} already links ${task.ref}` : undefined;
+    }
+    /**
+     * Why `caller` may not set `ref` by hand on task `id` (undefined for a new task), or undefined when it may (T2705 F1,
+     * security review T2712). An issue ref lets the task's owner write on that issue or pull request
+     * (issues/ownership.ts), so a session setting one at will could claim anyone's, an outside contributor's included:
+     * only the lead sets one by hand, and never one another task holds. Issue sync and issue migrate link the issues
+     * they import or open on their own paths (importAdd, linkIssue).
+     */
+    handLinkProblem(caller, ref, id, state) {
+        if (ref === null || !isIssueRef(ref)) {
+            return undefined;
+        }
+        if (caller !== this.tree.lead) {
+            return `only the lead (${this.tree.lead}) sets an issue ref by hand: ${ref} would let the task's owner write on that issue; issue migrate links the issue it opens for a task, issue sync the ones it imports`;
+        }
+        return heldRefProblem(ref, id, state);
     }
     /** The field rules every update passes, once who may make it is settled. */
     fieldChange(task, asked, text, state, elsewhere, goalTags) {
@@ -961,10 +1002,9 @@ export class RegisterPolicy {
     /**
      * Why a session may not change the work order of a task it does not own, or undefined when it may (T782): the lead
      * on any task, a sub-lead on the tasks of its group; only the LEAD_FIELDS (the lead the LEFT_OWNER_LEAD_FIELDS on a
-     * task whose owner left the team, or when it points a task holding no issue ref at an issue: issue migrate opens an
-     * issue for each task of the team and links it, replacing a note ref, while a task's issue stays its issue), and a
-     * sub-lead hands a task only
-     * to itself or a session it leads, so work never leaves its group by a sub-lead's hand.
+     * task whose owner left the team, or when it points a task holding no issue ref at an issue: an issue ref is the
+     * lead's to set by hand (handLinkProblem), replacing a note ref, while a task's issue stays its issue), and a sub-lead
+     * hands a task only to itself or a session it leads, so work never leaves its group by a sub-lead's hand.
      */
     leaderUpdateProblem(task, caller, names, changes) {
         const isLead = caller === this.tree.lead;
