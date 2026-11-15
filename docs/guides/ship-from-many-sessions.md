@@ -267,7 +267,8 @@ too, so unfreeze it first.
 ## When a step holds back
 
 - **The queue cutoff:** no queued step, merge or deploy starts from `delivery.schedule.queueCutoffUtc` until
-  midnight UTC, nor runs a queued step whose wait for the lock ran past it; set it to keep a nightly stretch free of
+  midnight UTC; a queued step already waiting in line then is held in its place and takes its turn after midnight
+  UTC, so no one re-queues it; set it to keep a nightly stretch free of
   builds.
 - **The reset blackout:** no merge or deploy starts in the `delivery.schedule.resetBlackoutHours` before the
   weekly token reset, the one the status line last reported, else the one `budget.reset` sets; unset, there is none.

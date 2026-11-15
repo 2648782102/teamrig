@@ -4407,7 +4407,9 @@ run leaves a `refusal` record instead: when it began to wait and ended, how (`ou
 `stopped` or `refused`), the line it printed (`reason`, which after a wait on host memory names the top three
 programs holding memory), its waits by cause, the last thing it waited on (`lastWait`), and the host's free memory at
 both ends (`queueFreeMb`, `endFreeMb`). Exit 0 when the command passed, 1 when it failed or was killed. REFUSED (exit 2) from
-`delivery.schedule.queueCutoffUtc` to midnight UTC, also when the wait for the lock ran past it, and when the lock
+`delivery.schedule.queueCutoffUtc` to midnight UTC for a new step; one already waiting in line then is held in its
+place until midnight UTC (`waiting for the host lock: the queue cutoff 00:30-02:00 IST, held in its place until 02:00
+IST`, its wait cause `cutoff`) and takes its turn after, its wait not running out meanwhile. REFUSED too when the lock
 (or, for a small step, the memory it needs) is still held after the wait. It is REFUSED too while a
 [pipeline freeze](#teamrig-pipeline-freeze) holds its `--kind`, looked at before `--detach` returns, before the lock
 and once more after the wait (`REFUSED the pipeline is frozen until 2030-01-08 14:00 IST by po (PC down; F2); ...
