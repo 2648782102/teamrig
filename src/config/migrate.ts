@@ -258,7 +258,7 @@ const PRIORITIES_RENAMES: readonly KeyRename[] = [
 /** v8 to v9: `focus` became `priorities` and `focus.wip` `priorities.startHold`, PRIORITIES_RENAMES; values kept. */
 export const RENAME_TO_PRIORITIES: ConfigMigration = {
   from: 8,
-  firstRelease: '0.391.0',
+  firstRelease: '0.403.0',
   apply: (config) => renameKeys(config, PRIORITIES_RENAMES, 8),
 };
 
