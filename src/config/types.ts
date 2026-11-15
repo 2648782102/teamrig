@@ -704,6 +704,13 @@ export interface GithubConfig {
    * their TF-IDF word vectors (src/issues/similar.ts). Higher lists fewer, closer candidates.
    */
   readonly similarThreshold: number;
+  /**
+   * The repository of `repos` a new task's issue opens in: while set, `teamrig add` opens the task's issue there with
+   * the public wording given (`--issue`, `--issue-body`), or records why the task stays local (`--local`), and adds no
+   * task with neither, so every task has its issue from the start. Empty, the default: an add opens an issue only when
+   * asked.
+   */
+  readonly issueAtAdd: string;
 }
 
 /**
