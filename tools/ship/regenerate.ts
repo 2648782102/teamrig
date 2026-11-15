@@ -17,9 +17,11 @@ export interface Regeneration {
   readonly versionFiles: readonly VersionFile[];
   /** The folder `npm run build` writes, committed apart from the work. */
   readonly dist: string;
+  /** The folders whose change reaches installs, so a release raises the version for it: the plugin's and its dist's source. */
+  readonly shipped: readonly string[];
 }
 
-export const TEAMRIG_REGENERATION: Regeneration = { versionFiles: TEAMRIG_VERSION_FILES, dist: DIST };
+export const TEAMRIG_REGENERATION: Regeneration = { versionFiles: TEAMRIG_VERSION_FILES, dist: DIST, shipped: ['plugins/teamrig/', 'src/'] };
 
 /** The paths of a regeneration as repos.json lists them: a folder ends in `/` (leftovers.ts `isRegenerated`). */
 export const listedPaths = (regeneration: Regeneration): readonly string[] => [`${regeneration.dist}/`, ...regeneration.versionFiles.map((file) => file.path)];
