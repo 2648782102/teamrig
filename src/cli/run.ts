@@ -97,6 +97,7 @@ const issueSyncCommands = () => import('./commands/issue-sync.ts');
 const issueMigrateCommands = () => import('./commands/issue-migrate.ts');
 const issueCommands = () => import('./commands/issue.ts');
 const prCommands = () => import('./commands/pr.ts');
+const issueAdminCommands = () => import('./commands/issue-admin.ts');
 const startCommands = () => import('./commands/start.ts');
 const meetingCommands = () => import('./commands/meeting.ts');
 const meetingsCommands = () => import('./commands/meetings.ts');
@@ -187,6 +188,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   'owner note': { effect: 'write', flags: ['text'], load: async () => (await ownerCommands()).ownerNote },
   'owner next': { effect: 'write', flags: [], switches: ['preview'], load: async () => (await ownerCommands()).ownerNext },
   'owner wake': { effect: 'write', flags: ['terminal', 'project'], load: async () => (await ownerWakeCommands()).ownerWake },
+  'owner github-admin': { effect: 'write', flags: [], load: async () => (await issueAdminCommands()).ownerGithubAdmin },
   launch: { effect: 'internal', flags: ['team', 'project', 'home', 'encoded-prompt', 'resume', 'effort'], switches: ['no-prompt'], load: async () => (await openCommands()).launch },
   restore: { effect: 'read', flags: [], load: async () => (await restoreCommands()).restorePreview },
   'restore run': { effect: 'write', flags: ['since', 'terminal', 'home'], switches: ['tab'], load: async () => (await restoreCommands()).restoreRun },
@@ -216,6 +218,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   compact: { effect: 'write', flags: [], switches: ['dry-run', 'from-history'], load: async () => (await compactCommands()).compact },
   'issue sync': { effect: 'write', flags: ['repo'], switches: ['yes', 'auto', 'push'], load: async () => (await issueSyncCommands()).issueSync },
   'issue migrate': { effect: 'write', flags: ['session', 'out'], switches: ['yes'], load: async () => (await issueMigrateCommands()).issueMigrate },
+  'issue admin': { effect: 'read', flags: [], load: async () => (await issueAdminCommands()).issueAdmin },
   'issue comment': { effect: 'write', flags: ['session', 'body'], load: async () => (await issueCommands()).issueComment },
   'issue close': { effect: 'write', flags: ['session', 'comment'], load: async () => (await issueCommands()).issueClose },
   'pr conflicts': { effect: 'write', flags: ['base'], load: async () => (await prCommands()).prConflicts },
@@ -380,6 +383,10 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       pane: a running idle tab gets an inbox line that wakes it at once to work its list (none more while
       that ask waits), a closed one opens in a new tab; refused on a tab in a turn, at a tool call or with
       a decision put to the person, where wake.enabled is false, and where Claude Code sets $CLAUDECODE
+  owner github-admin <id|name|none>   the owner names the one session that may close, comment on and
+      delete any issue, pull request or branch of github.repos; every other session acts only on its
+      own; saves a fresh key in the OS credential store and signs the role file with it, so an edited
+      or older file reads as no admin; none removes the role; refused where Claude Code sets $CLAUDECODE
   restore                      what a restore would do now with each Claude Code session this machine
       recorded: RESTORE (how it comes back, at which effort), CLOSED (kept, reopened only on ask), HUNG
       (still running but mid-turn with its transcript unwritten 3 h, ended and reopened only on ask),
@@ -681,6 +688,8 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       nothing but the --out preview of every issue in full; --yes opens each issue through gh and
       sets the task's ref to it, so issue sync adds no second task; stops at the first failure, and a
       rerun skips each task already holding its issue
+  issue admin   the team's GitHub admin (owner github-admin), none, or BROKEN with why the role file or its
+      key does not hold: then no session is admin
   issue comment <owner/name#n> --body <text>   posts one comment on an issue or pull request of the
       team's repositories (github.repos; GitHub is the only host so far), with the token saved for the
       owner, else the gh login; refuses an empty body, a secret shape, private data (a home folder
