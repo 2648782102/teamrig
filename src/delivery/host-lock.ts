@@ -11,6 +11,7 @@ import type { CpuGate } from './cpu.ts';
 import { charge, DEFAULT_EXPECTED_MINUTES, EMPTY_TURNS, endedAtOf, endedText, isNewerTurns, parseTurns, settle, turnsFor, turnsText, type OpenCharge, type TurnsState } from './class-turns.ts';
 import { shortText, type CommitShort, type MemoryGate, type MemoryLook, type MemoryShort } from './memory-gate.ts';
 import { isLineRequest, type LineRequest } from './process-request.ts';
+import { queueCutoffSpan } from './schedule.ts';
 import { WAIT_CAUSES, type WaitCause } from './wait-cause.ts';
 import { causeOfLockWait } from './wait-log.ts';
 
@@ -166,12 +167,22 @@ export interface StepNeed {
  * as a merge or a deploy does; it wins over a small need), and what it works for (`request`), which its ticket and
  * share carry. `arrivedAt` (epoch ms, never past now) is when the step first joined the line, for a run that took a
  * step over after its launching shell ended (T2304): its ticket keeps that place instead of going to the end.
+ * `cutoffUtc` (`HH:MM`, UTC, `delivery.schedule.queueCutoffUtc`) holds the step in its place from then until midnight
+ * UTC (T2896): it takes no turn meanwhile and its wait does not run out, so the line starts again in its order after.
  */
 export interface StepAsk {
   readonly need?: StepNeed;
   readonly exclusive?: boolean;
   readonly request?: LineRequest;
   readonly arrivedAt?: number;
+  readonly cutoffUtc?: string;
+}
+
+/** The queue cutoff holding a step in its place in line (`StepAsk.cutoffUtc`): from `from` until `until`, epoch ms. */
+export interface CutoffWait {
+  readonly kind: 'cutoff';
+  readonly from: number;
+  readonly until: number;
 }
 
 /**
@@ -218,7 +229,8 @@ export interface CpuWait {
  * that a step that took the lock waits to end, or, for the first in line, the host's free memory or commit charge
  * (`MemoryWait`). In admission's `pipeline` mode also its session's cap (`sessionCap`), the heavy steps sharing the
  * host at their cap (`heavyCap`) or with the CPU too busy for one more (`cpu`), and, for a moment, another step being
- * admitted (`admitting`), which holds the admit file.
+ * admitted (`admitting`), which holds the admit file. Any waiter, too, on the queue cutoff (`cutoff`), which holds the
+ * whole line in its order.
  */
 export type LockWait =
   | LockHolder
@@ -228,7 +240,8 @@ export type LockWait =
   | SessionCapWait
   | HeavyCapWait
   | CpuWait
-  | { readonly kind: 'admitting' };
+  | { readonly kind: 'admitting' }
+  | CutoffWait;
 
 /**
  * A lock taken, `sharing` set when it is a share of the host (a small step's, or a heavy one's); what the step still waits on; or its ticket
@@ -497,6 +510,8 @@ export function holderText(holder: LockWait, zone: TimeZone): string {
       return `host CPU ${holder.idlePct}% idle, ${holder.needPct}% needed (delivery.queue.heavyIdleCpuPct) beside ${stepsText(holder.running.length, 'heavy ')}: ${heldText(holder.running, zone)}`;
     case 'admitting':
       return 'another step being admitted';
+    case 'cutoff':
+      return `the queue cutoff ${zone.clockSpan(new Date(holder.from), new Date(holder.until))}, held in its place until ${zone.clock(new Date(holder.until))}`;
   }
 }
 
@@ -574,6 +589,8 @@ export function busyText(holder: LockWait, zone: TimeZone): string {
     case 'draining':
     case 'admitting':
       return `host lock still held by ${holderText(holder, zone)}`;
+    case 'cutoff':
+      return `still held by ${holderText(holder, zone)}`;
   }
 }
 
@@ -601,6 +618,8 @@ function waitKey(holder: LockWait, ahead: number): string {
       return `${holder.kind} ${idsOf(holder.running)} ${ahead}`;
     case 'admitting':
       return `admitting ${ahead}`;
+    case 'cutoff':
+      return `cutoff ${holder.until} ${ahead}`;
   }
 }
 
@@ -666,9 +685,16 @@ function standingBehind(ahead: readonly LockWaiter[], holder: LockWait): Set<str
       break;
     case 'unknown':
     case 'admitting':
+    case 'cutoff':
       break;
   }
   return ids;
+}
+
+/** The queue cutoff holding a step in line at `now` ({@link StepAsk}'s `cutoffUtc`); undefined outside it, or with none set. */
+function cutoffWaitOf(cutoffUtc: string | undefined, now: number): CutoffWait | undefined {
+  const span = queueCutoffSpan(now, cutoffUtc);
+  return span !== undefined && now >= span.from ? { kind: 'cutoff', from: span.from, until: span.to } : undefined;
 }
 
 /**
@@ -698,6 +724,19 @@ class Patience {
       this.movedAt = now;
     }
     return moved;
+  }
+
+  /**
+   * A hold on the whole line until `until` (the queue cutoff): the wait runs out no sooner than `maxWaitMs` after it, and
+   * the steps stood behind are forgotten, as the line takes up again from there. True when that moved the wait's end.
+   */
+  holdUntil(until: number): boolean {
+    this.behind = new Set();
+    if (until <= this.movedAt) {
+      return false;
+    }
+    this.movedAt = until;
+    return true;
   }
 }
 
@@ -930,6 +969,14 @@ export class HostLock {
     let unknownSince: number | undefined;
     for (;;) {
       stop?.throwIfAborted();
+      const cutoff = cutoffWaitOf(ask.cutoffUtc, clock.now());
+      if (cutoff !== undefined) {
+        if (!(await this.holdOn(ticket, patience, cutoff, reports))) {
+          return { kind: 'withdrawn' };
+        }
+        await sleep(Math.min(pollMs, cutoff.until - clock.now()));
+        continue;
+      }
       const removeUnknown = unknownSince !== undefined && clock.now() - unknownSince >= HostLock.UNREADABLE_GRACE_MS;
       const looked = await this.lookInLine(ticket, removeUnknown, ask);
       if (looked === undefined) {
@@ -1172,6 +1219,21 @@ export class HostLock {
     const moved = patience.look(behind, this.ports.clock.now());
     if (!moved && waitingOn === undefined) {
       return true;
+    }
+    const expiresAt = ticketExpiry(patience.deadline);
+    return this.rewrite(ticket, waitingOn === undefined ? { ...ticket.waiter, expiresAt } : { ...ticket.waiter, expiresAt, waitingOn });
+  }
+
+  /**
+   * Takes in a look that found the queue cutoff holding the line: the step looks at nothing else, its wait runs out no
+   * sooner than `maxWaitMs` after the cutoff ends, and its ticket says both once, so it keeps its place and no waiter
+   * removes it as stale meanwhile. False when its ticket was withdrawn.
+   */
+  private async holdOn(ticket: OwnTicket, patience: Patience, cutoff: CutoffWait, reports: WaitReports): Promise<boolean> {
+    const waitingOn = reports.report(cutoff, 0, this.ports.clock.now());
+    const longer = patience.holdUntil(cutoff.until);
+    if (!longer && waitingOn === undefined) {
+      return (await this.ports.files.read(join(this.queue, ticket.name))) !== undefined;
     }
     const expiresAt = ticketExpiry(patience.deadline);
     return this.rewrite(ticket, waitingOn === undefined ? { ...ticket.waiter, expiresAt } : { ...ticket.waiter, expiresAt, waitingOn });

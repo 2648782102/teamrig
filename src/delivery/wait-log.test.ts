@@ -58,6 +58,7 @@ describe('causeOfLockWait', () => {
       [{ kind: 'heavyCap', cap: 2, running: [{ ...INFO, reserveMb: 4096, heavy: true }] }, 'heavyCap'],
       [{ kind: 'cpu', idlePct: 10, needPct: 25, running: [{ ...INFO, reserveMb: 4096, heavy: true }] }, 'cpu'],
       [{ kind: 'admitting' }, 'line'],
+      [{ kind: 'cutoff', from: Date.parse('2030-01-08T22:30:00.000Z'), until: Date.parse('2030-01-09T00:00:00.000Z') }, 'cutoff'],
     ];
     assert.deepEqual(
       waits.map(([wait]) => causeOfLockWait(wait)),

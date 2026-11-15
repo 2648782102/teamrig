@@ -224,17 +224,23 @@ describe('teamrig queue', () => {
     assert.deepEqual(result.stdout, [heavyShared('2030-01-08 12:00:02 IST'), '2030-01-08 12:00:02 IST running: build api (killed after 45m)', 'DONE exit 0']);
   });
 
-  it('waits for a held lock, and refuses when the wait ran past the cutoff, recording its refusal, with delivery.queue.admission serial', async () => {
+  it('holds a step already in line in its place through the cutoff, and runs it after midnight UTC, with delivery.queue.admission serial (T2896)', async () => {
     const { kit, steps } = harness({ ...TEAM, delivery: { schedule: { queueCutoffUtc: '10:30' }, queue: { admission: 'serial' } } });
     await kit.files.write(LOCK, heldBy('2030-01-08T10:40:00.000Z'));
+    steps.ends(0, MINUTE);
     const result = await kit.run(BUILD, { steps, sessionProcesses: otherRuns() });
     assert.deepEqual(result, {
-      code: 2,
-      stdout: ['2030-01-08 10:00:00 UTC waiting for the host lock: po (heavy: build) since 2030-01-08 09:50 UTC', 'REFUSED queue cutoff 10:30-00:00 UTC (now 10:40 UTC)'],
+      code: 0,
+      stdout: [
+        '2030-01-08 10:00:00 UTC waiting for the host lock: po (heavy: build) since 2030-01-08 09:50 UTC',
+        '2030-01-08 10:30:00 UTC waiting for the host lock: the queue cutoff 10:30-00:00 UTC, held in its place until 00:00 UTC',
+        '2030-01-09 00:00:02 UTC running: build api (killed after 45m)',
+        'DONE exit 0',
+      ],
       stderr: [],
     });
-    const refusal = buildRefused('2030-01-08T10:40:02.000Z', 40 * MINUTE + FIRST_IN_LINE_POLL_MS, 'refused', 'queue cutoff 10:30-00:00 UTC (now 10:40 UTC)');
-    assert.deepEqual([steps.ran, kit.files.get(LOCK), ledgerOf(kit)], [[], undefined, [refusal]]);
+    const start = { type: 'heavy', id: 'id-2', session: 'alpha', what: 'build api', kind: 'build', kit: KIT_VERSION, queuedAt: '2030-01-08T10:00:00.000Z', waits: { lock: 30 * MINUTE, cutoff: 13.5 * 60 * MINUTE + FIRST_IN_LINE_POLL_MS }, queueFreeMb: ROOMY_FREE_MB, startedAt: '2030-01-09T00:00:02.000Z', endedAt: null, exitCode: null };
+    assert.deepEqual(ledgerOf(kit), [start, { ...start, endedAt: '2030-01-09T00:01:02.000Z', exitCode: 0 }]);
   });
 
   it('refuses under a pipeline freeze on its kind before taking the lock, and runs under one on other kinds', async () => {
@@ -1122,6 +1128,16 @@ describe('teamrig queue hands a waiting step over when its shell ended under a l
       assert.equal(ledgerOf(kit).length, 1, 'its stopped refusal');
     });
   }
+
+  it('holds the run taking a step over through the queue cutoff in the place the step had, and runs it after midnight UTC (T2896)', async () => {
+    const { kit, steps } = harness({ ...TEAM, delivery: { schedule: { queueCutoffUtc: '09:30' } } });
+    const handed = ['queue', '--detached-run', HANDED_ID, '--session', 'alpha', '--arrived-at', ARRIVED, '--what', 'build api', '--', 'npm', 'run', 'build'];
+    const result = await kit.run(handed, { steps: steps.ends(0, MINUTE) });
+    assert.deepEqual([result.code, result.stdout.slice(1)], [0, ['2030-01-08 10:00:00 UTC waiting for the host lock: the queue cutoff 09:30-00:00 UTC, held in its place until 00:00 UTC', heavyShared('2030-01-09 00:00:02 UTC'), '2030-01-09 00:00:02 UTC running: build api (killed after 45m)', 'DONE exit 0']]);
+    const later = harness({ ...TEAM, delivery: { schedule: { queueCutoffUtc: '09:30' } } });
+    const fresh = await later.kit.run(['queue', '--detached-run', HANDED_ID, '--session', 'alpha', '--what', 'build api', '--', 'npm', 'run', 'build'], { steps: later.steps });
+    assert.deepEqual([fresh.code, fresh.stdout.at(-1), later.steps.ran], [2, 'REFUSED queue cutoff 09:30-00:00 UTC (now 10:00 UTC)', []], 'a run that joins the line now, taking no place over, is refused');
+  });
 
   it('stops, recording why, when its detached run did not start', async () => {
     const processes = new FakeProcesses().onStart('/usr/bin/node', { kind: 'failed', error: 'spawn EPERM' });

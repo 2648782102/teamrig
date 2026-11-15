@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
 import type { Sleep } from '../core/lock.ts';
 import { SecretShapes } from '../core/secret-shapes.ts';
 import { EnvAssignments } from '../secret-guard/env-assignments.ts';
@@ -1805,5 +1806,76 @@ describe('HostLock CPU room for a second heavy step (T2700)', () => {
     const shared = world(Object.fromEntries([shareFile(heavyOf())]), undefined, new FakeHostMemory(16_000), PIPELINE, beside);
     const small = await shared.lock.acquire('alpha', 'heavy: specs', 0, 30_000, () => undefined, { need: SMALL, request: REQUEST });
     assert.deepEqual([heavy.kind, small.kind, lone.reads, beside.reads], ['taken', 'taken', 0, 0]);
+  });
+});
+
+/** Files in memory counting the writes of tickets into the line. */
+class CountingTickets extends MemoryFiles {
+  ticketWrites = 0;
+
+  override async write(path: string, text: string): Promise<void> {
+    await super.write(path, text);
+    this.countTicket(path);
+  }
+
+  override async createExclusive(path: string, text: string): Promise<boolean> {
+    const created = await super.createExclusive(path, text);
+    if (created) {
+      this.countTicket(path);
+    }
+    return created;
+  }
+
+  private countTicket(path: string): void {
+    if (dirname(path) === join(QUEUE)) {
+      this.ticketWrites += 1;
+    }
+  }
+}
+
+describe('HostLock through the queue cutoff (T2896)', () => {
+  /** The cutoff from 10:00 UTC, the clock's start, until midnight UTC. */
+  const CUTOFF = { cutoffUtc: '10:00' };
+  const MIDNIGHT = Date.parse('2030-01-09T00:00:00.000Z');
+  const HELD = 'the queue cutoff 12:00-02:00 IST, held in its place until 02:00 IST';
+
+  it('takes no free lock during the cutoff, and takes it at midnight UTC though its wait is shorter than the hold, told once', async () => {
+    const { clock, lock } = world();
+    const told: string[] = [];
+    const taking = await lock.acquire('alpha', 'heavy: test', 60_000, 30_000, (holder) => told.push(holderText(holder, JERUSALEM)), CUTOFF);
+    assert.deepEqual([taking.kind, clock.now(), told], ['taken', MIDNIGHT, [HELD]]);
+    assert.equal(clock.sleeps.at(-1), 30_000, 'the last sleep ends at midnight, never past it');
+  });
+
+  it('writes its ticket once in the hold, saying the cutoff and a wait ending its maxWait after midnight', async () => {
+    const files = new CountingTickets({ [PATH]: heldBy({ expiresAt: '2030-01-09T03:00:00.000Z' }) });
+    const clock = new FakeClock('2030-01-08T10:00:00Z');
+    const seen: (Pick<LockWaiter, 'expiresAt' | 'waitingOn'> | undefined)[] = [];
+    const lock = lockOver(files, clock, ME, async (ms) => {
+      seen.push(await mineOf(files, clock));
+      await clock.sleep(ms);
+      if (clock.now() >= MIDNIGHT) {
+        await files.remove(PATH);
+      }
+    });
+    const taking = await lock.acquire('alpha', 'heavy: test', 60_000, 30_000, () => undefined, CUTOFF);
+    const held = { expiresAt: new Date(MIDNIGHT + 60_000 + TICKET_GRACE_MS).toISOString(), waitingOn: { reason: 'cutoff', text: HELD, since: '2030-01-08T10:00:00.000Z' } };
+    assert.deepEqual([taking.kind, changesOf(seen), files.ticketWrites], ['taken', [held], 2]);
+  });
+
+  it('stops, taking nothing, once its ticket is withdrawn during the hold', async () => {
+    let done: Withdrawal[] = [];
+    const { clock, files, lock } = world({}, (time, store) => async (ms) => {
+      await time.sleep(ms);
+      done = await lockOver(store, time, 77).withdraw('alpha', () => true);
+    });
+    const taking = await lock.acquire('alpha', 'heavy: test', 60_000, 30_000, () => undefined, CUTOFF);
+    assert.deepEqual([taking, done.map((withdrawal) => withdrawal.kind), await lineOf(files), clock.sleeps], [{ kind: 'withdrawn' }, ['withdrawn'], [], [30_000]]);
+    assert.equal(files.get(PATH), undefined);
+  });
+
+  it('names the cutoff as still holding it once its wait runs out', () => {
+    const cutoff: LockWait = { kind: 'cutoff', from: Date.parse('2030-01-08T22:30:00.000Z'), until: MIDNIGHT };
+    assert.equal(busyText(cutoff, TimeZone.UTC), 'still held by the queue cutoff 22:30-00:00 UTC, held in its place until 00:00 UTC');
   });
 });
