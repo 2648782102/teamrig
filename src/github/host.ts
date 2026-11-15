@@ -252,7 +252,7 @@ export class GitHubIssueHost implements IssueHost {
   async createLabel(repo: string, label: LabelSpec): Promise<HostEnd> {
     const shown = `the label ${JSON.stringify(label.name)} in ${repo}`;
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
