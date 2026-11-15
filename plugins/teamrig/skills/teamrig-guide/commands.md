@@ -42,7 +42,9 @@ Flags:
   (`register.ownerSource`).
 - `--ref <where it was asked>`: a pointer to the ask, such as a file and line or an inbox date; at most 300
   characters. A task id (`T12`) links the task to that task, which may be in another team of your tree:
-  `inbox add --to task:T12` then reaches this task's owner too.
+  `inbox add --to task:T12` then reaches this task's owner too. An issue ref (`gh:<owner>/<name>#<number>`) lets the
+  task's owner write on that issue ([teamrig issue comment](#teamrig-issue-comment)), so only the lead gives one
+  by hand, never one another task holds; `issue migrate` and `issue sync` link the issues they open or import.
 - `--due <date>`: the deadline.
 - `--goals a,b|none`: the goals the task serves, by tag, or `none`: it serves none. How the tags meet the team's
   goals ([teamrig goal add](#teamrig-goal-add)) is `register.goals`: `free` (the default) takes any tag;
@@ -319,7 +321,9 @@ Flags:
   `register.requireDescription` is off.
 - `--owner <session>`: hand the task to another session, which gets an inbox line naming it.
 - `--priority p<n>`: a new priority.
-- `--ref <where>|none`: a new pointer, or `none` to clear it.
+- `--ref <where>|none`: a new pointer, or `none` to clear it. An issue ref (`gh:<owner>/<name>#<number>`) lets the
+  task's owner write on that issue ([teamrig issue comment](#teamrig-issue-comment)), so only the lead gives one
+  by hand, never one another task holds; `issue migrate` and `issue sync` link the issues they open or import.
 - `--due <date>|none`: a new deadline, or `none` to clear it.
 - `--goals a,b|none`: new goal tags, or `none`: the task serves no goal. Under `register.goals` `checked` or
   `required` each tag must be a goal of the team or a team above it, as on `add`.
@@ -1295,18 +1299,19 @@ reviewer to read before anything is posted.
 With `--yes` it opens each issue in row order through `gh api` (one issue, its title, body and labels, the kind of
 work then the priority), with the token saved for the repository's owner as `teamrig-gh-<owner>`, else the `gh auth
 login` account (an `ACCESS` line per owner says which; a saved token the store cannot read stops the run, never the
-`gh` login in its place), then sets the task's ref to `gh:<owner>/<name>#<number>` as an `update --ref` by you would, so `teamrig gh
+`gh` login in its place), then links the task to it, its ref `gh:<owner>/<name>#<number>` (by the task's owner or the lead, on a task
+holding no issue yet, to an issue no other task holds; an issue ref by hand is the lead's alone), so `teamrig issue
 sync` adds no second task for it. Each opened issue gives an `OPENED` line and the run ends with `DONE`. The first
 failure stops the run: `FAILED` when gh failed (a stopped gh or one that printed no number may still have opened
 the issue: look before a rerun), `REFUSED` when the register refused the ref (the issue is open: the line gives the
-`teamrig update` that sets it), then `STOPPED`. A rerun skips each task already holding its issue.
+`teamrig update` the lead links it with), then `STOPPED`. A rerun skips each task already holding its issue.
 
 `TEAMRIG_GITHUB=off` makes `--yes` print an `OFF` line and open nothing. Exit 1 when gh failed, 2 when the register
 refused a ref, else 0.
 
 Flags:
 
-- `--session <id|name>`: the caller, a session of the team; each ref is set as its update.
+- `--session <id|name>`: the caller, a session of the team: each task's owner, or the lead.
 - `--out <preview.md>`: writes the Markdown preview there.
 - `--yes`: opens the issues and sets each task's ref. Without it nothing is written but the preview.
 
