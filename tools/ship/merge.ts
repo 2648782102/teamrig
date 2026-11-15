@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
+import { gitSyncIn } from '../lib/git.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
 import { type ClearMerge, clearMergeFrom } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
@@ -533,7 +534,8 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
 export function realMergeDeps(dir: string): MergeDeps {
   const out = (line: string): void => console.log(line);
   const err = (line: string): void => console.error(line);
-  const git = (...gitArgs: string[]): string => execFileSync('git', ['-C', dir, ...gitArgs], { encoding: 'utf8' }).trim();
+  const runGit = gitSyncIn(dir);
+  const git = (...gitArgs: string[]): string => runGit(gitArgs).trim();
   return {
     git,
     profiles: readProfiles(),
