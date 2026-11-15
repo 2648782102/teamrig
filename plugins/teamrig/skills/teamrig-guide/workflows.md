@@ -379,9 +379,9 @@ teamrig start --session lead
 With sub-teams, run `teamrig check --tree --session lead` too. Then check the ship plan (the `team-setup` skill
 has the steps): each open shippable slice, a goal's fewest tasks that ship something working, has an owner, a ship
 date and a live proof; one past its date or waiting on you comes first; each session keeps at most
-`focus.slicesPerSession` open, one more only while one waits on another session or the owner; none needing a new
-owner decision opens while `focus.maxOwnerDecisions` wait in the tree; and other work waits, incidents and
-`focus.maintenanceClass` work aside. Until the register holds slices, they live in `ship-plan.md` in the lead's
+`priorities.slicesPerSession` open, one more only while one waits on a peer or the owner; none needing a new
+owner decision opens while `priorities.maxOwnerDecisions` wait in the tree; and other work waits, incidents and
+`priorities.maintenanceClass` work aside. Until the register holds slices, they live in `ship-plan.md` in the lead's
 notes folder (`teamrig files --notes --session lead`). While the budget is enabled, the week is split by those
 plans: each lead sizes its slices in % of the week before the reset; after it, the main lead (the lead of the team
 `budget.accountLead` names, else of the root team) splits the week among the account's root teams, and each lead
@@ -413,7 +413,7 @@ each flag (full table: [tasks.md](tasks.md#check-flags)):
   (`teamrig hire <id> --review <YYYY-MM-DD> --reason "<why>" --session lead --yes`), else retire it.
 - `OVERDUE` or `STALE`: ask the owner what blocks it, then re-date it (`--due`) or tell the human.
 - `READY`: a waiting task can go on: one inbox line to its owner, if it has not set the next status.
-- `ROADMAP-WAITS-ON-LEAD`: Roadmap work has waited on a leader past `focus.leaderWaitMinutes`: answer it before
+- `ROADMAP-WAITS-ON-LEAD`: Roadmap work has waited on a leader past `priorities.leaderWaitMinutes`: answer it before
   anything else (`teamrig approve <id>`, or the decision it asks for); it leads that leader's `WAITING ON YOU`. One
   held on a sub-lead is that sub-lead's to answer: one inbox line to it.
 - `NO-CARD`: a task waits on the owner with no card: one inbox line to its owner to set it waiting again with the

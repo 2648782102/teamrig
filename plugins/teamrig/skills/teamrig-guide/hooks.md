@@ -53,9 +53,9 @@ The injected context holds:
    on it with `approve` after the `approvals` skill's checklist; fix a team rule proven wrong, while a loosening goes
    to the owner; concede at once to a higher leader's call, and appeal, never blocking, to a leader above (the owner
    through the main lead) as an `Appeal: ...` task it owns; clear each HIRE flag by its action; plan by shippable slices, each ranked goal's next one owned,
-   dated and with its live proof, at most `focus.slicesPerSession` open per session (one more only while one waits
-   on another session or the owner), none needing a new owner decision while `focus.maxOwnerDecisions` wait in the
-   tree, and other work waiting (incidents and `focus.maintenanceClass` work aside), an open slice's waits answered
+   dated and with its live proof, at most `priorities.slicesPerSession` open per session (one more only while one waits
+   on another session or the owner), none needing a new owner decision while `priorities.maxOwnerDecisions` wait in the
+   tree, and other work waiting (incidents and `priorities.maintenanceClass` work aside), an open slice's waits answered
    first; while the budget is enabled, the week split: each plan sized in % of the week before the reset, then the
    main lead (`budget.accountLead`'s, else the root team's) splits the week among the account's root teams and each
    lead its part among its own and child teams, by what each plan ships and how its last held, each team with
@@ -977,7 +977,7 @@ in-progress, or waiting or verifying with every wait cleared, and, when never st
 task not started that comes after the waiting one, directly or through another unfinished task, stays untouched,
 and so do its closed tasks, those still waiting or verifying on a reason not cleared, and an unstarted one the
 [WIP rule](commands.md#teamrig-set) would hold at its start (Improvements behind Roadmap work that can move, or a class past its
-share of the week [focus.allocation]), so the push never sends a session past the team's ranking. The lead, while
+share of the week [priorities.allocation]), so the push never sends a session past the team's ranking. The lead, while
 `leadBoundary` is on, is asked to hand code work to the session owning its area (`teamrig update <id> --owner
 <session>`) and work the rest. It asks at one stop only, never on a stop already sent back or while a context
 refresh is under way (the ask then waits for a later stop), and never in the budget's quiet hours or while its

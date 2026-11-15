@@ -24,7 +24,7 @@ Then it prints the agenda:
   target slipped, what is overdue and which tasks wait; read everything after it against these goals;
 - `DECISIONS`: each task waiting on the human's decision or approval, with its card facts, ranked by what it
   unblocks: an expedite first, then those that free Roadmap work, then by best score. A decision that frees only
-  Improvements work waits for the weekly batch, after the daily cards on the `[focus.improvementsDay]` weekday and
+  Improvements work waits for the weekly batch, after the daily cards on the `[priorities.improvementsDay]` weekday and
   shown on no other day;
 - `DEDICATED`: the waits on the human in the team's core-business areas, the sessions `[decisions.dedicatedOwners]`
   names, by owning session: never a card and never read out; each session gets its own meeting after the daily
@@ -69,7 +69,7 @@ reaches `refresh.compactCeilingTokens` (185,000 by default), past which it goes 
 ## 2. Bring each decision as a card
 
 Lead with the ship board: each open shippable slice (a goal's fewest tasks that ship something working, proven
-live; at most `[focus.slicesPerSession]` open per session) and the slices planned 1 to 2 weeks ahead, one line each:
+live; at most `[priorities.slicesPerSession]` open per session) and the slices planned 1 to 2 weeks ahead, one line each:
 its goal, what it ships, its owner and ship date, and whether it shipped (its live proof seen), is on date, or is
 slipping, with why and its new date. Until the register holds slices, they live in `ship-plan.md` in your notes
 folder (`teamrig files --notes --session lead`), one row per slice: goal, slice, tasks, owner, ship date, live

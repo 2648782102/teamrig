@@ -217,10 +217,10 @@ Then check the ship plan: `ship-plan.md` in your notes folder (`teamrig files --
 register holds slices, one row per slice (goal, slice, tasks, owner, ship date, live proof, status). Each open slice
 has an owner, a ship date and a live proof. One past its date, or with a task waiting on you, comes first: answer
 that wait, then re-cut the slice smaller or re-date it with its reason. A slice ships when its live proof is seen,
-and its goal's next one opens then. Each session keeps at most `[focus.slicesPerSession]` open, one more only while
+and its goal's next one opens then. Each session keeps at most `[priorities.slicesPerSession]` open, one more only while
 one waits on another session or the owner; past that, park its newest until one ships. No slice needing a new
-owner decision opens while `[focus.maxOwnerDecisions]` wait in the tree. Work outside an open slice waits,
-incidents and `[focus.maintenanceClass]` work aside: ask its session in one inbox line to park it.
+owner decision opens while `[priorities.maxOwnerDecisions]` wait in the tree. Work outside an open slice waits,
+incidents and `[priorities.maintenanceClass]` work aside: ask its session in one inbox line to park it.
 
 While the budget is enabled, the week is split by plans, top down:
 

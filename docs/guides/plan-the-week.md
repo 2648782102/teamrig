@@ -28,8 +28,8 @@ teamrig plan                                       # the week in force, grouped 
   not finished) goes after the ones that can. The score is what a delay costs (the value of the class and the best goal
   rank, how near the due date is, what the task unblocks, your own order) over its size, so a small valuable task goes
   ahead of a large one. The size is the work left: a task with no size is measured by finished tasks like it, and what
-  a started task has spent comes off, so spending never sinks it. `focus.score` and `focus.expedite` hold the numbers.
-- What stays out: an open task classed outside Roadmap and Maintenance that nothing touched for `focus.parkAfterDays`
+  a started task has spent comes off, so spending never sinks it. `priorities.score` and `priorities.expedite` hold the numbers.
+- What stays out: an open task classed outside Roadmap and Maintenance that nothing touched for `priorities.parkAfterDays`
   days parks: `list`, `plan`, `check`, `start` and the wakes leave it out, unless it is pinned, critical, your own
   order or needed by an active task. Any update brings it back, and `list --parked` shows them. A task no leader has
   classed never parks: `check` flags it `UNTRIAGED`, and `list --untriaged` prints its leader's daily batch.
@@ -50,7 +50,7 @@ teamrig plan                                       # the week in force, grouped 
   the ranked ones first. With `register.goals` set to `checked`
   a tag must be one of those goals, and with `required` an owner-asked, p0 or p1 task must name one, or `none`.
 - What the plan held: `teamrig stats` closes with `USE` lines, how much of the task work the plan held and what each
-  class took, in W and minutes, against `focus.plannedTargetPct` (70%) and `focus.allocation` (60/25/15):
+  class took, in W and minutes, against `priorities.plannedTargetPct` (70%) and `priorities.allocation` (60/25/15):
   `USE planned 64% of task W, target 70%, gap -6: planned 26.40M W, 201 min; unplanned 14.80M W, 111 min`. A day's
   work counts as planned when the task's tag that day named a week holding that day, so a later retag changes no past
   day, and a task tagged mid-week counts from that day on. The numbers come from the daily usage rollup:
@@ -114,7 +114,7 @@ Week: 31.0% used at 12:00 IDT (status line); the pace line is at 28.6%: 2.4 poin
 - Past 100% of the week, the extra usage put in on claude.ai is entered with `teamrig budget extra` and spread over
   the days left the same way.
 - Where the W went: `teamrig budget` gives the team's spend by work class today and this week, in % of the week,
-  beside each class's `focus.allocation` (Roadmap 60, Maintenance 25, Improvements 15 by default), and a `No task` row
+  beside each class's `priorities.allocation` (Roadmap 60, Maintenance 25, Improvements 15 by default), and a `No task` row
   for turns that named none and for helpers. A share is a percent of the whole week: once Improvements has spent its
   share, its starts wait for the week's reset, a one-commit fix (`set --one-commit`) aside. `budget --task T<n>` gives each session's W on one task, `--burn` each
   day's sources (the owner, peer messages, notifications, scheduled wakes, subagents), `--loops` the costly loop

@@ -54,7 +54,7 @@ Team settings for the teamrig plugin. Only the roster (sessions, roles.lead) is 
 | `permissions` | [object](#permissions) |  | Which local allow rules stay. An allow rule in a Claude Code settings file approves a call before auto mode's classifier sees it, so a rule that approves a whole tool or a program with any arguments skips the one check that stops an injected or mistaken action. teamrig permissions trim removes the rules off keepAllow (the owner runs it with --yes); doctor flags the ones that approve a whole tool or program, or hold a credential (text in a secret's shape) that Claude Code saved with an approved command. |
 | `open` | [object](#open) |  | How teamrig open starts a session in a new terminal tab. |
 | `statusLine` | [object](#statusline) |  | What teamrig statusline shows beside the model and the plan's use of the week. |
-| `focus` | [object](#focus) |  | Goal-first ranking: the work classes a task is filed under (teamrig add and update --class), how its WSJF score is made (cost of delay over size), the WIP rule and the share of the week each class is planned to take. When classes, roadmapClass, maintenanceClass, defaultClass and allocation disagree, each problem is reported and all five take their defaults. |
+| `priorities` | [object](#priorities) |  | Goal-first ranking: the work classes a task is filed under (teamrig add and update --class), how its WSJF score is made (cost of delay over size), the WIP rule and the share of the week each class is planned to take. When classes, roadmapClass, maintenanceClass, defaultClass and allocation disagree, each problem is reported and all five take their defaults. |
 | `launch` | map from [session name](#shared-types) to [object](#launch) | `{}` | Each session's Claude Code model and effort, and the folder it works in, by id: teamrig open starts it with claude --model and --effort; a session running on another model is told the /model to type at its start, and one at another effort the /effort to type at its first stop. A model or effort left unset is Claude Code's own choice, except for the lead, which starts on model opus at xhigh effort for each one it leaves unset. |
 | `refresh` | [object](#refresh) |  | Context refresh: when a session finishes a task (teamrig set \<id> --status done) with its context at or over contextTokens, or with everyTasks tasks finished since its context was last fresh and the context at everyTasksMinTokens or more, or after the lead ran teamrig refresh \<session>, it writes a handover; then the user types /clear, or teamrig starts it fresh on its own (autoRestart). A relative handoverDir is resolved against the team's folder; unset, it is \<team folder>/handover. |
 | `hiring` | [object](#hiring) |  | Hiring sessions with teamrig hire, each a worker the leader is sure the team needs: who decides. No cap counts hires: the host's room bounds who is at the office, and the leader decides who is hired. A hire is written into sessions, names and launch, and logged with its reason and review date; its part of the team's daily budget follows its share and queued work, like any session's. |
@@ -751,7 +751,7 @@ What teamrig statusline shows beside the model and the plan's use of the week.
 | `branch` | boolean | `true` | The branch checked out there, or the commit of a detached HEAD. |
 | `pace` | boolean | `true` | Where the team's pace line stands now, beside the week's use, as in week 63% (pace 53%): the line teamrig budget reads, from the week's start, after a reset inside the week from that reset, by the team's budget.targetPct, budget.paceEndHoursBeforeReset and budget.quietHours. Outside a team, none. |
 
-## `focus`
+## `priorities`
 
 Goal-first ranking: the work classes a task is filed under (teamrig add and update --class), how its WSJF score is made (cost of delay over size), the WIP rule and the share of the week each class is planned to take. When classes, roadmapClass, maintenanceClass, defaultClass and allocation disagree, each problem is reported and all five take their defaults.
 
@@ -764,16 +764,16 @@ Goal-first ranking: the work classes a task is filed under (teamrig add and upda
 | `maxActiveKeyResults` | integer (1 to 100) | `5` | The key results (goals with a parent) the team may hold with a target of today or later; teamrig goal add refuses one more. |
 | `slicesPerSession` | integer (1 to 5) | `1` | The shippable slices (a goal's fewest tasks that ship something working, proven live) each session keeps open at once; one more opens only while one waits on another session or the owner. Other work waits, incidents and Maintenance excepted. Replaces maxOpenSlices, a cap across the tree a lead could fill with its own team's slices. The lead's rules print it. |
 | `maxOwnerDecisions` | integer (1 to 20) | `5` | The owner decisions that may wait at once across the root team's tree: a slice whose next step needs a new one does not open while this many wait. Each lead's rules print its own team's value, so set the same one in every team of a tree. |
-| `score` | [object](#focusscore) |  | The parts of a task's WSJF score: cost of delay (value + urgency + unblocks + owner order) over size, in % of the week. |
-| `expedite` | [object](#focusexpedite) |  | Which tasks go ahead of every score, beside a p0, which always does. |
-| `wip` | [object](#focuswip) |  | The WIP rule: an Improvements start is held while its owner has a Roadmap task that can move, or until the week resets once Improvements has spent its allocation, and a start past maxInProgress is held. --one-commit, a reopen of a verifying or done task, an expedited task and an owner-sourced task are exempt. |
-| `allocation` | map from string (matching `^[A-Za-z][A-Za-z0-9 _-]{0,31}$`) to number (0 to 100) | `{"Roadmap":60,"Maintenance":25,"Improvements":15}` | The % of the whole week each class is planned to take, by class; every key one of classes, the shares summing to 100. A class outside roadmapClass and maintenanceClass that reaches its share has its starts held until the week resets, unless wip's mode is off; a class left out is never held, and one at 0 is held from the week's start. |
+| `score` | [object](#prioritiesscore) |  | The parts of a task's WSJF score: cost of delay (value + urgency + unblocks + owner order) over size, in % of the week. |
+| `expedite` | [object](#prioritiesexpedite) |  | Which tasks go ahead of every score, beside a p0, which always does. |
+| `startHold` | [object](#prioritiesstarthold) |  | The WIP rule: an Improvements start is held while its owner has a Roadmap task that can move, or until the week resets once Improvements has spent its allocation, and a start past maxInProgress is held. --one-commit, a reopen of a verifying or done task, an expedited task and an owner-sourced task are exempt. |
+| `allocation` | map from string (matching `^[A-Za-z][A-Za-z0-9 _-]{0,31}$`) to number (0 to 100) | `{"Roadmap":60,"Maintenance":25,"Improvements":15}` | The % of the whole week each class is planned to take, by class; every key one of classes, the shares summing to 100. A class outside roadmapClass and maintenanceClass that reaches its share has its starts held until the week resets, unless startHold's mode is off; a class left out is never held, and one at 0 is held from the week's start. |
 | `leaderWaitMinutes` | integer (0 to 10080) | `60` | How long, in minutes, a Roadmap task may wait on a leader's decision or approval before it is flagged. |
 | `parkAfterDays` | integer (1 to 365) | `14` | The days without an event after which an Improvements task is parked out of list, plan, check and start; any update brings it back. |
 | `plannedTargetPct` | integer (0 to 100) | `70` | The % of the week's spend planned work should take. |
 | `improvementsDay` | one of `"sun"`, `"mon"`, `"tue"`, `"wed"`, `"thu"`, `"fri"`, `"sat"` | `"wed"` | The UTC weekday whose meeting agenda carries the Improvements decisions, as one batch; the default is the first meeting of the plan week, and no other day's agenda shows them. |
 
-## `focus.score`
+## `priorities.score`
 
 The parts of a task's WSJF score: cost of delay (value + urgency + unblocks + owner order) over size, in % of the week.
 
@@ -793,7 +793,7 @@ The parts of a task's WSJF score: cost of delay (value + urgency + unblocks + ow
 | `defaultSizePct` | number (0.01 to 100) | `0.3` | The size, in % of the week, of a task with no size, no spend and no like tasks finished to measure by. |
 | `minSizePct` | number (0.01 to 100) | `0.05` | The smallest size, in % of the week, a score divides by, so a tiny task cannot outrank everything. |
 
-## `focus.expedite`
+## `priorities.expedite`
 
 Which tasks go ahead of every score, beside a p0, which always does.
 
@@ -802,7 +802,7 @@ Which tasks go ahead of every score, beside a p0, which always does.
 | `critical` | boolean | `true` | A Maintenance task marked critical. |
 | `ownerP1` | boolean | `true` | An owner-sourced p1 task. |
 
-## `focus.wip`
+## `priorities.startHold`
 
 The WIP rule: an Improvements start is held while its owner has a Roadmap task that can move, or until the week resets once Improvements has spent its allocation, and a start past maxInProgress is held. --one-commit, a reopen of a verifying or done task, an expedited task and an owner-sourced task are exempt.
 

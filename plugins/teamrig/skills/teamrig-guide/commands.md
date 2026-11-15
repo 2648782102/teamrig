@@ -62,8 +62,8 @@ Flags:
   and when it starts; `--type task` quiets it.
 - `--critical`: marks a bug in a critical area, whose review asks `--harden` too; its line shows `critical bug`.
   Only with `--type bug`.
-- `--class <name>`: the work class, one of the team's `focus.classes` (`Roadmap`, `Maintenance`, `Improvements` by
-  default); any other name is refused. A task without one counts as `focus.defaultClass`.
+- `--class <name>`: the work class, one of the team's `priorities.classes` (`Roadmap`, `Maintenance`, `Improvements` by
+  default); any other name is refused. A task without one counts as `priorities.defaultClass`.
 - `--team <team>`: asks another team of your tree for the work: the task lands in that team's register from you,
   owned by `--owner` (a session of that team, by id or name) or else that team's lead. The owner gets an inbox line
   and the team's lead, when it is not the owner, a copy. A team of a separate tree is refused. Its one `--source`
@@ -106,10 +106,10 @@ Flags:
   still holds, naming what shows that task's proof exists. The start's line keeps it as `met`, apart from the
   evidence, and the verifying task's owner gets an inbox line to set it done or reopen it.
 - `--one-commit`: allowed only when setting `in-progress`: starts a one-commit fix that the WIP rule would hold. The
-  rule (`focus.wip.mode`: `refuse`, `warn` or `off`) holds a start of work outside `focus.roadmapClass` and
-  `focus.maintenanceClass` while its owner holds `focus.roadmapClass` work that can move (open or in progress, no wait,
-  every task it comes after finished), or until the week resets once its class has spent its `focus.allocation` share,
-  and any start past `focus.wip.maxInProgress` tasks in progress. A reopen of a verifying or done task is never held,
+  rule (`priorities.startHold.mode`: `refuse`, `warn` or `off`) holds a start of work outside `priorities.roadmapClass` and
+  `priorities.maintenanceClass` while its owner holds `priorities.roadmapClass` work that can move (open or in progress, no wait,
+  every task it comes after finished), or until the week resets once its class has spent its `priorities.allocation` share,
+  and any start past `priorities.startHold.maxInProgress` tasks in progress. A reopen of a verifying or done task is never held,
   as its owner is finishing started work; a wait or a dropped task going back to `in-progress` is held like a first
   start. An expedite task and a task the owner ordered are never held.
 - `--evidence <proof>`: required for `done`: a commit, test count, path or number that proves it. Evidence
@@ -266,21 +266,21 @@ REFUSED T2 is new work; T1 (verify by 10-14) is due to verify first (teamrig ver
 With `register.verifyGate` set to `warn`, either start goes through and a `WARN` line names the same tasks (none
 with `--met`).
 
-The WIP rule (`focus.wip`) holds a start too: work outside the Roadmap and Maintenance classes waits while its owner
-holds Roadmap work that can move, or until the week resets once its class has spent its `focus.allocation` share, and
-no task starts past `focus.wip.maxInProgress` tasks in progress:
+The WIP rule (`priorities.startHold`) holds a start too: work outside the Roadmap and Maintenance classes waits while its owner
+holds Roadmap work that can move, or until the week resets once its class has spent its `priorities.allocation` share, and
+no task starts past `priorities.startHold.maxInProgress` tasks in progress:
 
 ```text
-REFUSED T2 is Improvements work and api holds Roadmap work that can move: T1; work that first [focus.wip], or, for a one-commit fix, start it with --one-commit
-REFUSED T2 is Improvements work and Improvements has spent its share of the week [focus.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit
-REFUSED api already has 3 tasks in progress, at the limit of 3 [focus.wip.maxInProgress]: finish T1, T3, T4 or put one back (--status open) before T2, or, for a one-commit fix, start it with --one-commit
+REFUSED T2 is Improvements work and api holds Roadmap work that can move: T1; work that first [priorities.startHold], or, for a one-commit fix, start it with --one-commit
+REFUSED T2 is Improvements work and Improvements has spent its share of the week [priorities.allocation]: it waits for the week's reset, or, for a one-commit fix, start it with --one-commit
+REFUSED api already has 3 tasks in progress, at the limit of 3 [priorities.startHold.maxInProgress]: finish T1, T3, T4 or put one back (--status open) before T2, or, for a one-commit fix, start it with --one-commit
 ```
 
 `--one-commit` starts a one-commit fix all the same, and `show` prints `oneCommit=true` on that status line. A reopen of
-a verifying or done task is never held. With `focus.wip.mode` set to `warn`, the start goes through and a `WARN` line
+a verifying or done task is never held. With `priorities.startHold.mode` set to `warn`, the start goes through and a `WARN` line
 says the same; set to `off`, the share holds nothing either.
 
-A class has spent its share when the week's spend on it, as `teamrig budget` shows it, reaches its `focus.allocation`:
+A class has spent its share when the week's spend on it, as `teamrig budget` shows it, reaches its `priorities.allocation`:
 a class the allocation leaves out is never held, and one allocated 0 is held from the week's start. The reading comes
 from the stored spend, so it lags the newest turns, and a week the meter does not fully reach reads short and may hold
 late. With the week or its rate unknown nothing is held for the share; a read that fails says so in a `WARN` line and
@@ -325,9 +325,9 @@ Flags:
 - `--size <pct>|none`: a new size, in percent of the weekly usage limit, or `none` to clear it.
 - `--type task|bug`: makes the item a task or a bug (`--type task` also quiets the hint); the lead may type any
   task. A critical bug made a task loses its critical mark.
-- `--class <name>|none`: a new work class, one of `focus.classes`, or `none` to clear it (it then counts as
-  `focus.defaultClass`); a leader above the owner may set it too. A class the team since renamed out of
-  `focus.classes` stays on the task until changed.
+- `--class <name>|none`: a new work class, one of `priorities.classes`, or `none` to clear it (it then counts as
+  `priorities.defaultClass`); a leader above the owner may set it too. A class the team since renamed out of
+  `priorities.classes` stays on the task until changed.
 - `--critical`: marks a bug critical; only on a bug.
 - `--not-critical`: clears a bug's critical mark.
 - `--pin`: pins the task to the top of its owner's list; the pin names who set it, which `show` prints
@@ -402,15 +402,15 @@ dry run: would update 1, left 2; nothing was written: rerun with --yes to write
 Proposes a class, an objective and a size for each active task, one JSONL row each, so a lead can class a whole
 register in one pass. It writes to no register: a person reads the rows, each with its task's title, sets `confirm` to
 `yes` on those they agree with, and `teamrig sweep apply` writes them. The first rule that holds decides a row: a class already stored stays
-(`class already set`); a task serving a ranked goal, itself or through a key result, takes `focus.roadmapClass` and
+(`class already set`); a task serving a ranked goal, itself or through a key result, takes `priorities.roadmapClass` and
 names that goal; a critical task, a bug, or a title saying incident, outage, security, exposure, leak, data loss,
-backup or restore takes `focus.maintenanceClass`; a title sharing two or more words with a ranked goal's title takes
-`focus.roadmapClass` with low confidence; any other takes `focus.defaultClass`. A tag no goal record holds reads as the
+backup or restore takes `priorities.maintenanceClass`; a title sharing two or more words with a ranked goal's title takes
+`priorities.roadmapClass` with low confidence; any other takes `priorities.defaultClass`. A tag no goal record holds reads as the
 nearest record it sits under by name (`K1a` or `K1.2` under `K1`, never `K10`): a rank comes through that record, at
 medium confidence, and the row names it as its objective, unless a title match or a better rank the task names decides
 the row, so apply adds it and a rank given later reaches the task. A row's size is the one the plan's score divides by:
 the work left, which is the task's `--size`, else what done tasks of its class and type took, else
-`focus.score.defaultSizePct`, less what it has spent, and never under `focus.score.minSizePct`. `proposedSize` repeats
+`priorities.score.defaultSizePct`, less what it has spent, and never under `priorities.score.minSizePct`. `proposedSize` repeats
 that size for `sweep apply` to compare with: correct `size`, and leave `proposedSize` alone. `park` says whether the
 task would park, which only a stored class can do, so a first sweep shows `false` on every row.
 
@@ -565,7 +565,7 @@ when there are several, then one short row per task (its title cut to 60 charact
 left out. `--all` prints every field of every task. A task's effective due is its own due date, or the earlier one
 of an active task that needs it (planned after it or waiting on it), so the work a dated task needs comes first;
 `--due-before` reads it too. A parked task stays out of every list but `--parked`: an open task holding a class other
-than the roadmap and maintenance ones, quiet for [focus.parkAfterDays] days, with no pin, not critical, not the human's
+than the roadmap and maintenance ones, quiet for [priorities.parkAfterDays] days, with no pin, not critical, not the human's
 order and needed by no active task. Nothing is stored, so any event on it brings it back.
 
 Flags:
@@ -879,14 +879,14 @@ out by a `bad` cell, or by a `warn` one when it has no peers, as with `--session
 `--range` leaves it as it is.
 
 The USE lines close the output, and only this command prints them: how much of the range's task work the plan held,
-and each class's share, in W and active minutes, against `focus.plannedTargetPct` and `focus.allocation`; in a tree,
+and each class's share, in W and active minutes, against `priorities.plannedTargetPct` and `priorities.allocation`; in a tree,
 against the caller's team's. They read the daily rollups (`### teamrig budget rollup`), so only closed UTC days count:
 `USE 6 of 7 days rolled up` says how many the numbers hold, today is never one, and a day with no rows has no file.
 With none, the first line says what writes them.
 
 - Planned: work on a task counts as planned on a day when the tag the task held at that UTC day's end names a week
   holding the day. A later retag leaves the days before it as they were, and a task tagged mid-week counts from that
-  day on. A task another team holds reads by its tag of today, and a task no team holds as `focus.defaultClass`,
+  day on. A task another team holds reads by its tag of today, and a task no team holds as `priorities.defaultClass`,
   unplanned.
 - Class: a task's class of today.
 - A share is of the W with a task. Work that named no task stands apart on the first line, and coordination stays out
@@ -1004,7 +1004,7 @@ Refused, writing nothing: another session (`REFUSED only the lead (shop-lead) ad
 a tag already added (`goal A1 already exists; move its target with goal set`), a parent not added yet (`--parent C0
 is not a goal; add it first`), a start after the target, and a key result (a goal with a parent) past the cap on
 open ones (`the team holds 3 key results (goals with a parent) with a target of 2026-10-12 or later, the most
-focus.maxActiveKeyResults allows: finish one or move its target first`). A bad tag, day or title is a usage error.
+priorities.maxActiveKeyResults allows: finish one or move its target first`). A bad tag, day or title is a usage error.
 
 ### teamrig goal set
 
@@ -2476,7 +2476,7 @@ as an inbox line. So no session is told the meeting started, and none is woken. 
   what they unblock, the task itself and every active task that needs it: an expedite first, then those that free
   Roadmap work, then by best score. A decision is held for the weekly Improvements batch when every task it unblocks
   has a stored class other than Roadmap and Maintenance and none is an expedite; a task with no stored class stays
-  daily. The batch comes after the daily cards on the UTC weekday `[focus.improvementsDay]` names, and no other day
+  daily. The batch comes after the daily cards on the UTC weekday `[priorities.improvementsDay]` names, and no other day
   shows it;
 - `DEDICATED`: the waits on the owner of the core-business sessions `[decisions.dedicatedOwners]` names, left out of
   `DECISIONS` and grouped by owning session, the lead's team's first, then each team's under it as `<team>/<session>`,
@@ -2815,10 +2815,10 @@ the next is. A batch is due when:
   due. None are set by default: the daily meeting is the batch.
 
 A wait whose decision frees only Improvements work (by the agenda's rule: its task and everything it unblocks have a
-class other than `focus.roadmapClass` and `focus.maintenanceClass` and none is an expedite) waits for the weekly Improvements
-batch, as on the agenda (since 0.320.0). Off `focus.improvementsDay` (a UTC weekday, `wed` by default) it is held:
+class other than `priorities.roadmapClass` and `priorities.maintenanceClass` and none is an expedite) waits for the weekly Improvements
+batch, as on the agenda (since 0.320.0). Off `priorities.improvementsDay` (a UTC weekday, `wed` by default) it is held:
 out of the batch and every trigger above, even when due, and named after the head on one line, `IMPROVEMENTS <n>
-held for the weekly Improvements batch on wed UTC (focus.improvementsDay): T5, web/T7`. On that day it is in the
+held for the weekly Improvements batch on wed UTC (priorities.improvementsDay): T5, web/T7`. On that day it is in the
 batch, and only an ask that day counts, so it is asked again each week while it waits.
 
 A wait of a session its team's `decisions.dedicatedOwners` names is in no batch and fires no trigger, even when due:
@@ -2827,7 +2827,7 @@ the owner decides it in that session's own meeting (the agenda's `DEDICATED`).
 The lead's `start` and `check` print one `DECISIONS batch due (<why>)` line while a batch is due, and nothing
 otherwise; other sessions get no line. A new owner wait's inbox line to the lead ends with when the owner hears of
 it: `AT ONCE, due <date> before the next batch`, `BATCH DUE: <why>`, `asked in the next batch <date>` or, for a held
-wait, `asked in the weekly Improvements batch on wed UTC (focus.improvementsDay)`. Its times,
+wait, `asked in the weekly Improvements batch on wed UTC (priorities.improvementsDay)`. Its times,
 and a typed due date, are on the team's clock (`timeZone`); `batchTimesUtc` stays in UTC. An `AT ONCE` line to the
 lead also wakes it, as an `inbox add --wake now` line does; one that went to a sub-lead leaves the session setting
 the wait the `--wake now` line to post the lead. With `wake.enabled: false` that session is told to message the lead
@@ -3730,7 +3730,7 @@ Lists every key of the team config, or with `<key>` those at and under it (`mess
 value as the team's file holds it, or its default when unset, the default beside a changed one, and why a key is
 read-only. The roster (`team`, `sessions`, `names`, `leads`, `roles`) changes only through hire, retire, rename,
 promote and demote; `configVersion` only through `config migrate`; maps and lists of records only in config.json or
-their own command; and the budget, `focus.allocation`, permissions, `ownerGates`, `leadBoundary`, `exec`,
+their own command; and the budget, `priorities.allocation`, permissions, `ownerGates`, `leadBoundary`, `exec`,
 `readonlyShell` and every guard are owner gates the owner decides. A value `config validate` finds wrong is named
 with its problem, read as its default meanwhile.
 
@@ -4318,8 +4318,8 @@ for `delivery.queue.waitMinutes` (60 by default). Waiters take it in their turn:
 first live one may take the lock, looking every 2 s; the rest look every `delivery.wait.pollSeconds` (30). With
 `delivery.queue.admission` `pipeline` the line is in admission order: a p0 step first, then by class
 turn, then by priority, which rises a level for each `delivery.queue.agingMinutes` (15) waited but never to p0, then by
-arrival. Class turns share the host among the work classes by `focus.allocation`: each class (its task's, else
-`focus.defaultClass`) keeps a virtual time in `<lock>.turns.json`, charged at a step's admission the minutes it is
+arrival. Class turns share the host among the work classes by `priorities.allocation`: each class (its task's, else
+`priorities.defaultClass`) keeps a virtual time in `<lock>.turns.json`, charged at a step's admission the minutes it is
 expected to run (the median of the runs its need is learned from, else 5) times 100 over its percent (a 0% class counts
 as 1%), and corrected to the minutes it ran once it ends: the step marks its end in `<lock>.ended` before it lets go,
 and the next admission settles the mark. The waiting class with the least virtual time goes next. A class with no step
@@ -5381,7 +5381,7 @@ Today (UTC day), used and daily budget in % of the week:
   the team  5.0%   10.3%  37.50M  1,310
   api       4.0%    3.4%  30.00M  1,000
   lead      1.0%    3.4%   7.50M    310
-Spend by class today and this week, in % of the week, against focus.allocation:
+Spend by class today and this week, in % of the week, against priorities.allocation:
   class         today   week  allocation  W today   W week
   Roadmap        3.0%  33.0%       60.0%   22.50M  247.50M
   Maintenance    1.0%  13.0%       25.0%    7.50M   97.50M
@@ -5395,7 +5395,7 @@ Past the daily budget: api (the team has used 5.2% of the week today, at or past
 W = weighted tokens: input 1, cache writes 1.25 to 2, cache reads 0.1, output 5. 1% of the week is about 7.50M W, estimated from the status line.
 ```
 
-`Spend by class` shows where the team's W went: each class of `focus.classes`, then any class a task still holds that
+`Spend by class` shows where the team's W went: each class of `priorities.classes`, then any class a task still holds that
 the config has dropped, then `No task`: turns that named no task, helpers, and task ids the register does not hold. A
 turn's W goes to the tasks it names as `--task` counts it, so the rows add up to `the team`. `today` and `week` are in %
 of the whole week, as `allocation` is: a class has spent its share when `week` reaches `allocation`, not when it has

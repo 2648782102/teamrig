@@ -249,15 +249,15 @@ Three shapes, split by the list:
   `· ahead: in week 10-19` or `· ahead: size 0.5%`; no reason means the pin, a band the row's class shows, or the id
   decided.
 - **Band**: three, ahead of any score. Expedite first: a `p0`, a Maintenance task marked critical and a `p1` the
-  owner asked for (the last two by [focus.expedite]). Then Roadmap and Maintenance. Then the rest: Improvements, a
+  owner asked for (the last two by [priorities.expedite]). Then Roadmap and Maintenance. Then the rest: Improvements, a
   task with no class and any other class.
 - **Score**: what a delay costs over the share of the week the task takes, so the most value per unit of work comes
-  first [focus.score]. The cost adds its value (Roadmap by the best rank of the goals it serves, Maintenance more for
+  first [priorities.score]. The cost adds its value (Roadmap by the best rank of the goals it serves, Maintenance more for
   a bug or a critical mark, Improvements least), its urgency (overdue or due soon), a share of the best value among
   the tasks that need it and, on a task the owner asked for, its priority. The size is the work left, so spending
   never sinks a task: `--size`, else the median spend of finished tasks of its class and type from the last 14 days,
-  else `focus.score.defaultSizePct`, minus what the task has spent (a `--size` set on a started task was what was left
-  then, so only the spend since it). It is never under `focus.score.minSizePct`, so a tiny task cannot outrank
+  else `priorities.score.defaultSizePct`, minus what the task has spent (a `--size` set on a started task was what was left
+  then, so only the spend since it). It is never under `priorities.score.minSizePct`, so a tiny task cannot outrank
   everything, and a task past its estimate sits at that floor.
 - **Title**: one line, at most 140 characters [register.maxTitle]. A second active task with the same title
   (ignoring case and extra spaces) is refused.
@@ -321,7 +321,7 @@ checkpoint; a session may run it for itself.
 | `LOOP` | active tasks need each other in a circle (`T2 -> T5 -> T2`), planned after or waiting on one another, as an older teamrig could write; raised on the lowest-numbered one | None of them can finish: the owner makes the step its own task (the flag prints the command), or the lead re-plans it (`update --after`). |
 | `VERIFY-BLOCKS` | a `verifying` task another active task needs: planned after it (`--after`) or waiting on it (`--waits task:`) | The owner proves it (`done` with the proof) or reopens it (`in-progress`), so the work on it can start. |
 | `READY` | a `waiting` task whose every reason has cleared, or a `verifying` task whose proof waits all have: its tasks are done or dropped, its time has passed (a decision or an approval never clears by itself); or a task decided, the owner's answer recorded with `update --decided`, whose waits left have cleared | The owner goes on: `set --status in-progress`, or the next status; for a verifying one, checks the proof now; for a decided one, acts on the answer `show <id>` prints. |
-| `ROADMAP-WAITS-ON-LEAD` | a task of the `focus.roadmapClass` class has waited on a decision or an approval of one of its owner's leaders, unanswered, past `focus.leaderWaitMinutes` (a `verifying` task's proof wait counts), counted from when the task last asked for something new | That leader answers it first: `approve`, or the decision the task asks for. Its `WAITING ON YOU` lists the task at the top, above the plan order. |
+| `ROADMAP-WAITS-ON-LEAD` | a task of the `priorities.roadmapClass` class has waited on a decision or an approval of one of its owner's leaders, unanswered, past `priorities.leaderWaitMinutes` (a `verifying` task's proof wait counts), counted from when the task last asked for something new | That leader answers it first: `approve`, or the decision the task asks for. Its `WAITING ON YOU` lists the task at the top, above the plan order. |
 | `NO-REASON` | a `waiting` task with no reason, as a line from an older teamrig reads | The owner sets what it waits for (`set --status waiting --waits ...`) or its next status. |
 | `NO-CARD` | a `waiting` task waits on the owner's decision or approval with no card, as one set before cards reads [register.requireDecisionCard] | The owner sets it waiting again with the card (`set --status waiting --waits ... --question ... --options ... --recommend ... --default ...`). |
 | `OWNER-ORDERED` | a task the owner ordered waits (or its proof waits) on the owner's decision or approval with no `--why-ask`, as one set before it was required, or while cards are not [register.requireDecisionCard], reads | The owner drops the wait on the owner, since the order approves its own work and proof, or sets it again with `--why-ask "<how the order must change, what new it needs, or why only the owner can see the result>"`. |
