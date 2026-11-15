@@ -11,7 +11,6 @@ import { type PullRequest, parsePull } from './pulls.ts';
 import { pushOwnBranch } from './push.ts';
 import { type Regeneration, type ReplayPlan, listedPaths, regenerate, regenerationFor } from './regenerate.ts';
 import { type RepoProfile, profileFor, slugOf } from './repos.ts';
-import { APPROVED_SHA } from './ship-plan.ts';
 import { TRAILER } from './ship-commits.ts';
 import { describeCredential } from './token-check.ts';
 import { type BumpKind, bumped, compareVersions, formatVersion, versionIn } from './version-bump.ts';
@@ -22,7 +21,7 @@ import { type BumpKind, bumped, compareVersions, formatVersion, versionIn } from
  * both alone (the CI gates let it, tools/ci/github-range.ts `forkOfPull`), so the commits that land are the
  * contributor's own, authorship and sign-off kept by the rebase merge.
  *
- * The merge goes ahead only on the lead's approval of the reviewing task naming the pull request's head, so a commit
+ * The merge goes ahead only on the lead's approval of the reviewing task naming the pull request's full head sha, so a commit
  * pushed after the approval stops it; a head that changes a guarded path also needs a security pass named in that
  * approval (approval.ts `pullClearance`). The head must contain main's tip, since a rebase merge of a stale head lands
  * a tree no check ran on; its author rebases it (or a maintainer, when the pull request lets maintainers edit). Then
@@ -32,18 +31,33 @@ import { type BumpKind, bumped, compareVersions, formatVersion, versionIn } from
  * and merges on a gate that clears only its own head. When main moves past it, a new release is cut from the new tip.
  */
 
-/** The paths whose change needs a security review (CONTRIBUTING.md, "Pull requests"), CI and the ship tools among them. */
+/**
+ * The paths whose change needs a security review (CONTRIBUTING.md, "Pull requests"): the guards, CI and the ship
+ * tools, and what drives them: the libraries CI imports, the build the release runs on the merging host (which holds
+ * the ship token), the merge approval logic, and the scripts, dependencies and compiler settings CI installs and runs
+ * (security verdict T3052 F2). A folder ends in `/`; any other entry is a path prefix (`tsconfig` for each
+ * `tsconfig*.json`).
+ */
 export const GUARDED_PATHS: readonly string[] = [
   '.githooks/',
   '.github/',
-  'tools/scrub/',
+  '.npmrc',
+  'package.json',
+  'package-lock.json',
+  'tsconfig',
+  'tools/build/',
   'tools/ci/',
+  'tools/dco/',
+  'tools/lib/',
+  'tools/scrub/',
   'tools/ship/',
+  'src/cli/ship-approval.ts',
   'src/hooks/',
-  'src/push-guard/',
-  'src/secret-guard/',
   'src/package-guard/',
   'src/permissions/',
+  'src/push-guard/',
+  'src/register/approval.ts',
+  'src/secret-guard/',
 ];
 
 /** The paths of `changed` that need a security review. */
@@ -53,7 +67,7 @@ export interface MergePrArgs {
   dir: string;
   /** The pull request's number. */
   pull: number;
-  /** The head sha the lead approved. */
+  /** The full head sha the lead approved: its author can push another head sharing a shorter prefix (T3052 F1). */
   approved: string;
   /** The caller's task that reviews the pull request, which holds the approval. */
   task: string;
@@ -63,7 +77,10 @@ export interface MergePrArgs {
   intervalS: number;
 }
 
-export const MERGE_PR_USAGE = 'usage: ship.ts merge-pr <repo dir> <pull request number> --approved <sha> --task T<id> [--raise patch|minor|major] [--timeout-min <n>] [--interval-s <n>]';
+export const MERGE_PR_USAGE = 'usage: ship.ts merge-pr <repo dir> <pull request number> --approved <full 40-hex sha> --task T<id> [--raise patch|minor|major] [--timeout-min <n>] [--interval-s <n>]';
+
+/** A full commit sha: a contributor's head is approved by it alone, never a prefix. */
+const FULL_SHA = /^[0-9a-f]{40}$/;
 
 const BUMP_KINDS: readonly BumpKind[] = ['major', 'minor', 'patch'];
 const isBumpKind = (value: string): value is BumpKind => BUMP_KINDS.some((kind) => kind === value);
@@ -79,7 +96,7 @@ export function parseMergePrArgs(argv: readonly string[]): MergePrArgs {
   for (let i = 0; i < rest.length; i += 2) {
     const [flag, value] = [rest[i], rest[i + 1]];
     if (value === undefined) throw new Error(`${flag ?? ''} needs a value`);
-    if (flag === '--approved' && APPROVED_SHA.test(value)) approved = value;
+    if (flag === '--approved' && FULL_SHA.test(value)) approved = value;
     else if (flag === '--task' && /^T\d+$/.test(value)) task = value;
     else if (flag === '--raise' && isBumpKind(value)) raise = value;
     else if (flag === '--timeout-min' && /^\d+$/.test(value) && Number(value) > 0) timeoutMin = Number(value);
@@ -213,8 +230,8 @@ export async function runMergePr(args: MergePrArgs, deps: MergePrDeps): Promise<
   const tip = main.tip();
   git('fetch', '--quiet', 'origin', `refs/pull/${args.pull}/head`);
   const sha = git('rev-parse', 'FETCH_HEAD');
-  if (!sha.startsWith(args.approved)) {
-    return refusedWith(deps, `#${args.pull}'s head is ${sha.slice(0, 9)}, not the approved ${args.approved}: a commit pushed after the approval needs the lead's approval of the new head`);
+  if (sha !== args.approved) {
+    return refusedWith(deps, `#${args.pull}'s head is ${sha}, not the approved ${args.approved}: a commit pushed after the approval needs the lead's approval of the new head`);
   }
   const changed = lines(git('diff', '--name-only', '--no-renames', `${tip}...${sha}`));
   const clearance = await deps.clearPull(args.task, sha, args.approved, guardedOf(changed));
@@ -236,7 +253,8 @@ export async function runMergePr(args: MergePrArgs, deps: MergePrDeps): Promise<
   if (!main.contains(sha, tip)) return refusedWith(deps, behindReason(pull, profile.main, tip));
   const release = regeneration === null ? null : releaseOf(git, regeneration, tip, sha, changed, args.raise);
 
-  deps.out(`#${args.pull} ${pull.url} from ${pull.headRepo ?? 'a deleted fork'}: ${pull.title}`);
+  // The title is the contributor's text, so it never reaches the merging session's output (T3052 N1).
+  deps.out(`#${args.pull} ${pull.url} from ${pull.headRepo ?? 'a deleted fork'}`);
   const result = await mergeProvenPull(
     { repo, head: `#${args.pull}`, base: profile.main, sha, title: pull.title, body: '' },
     gh,
