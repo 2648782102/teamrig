@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ShellWord } from '../push-guard/tokenizer.ts';
-import { GH_ISSUE_WRITES, GH_PR_WRITES, ghWriteOf, type GhWrite } from './gh-writes.ts';
+import { endpointPath, GH_ISSUE_WRITES, GH_PR_WRITES, ghWriteOf, type GhWrite } from './gh-writes.ts';
 
 /** The words of a gh call after `gh`; a word holding `$` is only known when it runs. */
 function words(line: string): ShellWord[] {
@@ -79,5 +79,36 @@ describe('ghWriteOf (T2705)', () => {
       assert.deepEqual(writeOf(line), { kind: 'write', what: 'gh api graphql' }, line);
     }
     assert.equal(writeOf('api graphql -f query={viewer{login}}'), undefined);
+  });
+
+  it('reads a GraphQL mutation sent to graphql spelt as a path or a full URL as a write (T2705 F3)', () => {
+    for (const endpoint of [
+      'https://api.github.com/graphql',
+      'HTTPS://API.GITHUB.COM/GraphQL',
+      'https://ghe.example.com/api/graphql',
+      '/graphql',
+      '//graphql/',
+      'GRAPHQL',
+      'graphql?x=1',
+    ]) {
+      assert.deepEqual(writeOf(`api ${endpoint} -f query=mutation{closeIssue}`), { kind: 'write', what: `gh api ${endpoint}` }, endpoint);
+    }
+    assert.equal(writeOf('api https://api.github.com/graphql -f query={viewer{login}}'), undefined);
+  });
+
+  it('reads an issue write sent to a full URL or a path with a query as a write', () => {
+    assert.deepEqual(writeOf('api -X PATCH https://api.github.com/repos/a/b/issues/7 -f state=closed'), {
+      kind: 'write',
+      what: 'gh api PATCH https://api.github.com/repos/a/b/issues/7',
+    });
+    assert.deepEqual(writeOf('api /repos/a/b/Issues/7/comments?x=1 -f body=hi'), { kind: 'write', what: 'gh api POST /repos/a/b/Issues/7/comments?x=1' });
+  });
+});
+
+describe('endpointPath (T2705 F3)', () => {
+  it('drops the scheme and host, the query, slashes at either end and the case', () => {
+    assert.equal(endpointPath('https://api.github.com/graphql'), 'graphql');
+    assert.equal(endpointPath('/repos/A/B/issues/7/?per_page=1#x'), 'repos/a/b/issues/7');
+    assert.equal(endpointPath('graphql'), 'graphql');
   });
 });

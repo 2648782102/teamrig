@@ -22,8 +22,26 @@ const API_VALUE_FLAGS: ReadonlySet<string> = new Set(['-X', '--method', '-f', '-
 /** `gh api` flags whose values make a request body, which turns gh's default GET into a POST. */
 const API_BODY_FLAGS: ReadonlySet<string> = new Set(['-f', '--raw-field', '-F', '--field', '--input']);
 
-/** An endpoint on issues or pull requests: their comments, labels, reviews and the rest included. */
-const ISSUE_PATH = /(?:^|\/)(?:issues|pulls)(?:[/?]|$)/;
+/** An endpoint path on issues or pull requests: their comments, labels, reviews and the rest included. */
+const ISSUE_PATH = /(?:^|\/)(?:issues|pulls)(?:\/|$)/;
+
+/**
+ * The path a `gh api` endpoint reaches, as the checks read it. gh takes `graphql`, a path with or without a leading
+ * slash, or a full URL, and a URL ending in `graphql` gets a GraphQL request whatever its spelling (T2705 F3,
+ * security T2712): so the scheme and host, the query and slashes at either end are dropped, and the case.
+ */
+export function endpointPath(text: string): string {
+  return text
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/iu, '')
+    .replace(/[?#].*$/su, '')
+    .replace(/^\/+|\/+$/gu, '')
+    .toLowerCase();
+}
+
+/** True for a GraphQL endpoint path: `graphql` itself, or one that ends in it, such as an Enterprise host's `api/graphql`. */
+function isGraphqlPath(path: string): boolean {
+  return path === 'graphql' || path.endsWith('/graphql');
+}
 
 /** What one flag word of a `gh api` call sets: its name, and its value when written in the same word (`-XPATCH`, `--method=PATCH`). */
 function flagOf(text: string): { readonly name: string; readonly value: string | undefined } {
@@ -94,11 +112,12 @@ function apiWriteOf(words: readonly ShellWord[]): GhWrite | undefined {
     return undefined;
   }
   const what = `gh api ${endpoint.text}`;
-  if (!endpoint.dynamic && endpoint.text === 'graphql') {
+  const path = endpoint.dynamic ? undefined : endpointPath(endpoint.text);
+  if (path !== undefined && isGraphqlPath(path)) {
     return call.methodUnknown || mayMutate(call.body) ? { kind: 'write', what } : undefined;
   }
   const writes = call.methodUnknown || (call.method === undefined ? call.body.length > 0 : call.method !== 'GET');
-  if (!writes || !(endpoint.dynamic || ISSUE_PATH.test(endpoint.text))) {
+  if (!writes || !(path === undefined || ISSUE_PATH.test(path))) {
     return undefined;
   }
   return call.methodUnknown || endpoint.dynamic ? { kind: 'unreadable', what } : { kind: 'write', what: `gh api ${call.method ?? 'POST'} ${endpoint.text}` };
