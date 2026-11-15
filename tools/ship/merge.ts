@@ -12,6 +12,7 @@ import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell }
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
 import { type GateDeps, proveTree, realGateDeps } from './local-gate.ts';
+import type { RegenerateDeps } from './regenerate.ts';
 import { realRenamedCallersDeps, renamedCallersRefusal } from './renamed-callers.ts';
 import { type LocalChecks, type RepoProfile, profileFor, readProfiles, slugOf } from './repos.ts';
 import { APPROVED_SHA } from './ship-plan.ts';
@@ -302,7 +303,16 @@ export async function mergeThroughPull(request: MergeRequest, gh: Gh, main: Main
   const pull = found ?? openPull(gh, repo, head, base, request.title, request.body);
   log(`${found === null ? 'opened' : 'found'} pull request #${pull.number} ${pull.url}`);
   if (pull.headSha !== sha) return { kind: 'refused', pull, reason: `the pull request head ${pull.headSha.slice(0, 7)} is not ${head} ${sha.slice(0, 7)}: push ${head} first` };
+  return mergeProvenPull(request, gh, main, proof, pull, log);
+}
 
+/**
+ * The second half of a merge, for a pull request whose head is the request's sha: proves that sha by the gate,
+ * refuses when main moved past it meanwhile, then rebase-merges pinned to it and checks main's new tree. A
+ * contributor's pull request (merge-pr.ts) starts here, since it is found by its number, never opened.
+ */
+export async function mergeProvenPull(request: MergeRequest, gh: Gh, main: MainBranch, proof: Proof, pull: PullRequest, log: (line: string) => void): Promise<MergeResult> {
+  const { sha } = request;
   const failed = await proof.prove(sha, log);
   if (failed !== null) return { kind: 'refused', pull, reason: failed };
   // main may have moved while the checks ran.
@@ -371,6 +381,9 @@ export function pullBody(subjects: readonly string[], note: string | null = null
   const opening = note === null || note.trim() === '' ? [] : [note.trim(), '', '## Commits'];
   return [...opening, ...shown, '', '🤖 Generated with [Claude Code](https://claude.com/claude-code)'].join('\n');
 }
+
+/** The repo dir's files and build, as a regeneration reads, writes and runs them. */
+export type RepoFiles = Pick<RegenerateDeps, 'readText' | 'writeText' | 'build'>;
 
 /** What the command reaches outside itself, so a test can stand in for each. */
 export interface MergeDeps {
@@ -503,10 +516,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
     return done(1);
   }
   const gh = deps.ghFor(credential.secret);
-  const proof =
-    profile.gate === 'ci'
-      ? ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 })
-      : localProof(args.dir, profile.local, deps.gate);
+  const proof = proofFor(profile, gh, repo, head, args, deps);
   const result = await mergeThroughPull(
     { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, note) },
     gh,
@@ -529,6 +539,26 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   return done(0);
 }
 
+/** The repo's gate (repos.json) as the proof of a head on `branch`: its checks on GitHub (`ci`), or run in the repo dir (`local`). */
+export function proofFor(profile: RepoProfile, gh: Gh, repo: string, branch: string, args: Pick<MergeArgs, 'dir' | 'timeoutMin' | 'intervalS'>, deps: Pick<MergeDeps, 'waiter' | 'gate'>): Proof {
+  return profile.gate === 'ci'
+    ? ciProof(gh, repo, branch, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 })
+    : localProof(args.dir, profile.local, deps.gate);
+}
+
+/** The repo dir's files and its `npm run build` steps, which a regeneration writes and runs (regenerate.ts). */
+export function realRepoFiles(dir: string): RepoFiles {
+  return {
+    readText: (path) => readFileSync(join(dir, path), 'utf8'),
+    writeText: (path, text) => writeFileSync(join(dir, path), text),
+    build: () => {
+      for (const step of buildSteps(buildScriptOf(readFileSync(join(dir, 'package.json'), 'utf8')))) {
+        execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', ...step], { cwd: dir, stdio: 'inherit' });
+      }
+    },
+  };
+}
+
 /** The real git, keychain, gh, clock and local checks for a repo dir. */
 export function realMergeDeps(dir: string): MergeDeps {
   const out = (line: string): void => console.log(line);
@@ -544,21 +574,7 @@ export function realMergeDeps(dir: string): MergeDeps {
     renamedCallers: (base, tip, repo) => renamedCallersRefusal({ base, tip, repo }, { env: process.env, userHome: homedir() }, realRenamedCallersDeps(dir, out)),
     sweep: (merged, profile, gh) => sweepAfterMerge(merged, profile, { git, pullsOf: pullsOfHead(gh, merged.repo), out, err }),
     clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }),
-    catchUp: request =>
-      catchUp(
-        {
-          git,
-          log: out,
-          readText: (path) => readFileSync(join(dir, path), 'utf8'),
-          writeText: (path, text) => writeFileSync(join(dir, path), text),
-          build: () => {
-            for (const step of buildSteps(buildScriptOf(readFileSync(join(dir, 'package.json'), 'utf8')))) {
-              execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', ...step], { cwd: dir, stdio: 'inherit' });
-            }
-          },
-        },
-        request,
-      ),
+    catchUp: request => catchUp({ git, log: out, ...realRepoFiles(dir) }, request),
     out,
     err,
   };
