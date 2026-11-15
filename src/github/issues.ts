@@ -142,28 +142,21 @@ export function startFailureText(error: unknown): string {
 }
 
 /**
- * Why a gh run failed, with the fix when it is a known one, worded for what read the repository: a login
- * or token GitHub refused, a repository it cannot see, or issues it may not read.
+ * Why a gh run failed, with the fix when it is a known one: the owner's token GitHub refused, a repository it
+ * cannot see, or issues it may not read.
  */
 export function failureText(repo: string, result: GhResult, access: RepoAccess): string {
   if (result.end.kind === 'signal') {
     return `gh was stopped (${result.end.signal}) before it listed the issues of ${repo}; it gets ${GH_TIMEOUT_MS / 1000} s`;
   }
   const token = `the token saved as ${access.credential}`;
-  const saveOne = `save a read-only token for ${access.owner} with: ${access.save}`;
   switch (ghFailureKind(result.end.code, result.stderr)) {
     case 'no-login':
-      return access.via === 'token'
-        ? `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`
-        : `gh is not logged in to GitHub: run gh auth login, or ${saveOne}`;
+      return `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`;
     case 'no-permission':
-      return access.via === 'token'
-        ? `${token} may not read the issues of ${repo}: on GitHub, edit that token and set Issues to Read-only; its text stays the same, so nothing needs saving again`
-        : `the gh login may not read the issues of ${repo}: ${saveOne}`;
+      return `${token} may not read the issues of ${repo}: on GitHub, edit that token and set Issues to Read-only; its text stays the same, so nothing needs saving again`;
     case 'not-visible':
-      return access.via === 'token'
-        ? `${repo} is not visible to ${token}: check github.repos, and on GitHub give that token this repository`
-        : `${repo} is not visible to the gh login: check github.repos, or ${saveOne}`;
+      return `${repo} is not visible to ${token}: check github.repos, and on GitHub give that token this repository`;
     case undefined:
       return plainLine(`gh api graphql for the issues of ${repo} ${exitText(result.end.code, result.stderr)}`);
   }
