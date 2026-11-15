@@ -97,7 +97,7 @@ export async function setup(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
   const config = requireConfig(kit, runtime, 'write');
   const { load } = kit;
   const roster = await rosterOf(runtime, kit, config);
-  const by = leadOnly(roster, caller, "sets the team's budget");
+  const by = leadOnly(roster, caller, "sets the team's budget", runtime.env);
   const { next, written } = await configLockOf(runtime, kit, config).run(async (writer) => {
     // Planned on the file as it reads under the lock, so a hire or retire written meanwhile is kept.
     const plan = planBudgetSetup(await configFileJson(runtime, load.path), choices);

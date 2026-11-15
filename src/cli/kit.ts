@@ -69,9 +69,27 @@ export function sessionIdOf(roster: Roster, text: string): string {
   return found.id;
 }
 
-/** The caller's id when it leads the team; anyone else is refused, naming the lead and `what` only the lead does. */
-export function leadOnly(roster: Roster, caller: string, what: string): string {
+/**
+ * The caller's id, refused when the tab it runs in is another session's: every tab sets $TEAMRIG_SESSION, and a
+ * `--session` naming the lead from a member's tab would otherwise pass a lead-only check (security finding F3 on
+ * config set). With no session in the environment, as in the owner's own terminal, the caller stands as given.
+ */
+function ownTabCaller(roster: Roster, caller: string, env: Env, what: string): string {
   const by = sessionIdOf(roster, caller);
+  const tab = env[ENV.session]?.trim();
+  if (tab === undefined || tab === '') {
+    return by;
+  }
+  const found = roster.lookup(tab);
+  if (!found.ok || found.id !== by) {
+    throw new RefusedError(`this tab is ${tab}, not ${roster.nameOf(by) ?? by}: ${what} only from its own session's tab`);
+  }
+  return by;
+}
+
+/** The caller's id when it leads the team; anyone else is refused, naming the lead and `what` only the lead does. */
+export function leadOnly(roster: Roster, caller: string, what: string, env: Env): string {
+  const by = ownTabCaller(roster, caller, env, what);
   const lead = roster.holderOf('lead');
   if (by !== lead) {
     throw new RefusedError(`only the lead${lead === undefined ? '' : ` (${roster.nameOf(lead) ?? lead})`} ${what}`);
@@ -83,8 +101,8 @@ export function leadOnly(roster: Roster, caller: string, what: string): string {
  * The caller's id when it leads the team or holds its delivery owner role; anyone else is refused, naming them and
  * `what` only they do.
  */
-export function leadOrDeliveryOwnerOnly(roster: Roster, caller: string, what: string): string {
-  const by = sessionIdOf(roster, caller);
+export function leadOrDeliveryOwnerOnly(roster: Roster, caller: string, what: string, env: Env): string {
+  const by = ownTabCaller(roster, caller, env, what);
   const holders = [...new Set([roster.holderOf('lead'), roster.holderOf('deliveryOwner')].flatMap((id) => id ?? []))];
   if (!holders.includes(by)) {
     const named = holders.map((id) => roster.nameOf(id) ?? id);

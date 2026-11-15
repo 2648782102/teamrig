@@ -100,7 +100,7 @@ export async function teamSplit(args: ParsedArgs, runtime: CliRuntime): Promise<
   const kit = await openTeamKit(runtime);
   const config = requireConfig(kit, runtime, dryRun ? 'read' : 'write');
   const roster = await rosterOf(runtime, kit, config);
-  const by = leadOnly(roster, callerOf(args.flags, runtime.env), 'splits the team');
+  const by = leadOnly(roster, callerOf(args.flags, runtime.env), 'splits the team', runtime.env);
   const lead = sessionIdOf(roster, requiredFlag(args.flags, 'lead'));
   const sessions = listOf('--sessions', requiredFlag(args.flags, 'sessions')).map((each) => sessionIdOf(roster, each));
   const spec = teamSpecOf(child, sessions.join(','), lead, kit.paths.team);

@@ -7,7 +7,9 @@ Rules for every command line:
 
 - Each flag takes exactly one value (`--status done`); a switch takes none (`--tree`). Quote a value with spaces.
 - `--session <id|name>` names the caller: you. Without it, `$TEAMRIG_SESSION` is used. A command that needs a
-  caller and has neither stops with `--session (or $TEAMRIG_SESSION) is required`.
+  caller and has neither stops with `--session (or $TEAMRIG_SESSION) is required`. A command only the lead (or the
+  delivery owner) runs refuses a `--session` naming another session than the tab's `$TEAMRIG_SESSION`: run it from
+  that session's own tab.
 - Sessions are given by id, current name or former name. Task ids look like `T12`. Priorities are `p1` to
   `p5` (the team config may define more or fewer).
 - Times are on the team's clock (config `timeZone`, else the machine's) and print zone-marked (`10-19 16:40 IDT`). Type

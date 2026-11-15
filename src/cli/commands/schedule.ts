@@ -88,7 +88,7 @@ export async function set(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCo
   const kit = await openTeamKit(runtime);
   const config = requireConfig(kit, runtime, 'write');
   const roster = await rosterOf(runtime, kit, config);
-  leadOnly(roster, caller, "writes the tree's day schedule");
+  leadOnly(roster, caller, "writes the tree's day schedule", runtime.env);
   if (config.team?.parent !== undefined) {
     throw new RefusedError(`the day schedule is the root team's: ${kit.paths.team} sits under ${config.team.parent}, whose lead writes it`);
   }

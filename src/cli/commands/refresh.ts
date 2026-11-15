@@ -72,7 +72,7 @@ export async function refresh(args: ParsedArgs, runtime: CliRuntime): Promise<Ex
     return EXIT.ok;
   }
 
-  leadOnly(roster, by, 'asks for a refresh');
+  leadOnly(roster, by, 'asks for a refresh', runtime.env);
   const id = sessionIdOf(roster, target);
   await store.setRequest(id, { by, at: now });
   runtime.out.stdout(

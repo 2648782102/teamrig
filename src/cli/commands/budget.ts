@@ -539,7 +539,7 @@ export async function lift(args: ParsedArgs, runtime: CliRuntime): Promise<ExitC
 async function crossTeamLift(runtime: CliRuntime, lifting: LiftingTeam, target: { readonly team: string; readonly session: string }, ask: LiftAsk): Promise<ExitCode> {
   const { kit, config, roster, zone } = lifting;
   const own = kit.paths.team;
-  const by = leadOnly(roster, ask.caller, 'lifts a session of a team under its own');
+  const by = leadOnly(roster, ask.caller, 'lifts a session of a team under its own', runtime.env);
   if (ask.group) {
     throw new UsageError(`--group lifts a sub-lead's group of team ${own}; a session of a team under it is lifted alone`);
   }
@@ -653,7 +653,7 @@ export async function extra(args: ParsedArgs, runtime: CliRuntime): Promise<Exit
   const config = requireConfig(kit, runtime, writes ? 'write' : 'read');
   const roster = await rosterOf(runtime, kit, config);
   if (caller !== undefined) {
-    leadOnly(roster, caller, 'enters the extra-usage pool');
+    leadOnly(roster, caller, 'enters the extra-usage pool', runtime.env);
     const { week, measured, now, weekPaths } = await readBudget(runtime, kit, config, roster, { recountDay: undefined });
     const window = week.window;
     if (window === undefined) {

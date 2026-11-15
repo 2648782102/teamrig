@@ -23,7 +23,7 @@ async function contextOf(args: ParsedArgs, runtime: CliRuntime, what: string): P
   const caller = callerOf(args.flags, runtime.env);
   const kit = await openTeamKit(runtime);
   const config = requireConfig(kit, runtime, 'read');
-  const session = leadOrDeliveryOwnerOnly(await rosterOf(runtime, kit, config), caller, what);
+  const session = leadOrDeliveryOwnerOnly(await rosterOf(runtime, kit, config), caller, what, runtime.env);
   const places = deliveryPlaces(config.delivery, kit.paths);
   const zone = teamZone(config, runtime);
   return {
