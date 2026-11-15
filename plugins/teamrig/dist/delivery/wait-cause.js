@@ -6,6 +6,7 @@
  * (`draining`), the host's free memory or commit charge too short (`memory`, `commit`), a deploy freeze (`freeze`), a
  * deploy check holding the step (`check`), its own session running its cap of steps (`session`, T2210), or the heavy
  * steps sharing the host at their cap (`heavyCap`, T2210), or the host's CPU too busy for one more heavy step (`cpu`,
- * T2700). A new cause goes at the end: a reader of the ledger skips a cause it does not know.
+ * T2700), or the queue cutoff holding the line (`cutoff`, T2896). A new cause goes at the end: a reader of the ledger
+ * skips a cause it does not know.
  */
-export const WAIT_CAUSES = ['lock', 'line', 'draining', 'memory', 'commit', 'freeze', 'check', 'session', 'heavyCap', 'cpu'];
+export const WAIT_CAUSES = ['lock', 'line', 'draining', 'memory', 'commit', 'freeze', 'check', 'session', 'heavyCap', 'cpu', 'cutoff'];

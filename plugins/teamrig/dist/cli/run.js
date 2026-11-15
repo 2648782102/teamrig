@@ -781,8 +781,9 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       ledger, with its --kind (build, test, lint, push, merge, deploy or other; default read from the
       command) and --task (default the first task id in --what); once the shell that started it ends, it kills a running step (exit 129); a
       waiting one goes on as a detached run that keeps its place in line while the tab's Claude Code runs (not a git hook's
-      step), its session told, else stops; REFUSED from delivery.schedule.queueCutoffUtc to midnight UTC and once its line has not
-      moved for delivery.queue.waitMinutes; exit 0 when the command passed, 1 when it failed or was killed. Its
+      step), its session told, else stops; REFUSED from delivery.schedule.queueCutoffUtc to midnight UTC (a step already in
+      line then is held in its place until midnight) and once its line has not moved for delivery.queue.waitMinutes;
+      exit 0 when the command passed, 1 when it failed or was killed. Its
       processes get $TEAMRIG_HOST_LOCK: a queued step started under a live lock (a git hook's checks
       under queue, merge or deploy) runs at once under it. No --session: $TEAMRIG_SESSION, the
       parent step's session, else the session this Claude Code tab is bound to. Every step, merge and

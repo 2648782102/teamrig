@@ -90,13 +90,17 @@ function declaredMbOf(args) {
 function requestOf(args, words, what) {
     return processRequest(kindOf(args, words), taskOf(args, what));
 }
-/** Why the step may not start now (the queue cutoff, or a pipeline freeze on its kind), or undefined when it may. */
-async function startRefusal(runtime, gate) {
+/**
+ * Why the step may not start now (the queue cutoff, or a pipeline freeze on its kind), or undefined when it may. A step
+ * `inLine` already (a hand-over's run, keeping its place) is not refused for the cutoff: the line holds it through it.
+ */
+async function startRefusal(runtime, gate, inLine) {
     const now = runtime.clock.now();
-    return queueCutoffReason(now, gate.cutoffUtc, gate.zone) ?? pipelineFrozenRefusal(await runtime.files.read(gate.pipelineFreezes), gate.pipelineFreezes, now, [gate.kind], gate.zone);
+    const cutoff = inLine ? undefined : queueCutoffReason(now, gate.cutoffUtc, gate.zone);
+    return cutoff ?? pipelineFrozenRefusal(await runtime.files.read(gate.pipelineFreezes), gate.pipelineFreezes, now, [gate.kind], gate.zone);
 }
-async function refuseUnstartable(runtime, gate) {
-    const reason = await startRefusal(runtime, gate);
+async function refuseUnstartable(runtime, gate, inLine) {
+    const reason = await startRefusal(runtime, gate, inLine);
     if (reason !== undefined) {
         throw new RefusedError(reason);
     }
@@ -404,10 +408,12 @@ async function afterPrePush(runtime, prePush, what, code, waitedMs) {
 }
 /**
  * `teamrig queue --what <label> -- <command ...>`: runs one queued step (a build, a test run, a database script)
- * under the host lock, so the host's queued steps run one at a time. Refused from `delivery.schedule.queueCutoffUtc`
- * to midnight UTC, also when the wait for the lock ran past it, and once its line for the lock has not moved for
- * `delivery.queue.waitMinutes`. The step is killed with every process it started after `maxRunMinutes`
- * (`--max-minutes`), and its start and end go to the delivery ledger, with when it began to wait and, sampled
+ * under the host lock, so the host's queued steps run one at a time. A new step is refused from
+ * `delivery.schedule.queueCutoffUtc` to midnight UTC; one already in line then is held in its place until midnight UTC
+ * and takes its turn after (T2896), and one that took its turn just as the cutoff began is refused. Refused too once
+ * its line for the lock has not moved for `delivery.queue.waitMinutes`, the cutoff's hold not counted. The step is
+ * killed with every process it started after `maxRunMinutes` (`--max-minutes`), and its start and end go to the
+ * delivery ledger, with when it began to wait and, sampled
  * every `memorySampleSeconds`, the most its process tree held and the least free memory the host had. Its processes
  * get `$TEAMRIG_HOST_LOCK`, so a `queue` among them (a git hook's checks) runs at once under this lock. Every step
  * waits in its turn until the host's free memory leaves `memoryFloorMb` besides the MB held for it and for the small
@@ -451,7 +457,7 @@ export async function queue(args, runtime) {
         if (parent !== undefined) {
             throw new UsageError('--detach under a live host lock: a step a queued step starts runs at once under its lock, and that step waits for its result; run it without --detach');
         }
-        await refuseUnstartable(runtime, gate);
+        await refuseUnstartable(runtime, gate, false);
         const id = detachedIdOf(runtime.clock.now(), runtime.pid);
         return await startDetached(runtime, { log: detachedLogOf(delivery, kit.paths, id) }, args, { id, session, what, words });
     }
@@ -469,7 +475,7 @@ export async function queue(args, runtime) {
             const code = await runUnderParent(runtime, say, holderText({ kind: 'held', info: parent }, zone), step);
             return prePush === undefined ? code : await afterPrePush(runtime, prePush, what, code, 0);
         }
-        await refuseUnstartable(runtime, gate);
+        await refuseUnstartable(runtime, gate, firstArrival !== undefined);
         // The register is read only for a step that queues: a nested step or one refused at once records nothing.
         const register = new JsonlEventLog(runtime.files, kit.paths.events);
         const line = await lineRequestOf(request, async (id) => (await register.read()).state.tasks.get(id), config.focus);
@@ -483,7 +489,7 @@ export async function queue(args, runtime) {
             const text = `${waiting}: ${waitText(holder, ahead, zone)}`;
             waits.tell({ cause: causeOfLockWait(holder), text });
             say(text);
-        }, { need, request: line, exclusive, arrivedAt }, watching.stop));
+        }, { need, request: line, exclusive, arrivedAt, ...(gate.cutoffUtc === undefined ? {} : { cutoffUtc: gate.cutoffUtc }) }, watching.stop));
         if (taking === undefined) {
             const ended = endedText(watching);
             const handed = handsOver(watching, prePush !== undefined) ? await handOver(runtime, { kit, config, say, args, ended }, { session, what, words, arrivedAt }) : undefined;
@@ -503,7 +509,8 @@ export async function queue(args, runtime) {
         const waited = waits.end();
         const waitedMs = runtime.clock.now() - waited.queuedAt;
         try {
-            const refusal = await startRefusal(runtime, gate);
+            // The cutoff began between the step's turn and now (it took its turn just before, or waited for shares to end).
+            const refusal = await startRefusal(runtime, gate, false);
             if (refusal !== undefined) {
                 return await refuseWaited(runtime, places.ledger, waits, { ...owner, what, outcome: 'refused', reason: refusal });
             }
