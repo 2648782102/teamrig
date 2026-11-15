@@ -21,7 +21,10 @@ describe('ship cli', () => {
     assert.equal(result.stderr, `${SHIP_USAGE}\n`);
   });
 
-  it('hands check, merge and leftovers to their own commands', () => {
+  it('hands check, merge, merge-pr and leftovers to their own commands', () => {
+    const mergePr = repo.run(CLI, ['merge-pr']);
+    assert.equal(mergePr.status, 1, mergePr.stdout);
+    assert.match(mergePr.stderr, /^usage: ship\.ts merge-pr <repo dir> <pull request number>/);
     const check = repo.run(CLI, ['check']);
     assert.equal(check.status, 1, check.stdout);
     assert.equal(check.stderr, 'usage: ship.ts check <repo dir>\n');

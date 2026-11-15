@@ -206,8 +206,8 @@ is turned off.
   gates let a fork's pull request through without them (a dist it does change must still match the build). The
   maintainer merges it as you wrote it, rebase-merged so your commits and sign-off stay yours
   (`node tools/ship/ship.ts merge-pr <dir> <n> --approved <sha> --task T<id>`, `tools/ship/merge-pr.ts`), once CI
-  passed on its head, the head contains `main`, and the maintainer approved that head; a push after the approval
-  needs a new one, and a head behind `main` is rebased by you, or by the maintainer when you allow maintainer edits.
+  passed on its head, the head contains `main`, and the maintainer approved that head by its full 40-hex sha, never a
+  prefix; a push after the approval needs a new one, and a head behind `main` is rebased by you, or by the maintainer when you allow maintainer edits.
   Right after the merge, a release pull request of the maintainer's raises the version and rebuilds the dist.
 - **Your commit e-mail**: the `Signed-off-by:` line carries your commit e-mail, and the scrub refuses an e-mail
   address in a commit message unless it is one of GitHub's no-reply addresses. Before your first commit, set the
@@ -222,9 +222,12 @@ is turned off.
 - **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
-  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub, the ship tools or
-  teamrig's guards (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `tools/ship/`, `src/hooks/`,
-  `src/push-guard/`, `src/secret-guard/`, `src/package-guard/`, `src/permissions/`) also gets a security review;
+  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub, the ship tools,
+  teamrig's guards, or what drives them (the libraries CI imports, the build, the merge approval, the package scripts,
+  dependencies and compiler settings) also gets a security review (the guarded paths: `.githooks/`, `.github/`,
+  `.npmrc`, `package.json`, `package-lock.json`, `tsconfig` for every tsconfig*.json, `tools/build/`, `tools/ci/`,
+  `tools/dco/`, `tools/lib/`, `tools/scrub/`, `tools/ship/`, `src/cli/ship-approval.ts`, `src/hooks/`,
+  `src/package-guard/`, `src/permissions/`, `src/push-guard/`, `src/register/approval.ts`, `src/secret-guard/`);
   `merge-pr` refuses such a pull request until the approval names a security pass.
 - **Rules on `main`**: `.github/rulesets/` holds the repository's two rulesets for `main`, imported under Settings,
   Rules, Rulesets. `main` lets no one push, force-push or delete it and takes a change only through a pull request,
