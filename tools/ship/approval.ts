@@ -64,6 +64,22 @@ export function mergeClearance(standing: MergeStanding, taskId: string, head: st
   return { kind: 'approved', by: answered.by };
 }
 
+/** A security reviewer's pass as an approval note names it: `PASS <team>/T<id>`, the reviewer's task of the verdict. */
+const SECURITY_PASS = /\bPASS [\w.-]+\/T\d+\b/;
+
+/**
+ * `mergeClearance` for a contributor's pull request (merge-pr.ts), which also refuses an approved head that changes a
+ * guarded path (`guarded`, the paths it changes there) unless the approval's note names a security pass: the T3021
+ * design's merge as is keeps the guard-folder rule. A caller nobody approves (a root team's lead) clears itself.
+ */
+export function pullClearance(standing: MergeStanding, taskId: string, head: string, approved: string | null, guarded: readonly string[]): MergeClearance {
+  const cleared = mergeClearance(standing, taskId, head, approved);
+  if (cleared.kind !== 'approved' || guarded.length === 0 || SECURITY_PASS.test(standing.task?.answer?.note ?? '')) {
+    return cleared;
+  }
+  return refused(`the head ${head} changes ${guarded.join(', ')}, which needs a security pass: ${cleared.by}'s approval of ${taskId} names none (PASS <team>/T<id>)`);
+}
+
 /** The caller and team a merge runs for, from `$TEAMRIG_SESSION` and `$TEAMRIG_TEAM`. */
 export interface MergeCaller {
   readonly session: string | undefined;
@@ -82,6 +98,25 @@ export async function clearMerge(caller: MergeCaller, standingOf: StandingOf, br
   if (taskId === null) {
     return refused(`branch ${branch} names no task: a merged branch is t<id>-<name>`);
   }
+  return clearTask(caller, standingOf, taskId, head, approved, []);
+}
+
+/** A task id as the register writes it. */
+const TASK_ID = /^T\d+$/;
+
+/**
+ * The clearance of a merge of a contributor's pull request at `head` (merge-pr.ts), on the approval of the caller's
+ * task `taskId` that reviews it, given the guarded paths the head changes: `pullClearance` once the register is read,
+ * as `clearMerge` reads it.
+ */
+export async function clearPull(caller: MergeCaller, standingOf: StandingOf, taskId: string, head: string, approved: string | null, guarded: readonly string[]): Promise<MergeClearance> {
+  if (!TASK_ID.test(taskId)) {
+    return refused(`${taskId} is not a task id (T<n>)`);
+  }
+  return clearTask(caller, standingOf, taskId, head, approved, guarded);
+}
+
+async function clearTask(caller: MergeCaller, standingOf: StandingOf, taskId: string, head: string, approved: string | null, guarded: readonly string[]): Promise<MergeClearance> {
   if (caller.session === undefined || caller.session === '' || caller.team === undefined || caller.team === '') {
     return refused('TEAMRIG_SESSION and TEAMRIG_TEAM must name the merging session and its team');
   }
@@ -94,7 +129,7 @@ export async function clearMerge(caller: MergeCaller, standingOf: StandingOf, br
     }
     throw error;
   }
-  return mergeClearance(standing, taskId, head, approved);
+  return pullClearance(standing, taskId, head, approved, guarded);
 }
 
 /** The clearance of a merge of `branch` at `head`, on the approved sha the caller names (`--approved`) or null. */
@@ -109,6 +144,16 @@ export function clearMergeFrom(env: Env, reader: KitReader): ClearMerge {
   const caller = { session: env[ENV.session]?.trim(), team: env[ENV.team]?.trim() };
   const standingOf: StandingOf = (team, session, taskId) => mergeStandingOf(reader, team, session, taskId);
   return (branch, head, approved) => clearMerge(caller, standingOf, branch, head, approved);
+}
+
+/** The clearance of a contributor's pull request at `head`, on the approval of task `taskId`, given the guarded paths it changes. */
+export type ClearPull = (taskId: string, head: string, approved: string | null, guarded: readonly string[]) => Promise<MergeClearance>;
+
+/** `clearPull` for the session and team `env` names, as `clearMergeFrom`. */
+export function clearPullFrom(env: Env, reader: KitReader): ClearPull {
+  const caller = { session: env[ENV.session]?.trim(), team: env[ENV.team]?.trim() };
+  const standingOf: StandingOf = (team, session, taskId) => mergeStandingOf(reader, team, session, taskId);
+  return (taskId, head, approved, guarded) => clearPull(caller, standingOf, taskId, head, approved, guarded);
 }
 
 /** Runs git in the repo and returns its stdout; throws when git fails. */
