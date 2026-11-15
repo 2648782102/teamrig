@@ -1,4 +1,4 @@
-import type { HostEnd, HostList, HostOpen, HostReach, HostUse, IssueDraft, IssueHost, IssueTarget } from '../issues/host.ts';
+import type { HeadRead, HostEnd, HostList, HostOpen, HostReach, HostUse, IssueDraft, IssueHost, IssueTarget } from '../issues/host.ts';
 
 /** What each use does, as the fake's access line words it. */
 const USE_VERB: Readonly<Record<HostUse, string>> = { read: 'reads', open: 'opens issues', write: 'writes' };
@@ -65,5 +65,10 @@ export class FakeIssueHost implements IssueHost {
   close(target: IssueTarget): Promise<HostEnd> {
     this.calls.push({ kind: 'close', target });
     return Promise.resolve(this.closeEnd);
+  }
+
+  /** Every number is an issue here: a test of a pull request's head uses FakeGh through the GitHub host. */
+  headOf(): Promise<HeadRead> {
+    return Promise.resolve({ kind: 'no-pull' });
   }
 }

@@ -1,6 +1,8 @@
+import { isRecord, recordField, stringField } from '../core/guards.ts';
 import type { SecretScanner } from '../core/secrets.ts';
 import {
   targetText,
+  type HeadRead,
   type HostEnd,
   type HostList,
   type HostOpen,
@@ -12,7 +14,7 @@ import {
 } from '../issues/host.ts';
 import type { IssueState } from '../issues/issue.ts';
 import { exitText } from '../open/processes.ts';
-import { issueCloseArgs, issueCommentArgs, issueCreateArgs, type GhResult, type GhRunner } from './gh.ts';
+import { issueCloseArgs, issueCommentArgs, issueCreateArgs, pullReadArgs, type GhResult, type GhRunner } from './gh.ts';
 import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, startFailureText, type IssueList } from './issues.ts';
 import { createdNumber } from './migrate.ts';
 import { latestIssues } from './plan.ts';
@@ -21,11 +23,14 @@ import { TokenReadError, type RepoAccess, type RepoTokens } from './tokens.ts';
 /** What each use does with an access, as its ACCESS line words it. */
 const USE_VERB: Readonly<Record<HostUse, string>> = { read: 'read with', open: 'opens issues with', write: 'writes with' };
 
+/** How one gh call ended: its output, or one plain line saying why it failed and whether GitHub showed nothing there. */
+type CallEnd = { readonly kind: 'ran'; readonly stdout: string } | { readonly kind: 'failed'; readonly reason: string; readonly notVisible: boolean };
+
 /**
- * GitHub as an issue host (issues/host.ts): a list is pages of the two shipped issue queries, and each write one gh
- * REST call the runner's allowlist takes (gh.ts), made with the token saved for the repository's owner, else, when
- * none is saved, the gh login. A saved token the store cannot read reaches nothing: never the login in its place
- * (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a write failed.
+ * GitHub as an issue host (issues/host.ts): a list is pages of the two shipped issue queries, and each other call
+ * one gh REST call the runner's allowlist takes (gh.ts), made with the token saved for the repository's owner, else,
+ * when none is saved, the gh login. A saved token the store cannot read reaches nothing: never the login in its place
+ * (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a call failed.
  */
 export class GitHubIssueHost implements IssueHost {
   readonly name = 'GitHub';
@@ -108,24 +113,42 @@ export class GitHubIssueHost implements IssueHost {
     return this.write(target, issueCloseArgs(target), 'close');
   }
 
+  /**
+   * The pull request's head, from the REST read of it. GitHub answers 404 for an issue's number as for one not there,
+   * so both read as `no-pull`: no head that could make it a session's own.
+   */
+  async headOf(target: IssueTarget): Promise<HeadRead> {
+    const end = await this.call(target, pullReadArgs(target), 'read');
+    if (end.kind === 'failed') {
+      return end.notVisible ? { kind: 'no-pull' } : { kind: 'failed', reason: end.reason };
+    }
+    return headIn(end.stdout) ?? { kind: 'failed', reason: `GitHub's answer for ${targetText(target)} names no head branch: look at it on GitHub` };
+  }
+
   private async write(target: IssueTarget, args: readonly string[], what: string): Promise<HostEnd> {
+    const end = await this.call(target, args, what);
+    return end.kind === 'ran' ? { kind: 'done' } : { kind: 'failed', reason: end.reason };
+  }
+
+  private async call(target: IssueTarget, args: readonly string[], what: string): Promise<CallEnd> {
     const access = await this.tokens.accessFor(target.repo);
     if (access instanceof TokenReadError) {
-      return { kind: 'failed', reason: access.message };
+      return { kind: 'failed', reason: access.message, notVisible: false };
     }
     let result: GhResult;
     try {
       result = await this.gh.run({ args, env: access.env });
     } catch (error) {
-      return { kind: 'failed', reason: startFailureText(error) };
+      return { kind: 'failed', reason: startFailureText(error), notVisible: false };
     }
     if (result.end.kind === 'signal') {
-      return { kind: 'failed', reason: `gh was stopped (${result.end.signal}) on its way to ${what} ${targetText(target)}: look on GitHub before a rerun` };
+      return { kind: 'failed', reason: `gh was stopped (${result.end.signal}) on its way to ${what} ${targetText(target)}: look on GitHub before a rerun`, notVisible: false };
     }
     if (result.end.code !== 0) {
-      return { kind: 'failed', reason: this.scanner.redact(writeFailureText(target, what, result.end.code, result.stderr, access)) };
+      const notVisible = ghFailureKind(result.end.code, result.stderr) === 'not-visible';
+      return { kind: 'failed', reason: this.scanner.redact(writeFailureText(target, what, result.end.code, result.stderr, access)), notVisible };
     }
-    return { kind: 'done' };
+    return { kind: 'ran', stdout: result.stdout };
   }
 }
 
@@ -137,7 +160,25 @@ function listNotes(state: IssueState, list: Extract<IssueList, { kind: 'listed' 
   ];
 }
 
-/** Why a write failed, with the fix when it is a known one: a refused token or login, a missing permission, an issue not there. */
+/** The head branch and its repository from GitHub's pull request JSON, or undefined when it names no head branch. */
+export function headIn(stdout: string): HeadRead | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  const head = isRecord(parsed) ? recordField(parsed, 'head') : undefined;
+  const branch = head === undefined ? undefined : stringField(head, 'ref');
+  if (head === undefined || branch === undefined || branch === '') {
+    return undefined;
+  }
+  const repo = recordField(head, 'repo');
+  const name = repo === undefined ? undefined : stringField(repo, 'full_name');
+  return { kind: 'pull', branch, repo: name === undefined ? null : name.toLowerCase() };
+}
+
+/** Why a call failed, with the fix when it is a known one: a refused token or login, a missing permission, an issue not there. */
 export function writeFailureText(target: IssueTarget, what: string, code: number, stderr: string, access: RepoAccess): string {
   const shown = targetText(target);
   const token = `the token saved as ${access.credential}`;
