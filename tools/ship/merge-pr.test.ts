@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it, mock } from 'node:test';
 import type { ClearPull, MergeClearance } from './approval.ts';
 import type { Gh } from './github.ts';
@@ -197,6 +198,13 @@ describe('guardedOf', () => {
   it('keeps the paths under a guarded folder: the guards, CI and the ship tools', () => {
     assert.deepEqual(guardedOf(['docs/a.md', 'src/push-guard/guard.ts', '.github/workflows/ci.yml', 'tools/ship/merge.ts', 'src/cli/a.ts']), ['src/push-guard/guard.ts', '.github/workflows/ci.yml', 'tools/ship/merge.ts']);
     assert.ok(GUARDED_PATHS.every((path) => path.endsWith('/')));
+  });
+
+  it("is the list CONTRIBUTING.md's review rule names, so the doc and the merge gate stay one", () => {
+    const review = /- \*\*Review\*\*:[\s\S]*?also gets a security review/.exec(readFileSync(new URL('../../CONTRIBUTING.md', import.meta.url), 'utf8'));
+    assert.ok(review !== null, 'CONTRIBUTING.md has its Review rule');
+    const named = [...review[0].matchAll(/`([^`]+\/)`/g)].map((match) => match[1]);
+    assert.deepEqual([...named].sort(), [...GUARDED_PATHS].sort());
   });
 });
 

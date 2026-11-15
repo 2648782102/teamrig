@@ -174,7 +174,9 @@ matrix.
   while it is 0.x, the minor for a new feature or a change that breaks how people use it, the patch
   for a fix. The `plugin version gate` (`tools/ci/plugin-version-cli.ts`, run by the local gate and `npm run check`)
   fails a pull request that does not, and one that gives the marketplace entry a version of its own,
-  which Claude Code ignores. How users update: [Updating the plugin](docs/how-it-works.md#updating-the-plugin).
+  which Claude Code ignores. A pull request from a fork is the exception: it leaves the version and the dist as
+  they are, and the release pull request after its merge raises them (see "From a fork" below).
+  How users update: [Updating the plugin](docs/how-it-works.md#updating-the-plugin).
 
 ## Issues
 Each issue becomes a task teamrig tracks, so an issue carries the task's fields. Open one through a form: a blank issue
@@ -200,12 +202,18 @@ is turned off.
   fails on the old code), Tests and Issue (`Fixes #<n>` or `Refs #<n>`), then the checklist.
 - **From a fork**: fork the repository, branch off its `main`, and open the pull request against this repository's
   `main`. CI runs it with no secrets and a read-only token, and an outside contributor's run waits for the
-  maintainer to approve it.
+  maintainer to approve it. Leave `plugin.json`, `src/core/version.ts` and the dist alone: CI's version and dist
+  gates let a fork's pull request through without them (a dist it does change must still match the build). The
+  maintainer merges it as you wrote it, rebase-merged so your commits and sign-off stay yours
+  (`node tools/ship/ship.ts merge-pr <dir> <n> --approved <sha> --task T<id>`, `tools/ship/merge-pr.ts`), once CI
+  passed on its head, the head contains `main`, and the maintainer approved that head; a push after the approval
+  needs a new one, and a head behind `main` is rebased by you, or by the maintainer when you allow maintainer edits.
+  Right after the merge, a release pull request of the maintainer's raises the version and rebuilds the dist.
 - **Your commit e-mail**: the `Signed-off-by:` line carries your commit e-mail, and the scrub refuses an e-mail
   address in a commit message unless it is one of GitHub's no-reply addresses. Before your first commit, set the
   no-reply address GitHub shows under Settings, Emails: `git config user.email <id>+<user>@users.noreply.github.com`.
-- **A version clash**: when `main` moves on with a version raise of its own, the maintainer's merge
-  (`tools/ship/merge.ts`) catches the pull request up: it drops its version and dist commits, replays its other
+- **A version clash**: when `main` moves on with a version raise of its own, the maintainer's merge of a branch in
+  this repository (`tools/ship/merge.ts`) catches the pull request up: it drops its version and dist commits, replays its other
   commits on `main`, raises the version again above `main`'s with the same commit message and rebuilds the dist. The
   review holds while the work's diff stays the same. It works only when the raise and the dist each sit in a commit
   of their own; a commit that mixes them with work, a conflict, or work that writes the raised version down (a doc's
@@ -214,9 +222,10 @@ is turned off.
 - **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
-  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub or teamrig's guards
-  (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,
-  `src/package-guard/`, `src/permissions/`) also gets a security review.
+  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub, the ship tools or
+  teamrig's guards (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `tools/ship/`, `src/hooks/`,
+  `src/push-guard/`, `src/secret-guard/`, `src/package-guard/`, `src/permissions/`) also gets a security review;
+  `merge-pr` refuses such a pull request until the approval names a security pass.
 - **Rules on `main`**: `.github/rulesets/` holds the repository's two rulesets for `main`, imported under Settings,
   Rules, Rulesets. `main` lets no one push, force-push or delete it and takes a change only through a pull request,
   rebase-merged once its `every check passed` check passed on the newest `main`; `main review` asks a code owner
