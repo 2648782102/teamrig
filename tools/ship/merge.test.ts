@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { mock, test } from 'node:test';
 import type { MergeClearance } from './approval.ts';
 import type { CatchUp } from './catch-up.ts';
+import type { ClosingIssue } from './closes.ts';
 import type { Gh, RequiredChecks } from './github.ts';
 import type { Credential } from './keychain.ts';
 import type { GateDeps } from './local-gate.ts';
@@ -433,6 +434,8 @@ interface RunFixture {
   renamedCallers?: string;
   /** What the merge's clearance finds (T2788); the lead's approval by default. */
   clearance?: MergeClearance;
+  /** The issue the pull request closes (T3134); owner/repo#7 by default. */
+  closing?: ClosingIssue;
   /** What catching up a head main moved past answers, in turn (the last repeats); CAUGHT_UP_REFUSED unless given. */
   catchUp?: readonly CatchUp[];
   /** Whether REBASED still misses main's tip, as when main moved again during its checks. */
@@ -503,6 +506,7 @@ function runFixture(fixture: RunFixture = {}): {
   renamedCallers: ReturnType<typeof mock.fn<MergeDeps['renamedCallers']>>;
   sweep: ReturnType<typeof mock.fn<MergeDeps['sweep']>>;
   clearMerge: ReturnType<typeof mock.fn<MergeDeps['clearMerge']>>;
+  closingIssue: ReturnType<typeof mock.fn<MergeDeps['closingIssue']>>;
   catchUp: ReturnType<typeof mock.fn<MergeDeps['catchUp']>>;
   /** Each step-away and step-back of the step's host share, in turn, with the catch-ups run before it. */
   shareCalls: string[];
@@ -542,6 +546,7 @@ function runFixture(fixture: RunFixture = {}): {
   const renamedCallers = mock.fn((_base: string, _tip: string, _repo: string): string | null => fixture.renamedCallers ?? null);
   const sweep = mock.fn<MergeDeps['sweep']>(() => undefined);
   const clearMerge = mock.fn<MergeDeps['clearMerge']>(() => Promise.resolve(fixture.clearance ?? { kind: 'approved', by: 'lead' }));
+  const closingIssue = mock.fn<MergeDeps['closingIssue']>(() => Promise.resolve(fixture.closing ?? { kind: 'closes', line: 'Closes owner/repo#7' }));
   const answersOfCatchUp = fixture.catchUp ?? [CAUGHT_UP_REFUSED];
   let caughtUp = 0;
   const catchUp = mock.fn<MergeDeps['catchUp']>(() => answersOfCatchUp[Math.min(caughtUp++, answersOfCatchUp.length - 1)] ?? CAUGHT_UP_REFUSED);
@@ -562,6 +567,7 @@ function runFixture(fixture: RunFixture = {}): {
     renamedCallers,
     sweep,
     clearMerge,
+    closingIssue,
     catchUp,
     share: {
       away: () => {
@@ -576,7 +582,7 @@ function runFixture(fixture: RunFixture = {}): {
     out: line => out.push(line),
     err: line => err.push(line),
   };
-  return { deps, gitCalls, out, err, ghFor, ghWrites: writes, local, renamedCallers, sweep, clearMerge, catchUp, shareCalls };
+  return { deps, gitCalls, out, err, ghFor, ghWrites: writes, local, renamedCallers, sweep, clearMerge, closingIssue, catchUp, shareCalls };
 }
 
 const ARGS: MergeArgs = { dir: 'C:/repo', head: BRANCH, timeoutMin: 10, intervalS: 60, noteFile: null, approved: null };
@@ -872,7 +878,7 @@ test("a ship's merge gets a move of main back unsaid, with main's tip; every oth
 
 test('the body lists the shipped commits, caps a long list, and ends with the attribution line', () => {
   assert.equal(pullBody(['cli: a', 'docs: b']), '- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)');
-  const long = pullBody(['1', '2', '3'], null, 2).split('\n');
+  const long = pullBody(['1', '2', '3'], { limit: 2 }).split('\n');
   assert.deepEqual(long.slice(0, 3), ['- 1', '- 2', '- … and 1 more']);
 });
 
@@ -929,17 +935,40 @@ test('on the local gate a failed runner refuses the merge with its output and re
   assert.ok(!ghWrites.some(args => args[1]?.endsWith('/merge')));
 });
 
+test('the body closes the task\'s issue after the note, before the commits (T3134)', () => {
+  const closes = 'Closes owner/repo#7';
+  assert.equal(pullBody(['cli: a'], { closes }), 'Closes owner/repo#7\n\n## Commits\n- cli: a\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)');
+  assert.equal(pullBody(['cli: a'], { note: 'Reach: the ship tool\n', closes }), 'Reach: the ship tool\n\nCloses owner/repo#7\n\n## Commits\n- cli: a\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)');
+});
+
+test('a merge whose task names an issue opens its pull request closing that issue (T3134)', async () => {
+  const { deps, ghWrites, out, closingIssue } = runFixture();
+  assert.equal(await runMerge(ARGS, deps), 0);
+  assert.deepEqual(closingIssue.mock.calls.map(call => call.arguments), [[BRANCH]]);
+  const opened = ghWrites.find(args => args[1] === `repos/${REPO}/pulls`);
+  assert.ok(opened?.includes('body=Closes owner/repo#7\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'));
+  assert.ok(!out.some(line => line.startsWith('NOTE')));
+});
+
+test('a merge whose task names no issue still merges, says so in a NOTE and closes nothing (T3134)', async () => {
+  const { deps, ghWrites, out } = runFixture({ closing: { kind: 'none', why: 'T9 has no issue ref (gh:owner/name#n)' } });
+  assert.equal(await runMerge(ARGS, deps), 0);
+  assert.ok(out.includes('NOTE T9 has no issue ref (gh:owner/name#n): the pull request closes no issue'));
+  const opened = ghWrites.find(args => args[1] === `repos/${REPO}/pulls`);
+  assert.ok(opened?.includes('body=- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'));
+});
+
 test('--note-file opens the body of the pull request it opens, and a missing note file stops the merge first', async () => {
   assert.deepEqual(parseArgs(['C:/repo', '--note-file', 'C:/notes/gap.md']).noteFile, 'C:/notes/gap.md');
   assert.throws(() => parseArgs(['C:/repo', '--note-file', '--head']), /usage: ship\.ts merge/);
-  assert.equal(pullBody(['cli: a'], '## Gap\nmacOS unchecked\n'), '## Gap\nmacOS unchecked\n\n## Commits\n- cli: a\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)');
-  assert.equal(pullBody(['cli: a'], ' \n'), pullBody(['cli: a']));
+  assert.equal(pullBody(['cli: a'], { note: '## Gap\nmacOS unchecked\n' }), '## Gap\nmacOS unchecked\n\n## Commits\n- cli: a\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)');
+  assert.equal(pullBody(['cli: a'], { note: ' \n' }), pullBody(['cli: a']));
 
   const { deps, ghWrites } = runFixture();
   const gate: GateDeps = { ...deps.gate, readText: path => (path === 'C:/notes/gap.md' ? '## Gap\nmacOS unchecked\n' : null) };
   assert.equal(await runMerge({ ...ARGS, noteFile: 'C:/notes/gap.md' }, { ...deps, gate }), 0);
   const opened = ghWrites.find(args => args[1] === `repos/${REPO}/pulls`);
-  assert.ok(opened?.includes('body=## Gap\nmacOS unchecked\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'));
+  assert.ok(opened?.includes('body=## Gap\nmacOS unchecked\n\nCloses owner/repo#7\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'));
 
   const missing = runFixture();
   await assert.rejects(runMerge({ ...ARGS, noteFile: 'C:/notes/none.md' }, missing.deps), /--note-file C:\/notes\/none\.md: no such file/);

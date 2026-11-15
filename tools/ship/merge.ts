@@ -7,6 +7,7 @@ import { ENV } from '../../src/core/home.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
 import { type ClearMerge, clearMergeFrom } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
+import { type ClosingIssueOf, closingIssueFrom } from './closes.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
@@ -365,11 +366,23 @@ export function parseArgs(argv: readonly string[]): MergeArgs {
   return parsed;
 }
 
-/** The PR body: the note when there is one, the commits it ships, then the attribution line. */
-export function pullBody(subjects: readonly string[], note: string | null = null, limit = 60): string {
+/** What a PR body says besides its commits. */
+export interface PullBodyParts {
+  /** The text of `--note-file`, opening the body. */
+  readonly note?: string | null;
+  /** The `Closes owner/name#n` line of the issue the merge closes (closes.ts). */
+  readonly closes?: string | null;
+  /** How many commits it lists before a count of the rest. */
+  readonly limit?: number;
+}
+
+/** The PR body: the note when there is one, the line closing the task's issue, the commits it ships, then the attribution line. */
+export function pullBody(subjects: readonly string[], parts: PullBodyParts = {}): string {
+  const limit = parts.limit ?? 60;
   const shown = subjects.slice(0, limit).map(subject => `- ${subject}`);
   if (subjects.length > limit) shown.push(`- … and ${subjects.length - limit} more`);
-  const opening = note === null || note.trim() === '' ? [] : [note.trim(), '', '## Commits'];
+  const said = [parts.note?.trim() ?? '', parts.closes ?? ''].filter(text => text !== '');
+  const opening = said.length === 0 ? [] : [said.join('\n\n'), '', '## Commits'];
   return [...opening, ...shown, '', '🤖 Generated with [Claude Code](https://claude.com/claude-code)'].join('\n');
 }
 
@@ -448,6 +461,8 @@ export interface MergeDeps {
   sweep: (merged: MergedHead, profile: RepoProfile, gh: Gh) => void;
   /** Whether the caller may merge the branch at its head on the approval it names (approval.ts, T2788). */
   clearMerge: ClearMerge;
+  /** The issue the pull request of a head closes, from its task's ref (closes.ts, T3134); never refuses the merge. */
+  closingIssue: ClosingIssueOf;
   /** A head main moved past, rebased onto main's tip and pushed as a new branch when its diff stays the same (catch-up.ts). */
   catchUp: (request: CatchUpRequest) => CatchUp;
   /** The queued step's host share, set aside while the merge waits on GitHub (T3336). */
@@ -563,13 +578,15 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
     deps.err(describeCredential(credential));
     return done(1);
   }
+  const closing = await deps.closingIssue(head);
+  if (closing.kind === 'none') deps.out(`NOTE ${closing.why}: the pull request closes no issue`);
   const gh = deps.ghFor(credential.secret);
   const proof =
     profile.gate === 'ci'
       ? awayDuring(ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 }), deps.share)
       : { proof: localProof(args.dir, profile.local, deps.gate), away: () => false };
   const result = await mergeThroughPull(
-    { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, note) },
+    { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, { note, closes: closing.kind === 'closes' ? closing.line : null }) },
     gh,
     mainBranchOf(git, profile.main),
     proof.proof,
@@ -603,6 +620,7 @@ export function realMergeDeps(dir: string): MergeDeps {
   const out = (line: string): void => console.log(line);
   const err = (line: string): void => console.error(line);
   const git = (...gitArgs: string[]): string => execFileSync('git', ['-C', dir, ...gitArgs], { encoding: 'utf8' }).trim();
+  const reader = { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock };
   return {
     git,
     profiles: readProfiles(),
@@ -612,7 +630,8 @@ export function realMergeDeps(dir: string): MergeDeps {
     gate: realGateDeps(dir, out),
     renamedCallers: (base, tip, repo) => renamedCallersRefusal({ base, tip, repo }, { env: process.env, userHome: homedir() }, realRenamedCallersDeps(dir, out)),
     sweep: (merged, profile, gh) => sweepAfterMerge(merged, profile, { git, pullsOf: pullsOfHead(gh, merged.repo), out, err }),
-    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }),
+    clearMerge: clearMergeFrom(process.env, reader),
+    closingIssue: closingIssueFrom(process.env, reader),
     catchUp: request =>
       catchUp(
         {
