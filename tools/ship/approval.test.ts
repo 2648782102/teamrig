@@ -5,7 +5,7 @@ import { EXIT, RefusedError } from '../../src/cli/runtime.ts';
 import { mergeStandingOf, type MergeStanding } from '../../src/cli/ship-approval.ts';
 import { CLAUDE_SESSION, CliHarness, TEAM_HOME } from '../../src/testing/cli-harness.ts';
 import { TempRepo } from '../lib/temp-repo.ts';
-import { changePatch, clearMerge, clearMergeFrom, mergeClearance, type MergeReads, shipWritesOf, type StandingOf, type TabCallerOf, taskOfBranch, type WorkCommit, workChanges, workCommitsOf } from './approval.ts';
+import { changePatch, clearMerge, clearMergeFrom, clearPull, clearPullFrom, mergeClearance, type MergeReads, pullClearance, shipWritesOf, type StandingOf, type TabCallerOf, taskOfBranch, type WorkCommit, workChanges, workCommitsOf } from './approval.ts';
 import { TEAMRIG_VERSION_FILES } from './version-bump.ts';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
@@ -177,6 +177,84 @@ describe('shipWritesOf: how an approval reads the paths a ship writes again (T29
 
   it('refuses a file that is neither a folder nor a version file the ship rewrites', () => {
     assert.throws(() => shipWritesOf(['dist/', 'src/hooks.json'], TEAMRIG_VERSION_FILES), /regenerated path src\/hooks\.json is no folder the build rebuilds and no version file/);
+  });
+});
+
+describe("pullClearance: a contributor's pull request that changes a guarded path needs a security pass (T3029)", () => {
+  const GUARDED = ['src/push-guard/guard.ts'];
+
+  it('clears an approved head that changes no guarded path, as mergeClearance does', async () => {
+    assert.deepEqual(pullClearance(await approvedBy(HEAD), 'T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+  });
+
+  it('clears a guarded change once the approval names a security pass', async () => {
+    assert.deepEqual(pullClearance(await approvedBy(`${HEAD} PASS root/T3024`), 'T1', HEAD, HEAD, GUARDED), { kind: 'approved', by: 'lead' });
+  });
+
+  it('refuses a guarded change whose approval names no security pass, naming the paths', async () => {
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD), 'T1', HEAD, HEAD, GUARDED)), /changes src\/push-guard\/guard\.ts, which needs a security pass: lead's approval of T1 names none/);
+    assert.match(reasonOf(pullClearance(await approvedBy(`${HEAD} PASS`), 'T1', HEAD, HEAD, GUARDED)), /needs a security pass/, 'a bare PASS names no verdict');
+  });
+
+  it("keeps mergeClearance's refusals and a root team lead's own clearance", async () => {
+    assert.match(reasonOf(pullClearance(await approvedBy('looks good'), 'T1', HEAD, HEAD, GUARDED)), /names no sha of the head/);
+    const kit = new CliHarness();
+    assert.equal((await kit.run(['add', '--title', 'Lead work', '--description', 'what and why', '--priority', 'p1', '--session', 'lead'])).code, EXIT.ok);
+    assert.deepEqual(pullClearance(await standing(kit, 'lead'), 'T1', HEAD, null, GUARDED), { kind: 'self' });
+  });
+});
+
+describe('clearPull', () => {
+  const caller = { session: 'alpha', team: 'app', claudeSession: CLAUDE_SESSION } as const;
+
+  it("reads the tab's session, then the standing of the task it names, then clears it with the guarded paths", async () => {
+    const value = await approvedBy(HEAD);
+    const asked: string[][] = [];
+    const reads: MergeReads = {
+      tabCallerOf: async (team, tab, session) => {
+        asked.push(['tab', team, tab, session]);
+        return session;
+      },
+      standingOf: async (team, session, taskId) => {
+        asked.push([team, session, taskId]);
+        return value;
+      },
+    };
+    assert.deepEqual(await clearPull(caller, reads, 'T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+    assert.match(reasonOf(await clearPull(caller, reads, 'T1', HEAD, HEAD, ['tools/ship/ship.ts'])), /needs a security pass/);
+    const once = [['tab', 'app', CLAUDE_SESSION, 'alpha'], ['app', 'alpha', 'T1']];
+    assert.deepEqual(asked, [...once, ...once]);
+  });
+
+  it('refuses a name that is no task id before reading the register', async () => {
+    const never = async (): Promise<never> => {
+      throw new Error('never read');
+    };
+    const reads: MergeReads = { tabCallerOf: never, standingOf: never };
+    assert.match(reasonOf(await clearPull(caller, reads, 't1', HEAD, HEAD, [])), /t1 is not a task id/);
+    assert.match(reasonOf(await clearPull(caller, reads, 'T1 ', HEAD, HEAD, [])), /is not a task id/);
+  });
+
+  it('refuses a merge from a tab with no id or bound to another session, as clearMerge does', async () => {
+    const value = await approvedBy(HEAD);
+    const standingOf: StandingOf = async () => value;
+    const unbound: TabCallerOf = async () => {
+      throw new RefusedError('this Claude Code tab is not bound to alpha alone');
+    };
+    assert.deepEqual(await clearPull(caller, { tabCallerOf: unbound, standingOf }, 'T1', HEAD, HEAD, []), { kind: 'refused', reason: 'this Claude Code tab is not bound to alpha alone' });
+    const bound: TabCallerOf = async (_team, _tab, session) => session;
+    assert.match(reasonOf(await clearPull({ ...caller, claudeSession: undefined }, { tabCallerOf: bound, standingOf }, 'T1', HEAD, HEAD, [])), /CLAUDE_CODE_SESSION_ID must name the merging Claude Code tab/);
+  });
+
+  it('clearPullFrom reads the caller, team and tab from the env, and the marks and register through the reader', async () => {
+    const kit = await waitingKit(['--note', HEAD]);
+    const marks = join(TEAM_HOME, 'state', 'inbox-marks.jsonl');
+    await kit.files.append(marks, `${JSON.stringify({ v: 1, area: 'alpha', line: 0, at: '2030-01-08T09:00:00.000Z', claudeSession: CLAUDE_SESSION, lastLineHash: null })}\n`);
+    const env = { TEAMRIG_SESSION: 'alpha', TEAMRIG_TEAM: 'app', CLAUDE_CODE_SESSION_ID: CLAUDE_SESSION };
+    assert.deepEqual(await clearPullFrom(env, kit.runtime())('T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+    assert.match(reasonOf(await clearPullFrom({ ...env, TEAMRIG_SESSION: 'bravo' }, kit.runtime())('T1', HEAD, HEAD, [])), /this Claude Code tab is not bound to bravo alone/);
+    assert.match(reasonOf(await clearPullFrom({ TEAMRIG_TEAM: 'app', CLAUDE_CODE_SESSION_ID: CLAUDE_SESSION }, kit.runtime())('T1', HEAD, HEAD, [])), /TEAMRIG_SESSION and TEAMRIG_TEAM/);
+    assert.match(reasonOf(await clearPullFrom({ TEAMRIG_SESSION: 'alpha', TEAMRIG_TEAM: 'app' }, kit.runtime())('T1', HEAD, HEAD, [])), /CLAUDE_CODE_SESSION_ID/);
   });
 });
 
