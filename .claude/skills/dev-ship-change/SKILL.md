@@ -28,8 +28,9 @@ description: Land a finished teamrig change through small signed commits, a dist
    `## Alternatives` when the change settles a design question. A pull request `tools/ship` opens takes its text from
    `--note-file`: start that file with a `Reach:` line. The repository is public: a security fix's branch name, commits,
    pull request text, comments and test names describe the hardening, never how to get past the old code, nor the private
-   report or review by its id ([SECURITY.md](../../../SECURITY.md)). It is rebase-merged once
-   every check passes on its head, and the branch is deleted.
+   report or review by its id ([SECURITY.md](../../../SECURITY.md)). It adds `Closes owner/name#n` when the branch's
+   task has a `gh:owner/name#n` ref, so the merge closes that issue; with no ref it prints a NOTE. It is rebase-merged
+   once every check passes on its head, and the branch is deleted.
 
 ## Traps
 
