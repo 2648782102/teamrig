@@ -6,7 +6,7 @@ import { isRecord } from "../core/guards.js";
  */
 const GATED_KEYS = new Map([
     ['budget', 'budget'],
-    ['focus.allocation', 'budget'],
+    ['priorities.allocation', 'budget'],
     ['permissions', 'permissions'],
     ['pushGuard', 'permissions'],
     ['secretGuard', 'permissions'],

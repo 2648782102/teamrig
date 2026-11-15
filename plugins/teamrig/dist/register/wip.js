@@ -4,7 +4,7 @@ import { bandOf } from "./score.js";
 /**
  * The WIP rule (T2076): a session finishes what the team ranked first before it opens more. A start of anything but
  * Roadmap or Maintenance work is held while its owner holds Roadmap work that can move, or until the week resets once
- * its class has spent its share of the week, and any start is held past `focus.wip.maxInProgress`, as work spread over
+ * its class has spent its share of the week, and any start is held past `priorities.startHold.maxInProgress`, as work spread over
  * many tasks finishes none of them.
  */
 /** How many tasks a hold names before it counts the rest. */
@@ -40,23 +40,23 @@ function namedIds(tasks) {
  */
 export function wipHold({ task, status, oneCommit, spentClasses, goals }, tasks, context, focus, ownerSource) {
     const workClass = classOf(task, focus);
-    if (focus.wip.mode === 'off' || status !== 'in-progress' || NOT_A_START.includes(task.status) || oneCommit === true || isExempt(task, workClass, focus, ownerSource)) {
+    if (focus.startHold.mode === 'off' || status !== 'in-progress' || NOT_A_START.includes(task.status) || oneCommit === true || isExempt(task, workClass, focus, ownerSource)) {
         return undefined;
     }
     const others = [...tasks].filter((held) => held.owner === task.owner && held.id !== task.id);
     const nearPrep = goals !== undefined && prepStanding(task, goals) === 'near';
     if (!nearPrep && workClass !== focus.roadmapClass && workClass !== focus.maintenanceClass) {
         if (spentClasses?.has(workClass) === true) {
-            return `${task.id} is ${workClass} work and ${workClass} has spent its share of the week [focus.allocation]: it waits for the week's reset, ${ONE_COMMIT_WAY}`;
+            return `${task.id} is ${workClass} work and ${workClass} has spent its share of the week [priorities.allocation]: it waits for the week's reset, ${ONE_COMMIT_WAY}`;
         }
         const first = others.filter((held) => classOf(held, focus) === focus.roadmapClass && movesNow(held, context));
         if (first.length > 0) {
-            return `${task.id} is ${workClass} work and ${task.owner} holds ${focus.roadmapClass} work that can move: ${namedIds(first)}; work that first [focus.wip], ${ONE_COMMIT_WAY}`;
+            return `${task.id} is ${workClass} work and ${task.owner} holds ${focus.roadmapClass} work that can move: ${namedIds(first)}; work that first [priorities.startHold], ${ONE_COMMIT_WAY}`;
         }
     }
     const started = others.filter((held) => held.status === 'in-progress');
-    const max = focus.wip.maxInProgress;
+    const max = focus.startHold.maxInProgress;
     return started.length < max
         ? undefined
-        : `${task.owner} already has ${started.length} tasks in progress, at the limit of ${max} [focus.wip.maxInProgress]: finish ${namedIds(started)} or put one back (--status open) before ${task.id}, ${ONE_COMMIT_WAY}`;
+        : `${task.owner} already has ${started.length} tasks in progress, at the limit of ${max} [priorities.startHold.maxInProgress]: finish ${namedIds(started)} or put one back (--status open) before ${task.id}, ${ONE_COMMIT_WAY}`;
 }

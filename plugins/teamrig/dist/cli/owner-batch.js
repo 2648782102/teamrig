@@ -31,7 +31,7 @@ function registerOf(runtime, { config, tasks, elsewhere, ranking }, label) {
         zone: teamZone(config, runtime),
         elsewhere,
         ranking,
-        focus: config.focus,
+        focus: config.priorities,
         dedicatedOwners: config.decisions.dedicatedOwners,
     };
 }

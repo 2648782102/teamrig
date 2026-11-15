@@ -1,5 +1,5 @@
 /** The config format this code reads and writes. Older files are migrated in memory on load. */
-export const CONFIG_VERSION = 8;
+export const CONFIG_VERSION = 9;
 export const VERIFY_GATES = ['refuse', 'warn'];
 export function isVerifyGate(value) {
     return VERIFY_GATES.some((gate) => gate === value);
@@ -152,7 +152,7 @@ export const IDLE_MODES = ['off', 'dry-run', 'on'];
 export function isIdleMode(value) {
     return IDLE_MODES.some((mode) => mode === value);
 }
-/** What the WIP rule does to a start it holds (`focus.wip.mode`): refuse it, let it through with a warning, or nothing. */
+/** What the WIP rule does to a start it holds (`priorities.startHold.mode`): refuse it, let it through with a warning, or nothing. */
 export const WIP_MODES = ['refuse', 'warn', 'off'];
 export function isWipMode(value) {
     return WIP_MODES.some((mode) => mode === value);

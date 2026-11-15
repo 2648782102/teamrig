@@ -204,6 +204,20 @@ export const RENAME_TO_DELIVERY = {
     firstRelease: '0.243.0',
     apply: (config) => renameKeys(config, DELIVERY_RENAMES, 7),
 };
+/**
+ * The keys v9 renamed (owner order 11-14, T2851): `focus` ranks the work, so it became `priorities`, and its `wip`
+ * block, which holds a start back, became `startHold`. The block's own rename goes first, under its old parent.
+ */
+const PRIORITIES_RENAMES = [
+    { at: ['focus'], from: 'wip', to: 'startHold' },
+    { at: [], from: 'focus', to: 'priorities' },
+];
+/** v8 to v9: `focus` became `priorities` and `focus.wip` `priorities.startHold`, PRIORITIES_RENAMES; values kept. */
+export const RENAME_TO_PRIORITIES = {
+    from: 8,
+    firstRelease: '0.403.0',
+    apply: (config) => renameKeys(config, PRIORITIES_RENAMES, 8),
+};
 /** The shipped chain, in order: each step reads `from` and produces `from + 1`. */
 export const CONFIG_MIGRATIONS = [
     RENAME_TIERS_TO_PRIORITIES,
@@ -213,6 +227,7 @@ export const CONFIG_MIGRATIONS = [
     DROP_HIRE_CAP,
     DROP_IDLE_RETIRE,
     RENAME_TO_DELIVERY,
+    RENAME_TO_PRIORITIES,
 ];
 /** This release's format. */
 export const SHIPPED_CONFIG_FORMAT = { version: CONFIG_VERSION, migrations: CONFIG_MIGRATIONS };

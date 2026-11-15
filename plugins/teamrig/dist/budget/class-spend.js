@@ -4,7 +4,7 @@ import { taskDaysOf } from "./task-use.js";
 import { wSince } from "./week.js";
 /**
  * Where the team's W went by work class (T2088), for `teamrig budget`: the W each session's turns put on a task, per
- * class, beside the share of the week `focus.allocation` plans for it. Pure: the caller reads the usage and the tasks.
+ * class, beside the share of the week `priorities.allocation` plans for it. Pure: the caller reads the usage and the tasks.
  */
 /** The row of the W no class took: turns that named no task, helpers, and task ids the register does not hold. */
 export const NO_TASK_ROW = 'No task';
@@ -48,7 +48,7 @@ export function classSpendSince(states, from, now, classOfTask) {
     return { byClass, noTaskW: Math.max(0, wSince(states, from, now) - classedW) };
 }
 /**
- * The spend by class today and this week: `focus.classes` in their order, then any class a task still holds that the
+ * The spend by class today and this week: `priorities.classes` in their order, then any class a task still holds that the
  * config no longer lists (a class is kept on a task when it leaves the list), then `NO_TASK_ROW`, so the rows add up
  * to the sessions' W.
  */
@@ -69,7 +69,7 @@ export function classRowsOf(input) {
     return [...rows, { name: NO_TASK_ROW, todayW: today.noTaskW, weekW: week?.noTaskW, allocationPct: undefined }];
 }
 /**
- * The classes whose week spend has reached their share in `focus.allocation`, which the WIP rule holds until the week
+ * The classes whose week spend has reached their share in `priorities.allocation`, which the WIP rule holds until the week
  * resets (register/wip.ts). A share is a percent of the whole week, never of the spend so far: early in a week a class
  * can hold most of what was spent and still have its share left. A class the allocation does not list has no share to spend.
  */

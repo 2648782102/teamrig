@@ -49,13 +49,13 @@ export { HEALTH_LEVELS, HEALTH_THRESHOLDS, registerHealth, } from "../register/s
 // The inboxes (`inbox/<area>.md`) and their read marks (`inbox-marks.jsonl`).
 export { indexMarks, MARK_VERSION, parseMark, readMarks } from "../inbox/marks.js";
 export { inboxLines, unreadOf } from "../inbox/unread.js";
-// The kit config (`config.json`). DEFAULT_REGISTER and DEFAULT_FOCUS are what a config that sets no `register` or
+// The kit config (`config.json`). DEFAULT_REGISTER and DEFAULT_PRIORITIES are what a config that sets no `register` or
 // `focus` key gets: a reader with no config to read names priorities and ranks tasks from them.
-export { DEFAULT_FOCUS, DEFAULT_REGISTER } from "../config/defaults.js";
+export { DEFAULT_PRIORITIES, DEFAULT_REGISTER } from "../config/defaults.js";
 export { priorityName } from "../config/priorities.js";
 export { parseConfigText } from "../config/text.js";
 export { CONFIG_VERSION } from "../config/types.js";
-// The work class a task counts as (T2076): its own, else the team's `focus.defaultClass`, as the CLI reads it; and the
+// The work class a task counts as (T2076): its own, else the team's `priorities.defaultClass`, as the CLI reads it; and the
 // best rank a task serves over its goals and their parents (T2083).
 export { classOf, rankOf } from "../register/focus.js";
 // A session's launch settings: the model and effort it starts on (its `launch` entry, the lead's defaults under it), so

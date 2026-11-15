@@ -425,7 +425,7 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       decisions prints the waits on the owner not yet asked and the asked ones past due, as card facts,
       and whether a batch is due (a wait due before the next batch, decisions.batchAt not yet asked, or a
       decisions.batchTimesUtc time passed) or when the next is; a wait that frees only Improvements work
-      is held, on an IMPROVEMENTS line, until focus.improvementsDay; decisions asked (the lead's) records
+      is held, on an IMPROVEMENTS line, until priorities.improvementsDay; decisions asked (the lead's) records
       the batch asked, as a meeting start does; in a tree of teams the root lead's batch holds every
       team's waits under it, and a child team's decisions prints its own and its teams' waits, naming
       that lead
@@ -441,8 +441,8 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       problem design; --critical marks a bug in a critical area; its line shows "bug" or "critical bug";
       a task with no type whose title or description matches register.review.hintPattern prints a hint
       to mark it, here and when it starts
-      --class: the work class, one of focus.classes (Roadmap, Maintenance, Improvements by default); a task
-      without one counts as focus.defaultClass
+      --class: the work class, one of priorities.classes (Roadmap, Maintenance, Improvements by default); a task
+      without one counts as priorities.defaultClass
   add --team <team> [--owner <s>] [--source owner] --title .. --description .. --priority p<n> [...]   asks a team of your tree for work
       --source owner: the lead of a team above <team> relays the owner's order, sourced owner there
   set <id> --status open|in-progress|verifying|waiting|done|dropped [--note "<what/why>"] [--evidence <proof>]
@@ -456,9 +456,9 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       proof is a sighting to come; verify lists it until you set it done again without --watch, or reopen it
       a start that a verifying task it needs holds goes through with --met: what shows that task's proof
       exists; its owner gets an inbox line to set it done or reopen it
-      the WIP rule (focus.wip) holds a start of work outside the Roadmap and Maintenance classes while its
+      the WIP rule (priorities.startHold) holds a start of work outside the Roadmap and Maintenance classes while its
       owner holds Roadmap work that can move, or until the week resets once its class has spent its share
-      (focus.allocation), and any start past focus.wip.maxInProgress tasks in progress;
+      (priorities.allocation), and any start past priorities.startHold.maxInProgress tasks in progress;
       a reopen of a verifying or done task is never held; --one-commit starts a one-commit fix all the same,
       and show keeps the mark on its status line
       verifying and done need --followups: the tasks the work leaves (a finding, a next step), or none
@@ -562,7 +562,7 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
   goal add <tag> --title "<title>" --target <YYYY-MM-DD> [--start <YYYY-MM-DD>] [--parent <tag>]
       the lead adds one of the team's goals: a tag (A1, A2.1), a title and its planned window from
       --start (default today) to --target; --parent: the goal it is part of (a key result, refused past
-      focus.maxActiveKeyResults ones with a target of today or later)
+      priorities.maxActiveKeyResults ones with a target of today or later)
   goal set <tag> [--target <YYYY-MM-DD>] [--title "<title>"] [--slice <n>] --note "<why>"   the lead
       moves a goal's target (a slip, kept with its note), renames it or opens its next slice (1 first)
   goal rank <tag> <n>|none   the lead ranks a goal, 1 first, or takes it off the ranking; goal-first
@@ -667,7 +667,7 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       writes nothing to GitHub; refuses a folder whose origin is another repository
   budget [<id|name>] [--loops|--burn|--misses] [--day <YYYY-MM-DD>] [--all]
       each session's use today, measured from the Claude Code transcripts, against the week's pace,
-      and the team's spend by class against focus.allocation;
+      and the team's spend by class against priorities.allocation;
       <id|name>: that session by day; --loops: the loop patterns by day; --burn: what started the
       turns, cold calls and compactions by day; --misses: rule misses out of their chances, per
       session, or by day for one; --day: a past day recounted

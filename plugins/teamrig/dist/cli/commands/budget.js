@@ -268,7 +268,7 @@ export async function budget(args, runtime) {
         const outside = { w: wSince([measured.outside], week.todayFrom, now), calls: outsideToday?.calls ?? 0, sessions: measured.outsideSessions, top: measured.outsideTop };
         const behind = measured.behind.map((each) => (each === OUTSIDE_ID ? 'outside the team' : (roster.nameOf(each) ?? each)));
         // The team's sessions alone, so the rows add up to the team's row of the table above them.
-        const classes = tasks === undefined ? undefined : classRowsOf({ states: [...measured.bySession.values()], tasks, focus: config.focus, todayFrom: week.todayFrom, weekFrom: week.window?.start, now });
+        const classes = tasks === undefined ? undefined : classRowsOf({ states: [...measured.bySession.values()], tasks, focus: config.priorities, todayFrom: week.todayFrom, weekFrom: week.window?.start, now });
         if (recountDay === undefined) {
             const fiveHour = await readFolderFiveHour(runtime.files, snapshotDirOf(config.budget, kit.paths), now);
             const peers = reading.peerUsage.map((peer) => peerToday(peer, reading, split, others));

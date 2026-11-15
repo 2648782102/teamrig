@@ -14,7 +14,7 @@ export async function teamDecisions(files, paths, config, registers, now) {
         now,
         askedAt: askedAtOf(asked, meeting),
         config: config.decisions,
-        improvementsDay: config.focus.improvementsDay,
+        improvementsDay: config.priorities.improvementsDay,
     });
 }
 function batchRegisterOf(register, now) {

@@ -242,7 +242,7 @@ function keyResultRefusal(goals, cap) {
     if (open < cap.max) {
         return undefined;
     }
-    return `the team holds ${open} key results (goals with a parent) with a target of ${cap.today} or later, the most focus.maxActiveKeyResults allows: finish one or move its target first`;
+    return `the team holds ${open} key results (goals with a parent) with a target of ${cap.today} or later, the most priorities.maxActiveKeyResults allows: finish one or move its target first`;
 }
 /** Why `goal rank` cannot write its record over `goals`; undefined when it can. */
 export function goalRankRefusal(input, goals) {

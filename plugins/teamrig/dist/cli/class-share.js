@@ -17,10 +17,10 @@ export async function readSpentClasses(runtime, paths, config, tasks, now) {
         }
         const usage = await readStoredUsage(runtime, paths, config.sessions);
         usage.delete(OUTSIDE_ID);
-        return spentClassesOf({ states: [...usage.values()], tasks, focus: config.focus, weekFrom: window.start, wPerPct, now });
+        return spentClassesOf({ states: [...usage.values()], tasks, focus: config.priorities, weekFrom: window.start, wPerPct, now });
     }
     catch (error) {
-        runtime.out.stderr(`WARN the week's spend by class could not be read, so no class is held for its share [focus.allocation]: ${errorMessage(error)}`);
+        runtime.out.stderr(`WARN the week's spend by class could not be read, so no class is held for its share [priorities.allocation]: ${errorMessage(error)}`);
         return NO_CLASSES;
     }
 }

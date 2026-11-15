@@ -10,7 +10,7 @@ import { KEEP_RULE_PATTERN } from "../permissions/allow-rules.js";
 import { PREFIX_PATTERN } from "../readonly-shell/rules.js";
 import { CORE_RULE_KEYS, isCoreRuleKey } from "../rules/keys.js";
 import { isNeedKind, NEED_KINDS } from "../tabs/need-kind.js";
-import { DEFAULT_ALERTS, DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_COMMITS, DEFAULT_CONTEXT_FILES, DEFAULT_FREEZES, DEFAULT_DECISIONS, DEFAULT_DELIVERY_WAIT, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_GITHUB, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_EXEC, DEFAULT_LOCK, DEFAULT_LEAD_BOUNDARY, DEFAULT_TURN_LOG, DEFAULT_NEEDS_YOU, DEFAULT_MEETING_NOTICES, DEFAULT_LOOPS, DEFAULT_MERGE_REMOTE, DEFAULT_MESSAGES, DEFAULT_HEADROOM, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_OWNER_GATES, DEFAULT_SECURITY_GATES, DEFAULT_COMMIT_GUARD, DEFAULT_DB_WRITE_GUARD, DEFAULT_SECRET_GUARD, DEFAULT_PACKAGE_GUARD, DEFAULT_PERMISSIONS, DEFAULT_PROMPTS, DEFAULT_PUSH_GUARD, DEFAULT_READONLY_SHELL, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_SCALE_OUT, DEFAULT_SESSION_SHARE, DEFAULT_SKILLS, DEFAULT_STATUS_LINE, DEFAULT_FOCUS, DEFAULT_TESTS, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING, QUEUE_TTL_MARGIN_MINUTES, } from "./defaults.js";
+import { DEFAULT_ALERTS, DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_COMMITS, DEFAULT_CONTEXT_FILES, DEFAULT_FREEZES, DEFAULT_DECISIONS, DEFAULT_DELIVERY_WAIT, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_GITHUB, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_EXEC, DEFAULT_LOCK, DEFAULT_LEAD_BOUNDARY, DEFAULT_TURN_LOG, DEFAULT_NEEDS_YOU, DEFAULT_MEETING_NOTICES, DEFAULT_LOOPS, DEFAULT_MERGE_REMOTE, DEFAULT_MESSAGES, DEFAULT_HEADROOM, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_OWNER_GATES, DEFAULT_SECURITY_GATES, DEFAULT_COMMIT_GUARD, DEFAULT_DB_WRITE_GUARD, DEFAULT_SECRET_GUARD, DEFAULT_PACKAGE_GUARD, DEFAULT_PERMISSIONS, DEFAULT_PROMPTS, DEFAULT_PUSH_GUARD, DEFAULT_READONLY_SHELL, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_SCALE_OUT, DEFAULT_SESSION_SHARE, DEFAULT_SKILLS, DEFAULT_STATUS_LINE, DEFAULT_PRIORITIES, DEFAULT_TESTS, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING, QUEUE_TTL_MARGIN_MINUTES, } from "./defaults.js";
 import { isEffort, isModel } from "./launch.js";
 import { APPLY_FLAG_PATTERN, BUDGET_ACCOUNT_MAX_LENGTH, CLIENT_RECEIVER_PATTERN, CONFIG_LIMITS, DB_PROGRAM_NAME_PATTERN, DB_WRITE_ENTRYPOINT_LIMITS, DB_WRITE_NAME_LIMITS, GITHUB_LABEL_MAX_LENGTH, MEETING_COLOUR_PATTERN, MEETING_HELD_TEXT_MAX_LENGTH, NODE_MODULE_PATTERN, REVIEW_PATH_LIMITS, RULE_CONFLICT_LIMITS, } from "./limits.js";
 import { HIRE_CAP_DROPPED, IDLE_RETIRE_DROPPED } from "./migrate.js";
@@ -283,6 +283,7 @@ export function parseConfig(raw, above) {
     // T2256: the question picker stopped the lead's session in the meeting too; the meeting asks only in plain text.
     read.dropped(decisions, 'askWith', 'decisions', 'the daily meeting asks the owner each decision in plain text, the picker guard refusing the question picker to the lead too');
     reportRenamedKey(read, raw, '', 'coordinator', 'delivery');
+    reportRenamedKey(read, raw, '', 'focus', 'priorities');
     const ownerGates = read.stringList(raw, 'ownerGates', '', DEFAULT_OWNER_GATES, shortLine(CONFIG_LIMITS.ownerGates.maxLength), CONFIG_LIMITS.ownerGates.maxItems);
     const config = {
         configVersion: read.integer(raw, 'configVersion', '', 1, { min: 1 }),
@@ -353,7 +354,7 @@ export function parseConfig(raw, above) {
         burst: parseBurst(read, read.section(raw, 'burst', '')),
         open: parseOpen(read, read.section(raw, 'open', ''), sessions),
         statusLine: parseStatusLine(read, read.section(raw, 'statusLine', '')),
-        focus: parseFocus(read, read.section(raw, 'focus', '')),
+        priorities: parsePriorities(read, read.section(raw, 'priorities', '')),
         launch,
         paths: parsePaths(read, read.section(raw, 'paths', '')),
     };
@@ -536,7 +537,7 @@ const RENAMED_PRIORITIES_KEY = 'tiers';
 /** The budget's old place, `coordinator.budget`, now `delivery.budget`; it moved to the top-level `budget` block, with no alias. */
 const MOVED_BUDGET_KEY = 'budget';
 /**
- * Reports `raw`'s `from`, below `path` ('' for the top level), as renamed to `to`. The v4-to-v5 and v7-to-v8
+ * Reports `raw`'s `from`, below `path` ('' for the top level), as renamed to `to`. The v4-to-v5, v7-to-v8 and v8-to-v9
  * migrations rename each key they name (src/config/migrate.ts), so a current file holds one only when written so by
  * hand, and it is read as nothing, never as an alias.
  */
@@ -1120,96 +1121,97 @@ function parseStatusLine(read, raw) {
     };
 }
 /** A few classes keep a task row short; 12 leaves room for a team's own split. */
-const FOCUS_MAX_CLASSES = 12;
+const PRIORITIES_MAX_CLASSES = 12;
 /** A team works a handful of key results at once (T2076); 100 is far past any team today. */
-const FOCUS_KEY_RESULTS = { min: 1, max: 100 };
+const PRIORITIES_KEY_RESULTS = { min: 1, max: 100 };
 /** One part of a cost of delay; 1000 is far past the defaults' 20, so a team can widen the scale. */
-const FOCUS_SCORE_VALUE = { min: 0, max: 1000 };
+const PRIORITIES_SCORE_VALUE = { min: 0, max: 1000 };
 /** A goal rank or a priority past the list takes its last value, so 20 entries is plenty. */
-const FOCUS_MAX_VALUES = 20;
+const PRIORITIES_MAX_VALUES = 20;
 /** Up to two months of warning before a due date. */
-const FOCUS_DUE_SOON_DAYS = { min: 0, max: 60 };
+const PRIORITIES_DUE_SOON_DAYS = { min: 0, max: 60 };
 /** 0 turns the unblocks part off; 10 lets a task that frees others outrank them tenfold. */
-const FOCUS_UNBLOCKS_SHARE = { min: 0, max: 10 };
+const PRIORITIES_UNBLOCKS_SHARE = { min: 0, max: 10 };
 /** A size in percent of the week: above 0, so a score never divides by 0, and at most the whole week. */
-const FOCUS_SIZE_PCT = { min: 0.01, max: 100 };
-const FOCUS_MAX_IN_PROGRESS = { min: 1, max: 50 };
+const PRIORITIES_SIZE_PCT = { min: 0.01, max: 100 };
+const PRIORITIES_MAX_IN_PROGRESS = { min: 1, max: 50 };
 /** 0 flags a Roadmap task the moment it waits on a leader; a week at most. */
-const FOCUS_LEADER_WAIT_MINUTES = { min: 0, max: 10_080 };
-const FOCUS_PARK_AFTER_DAYS = { min: 1, max: 365 };
-const FOCUS_PERCENT = { min: 0, max: 100 };
+const PRIORITIES_LEADER_WAIT_MINUTES = { min: 0, max: 10_080 };
+const PRIORITIES_PARK_AFTER_DAYS = { min: 1, max: 365 };
+const PRIORITIES_PERCENT = { min: 0, max: 100 };
 /** How far a class allocation's shares may sum from 100, so shares such as 33.3 read. */
-const FOCUS_ALLOCATION_SLACK = 0.5;
+const PRIORITIES_ALLOCATION_SLACK = 0.5;
 const isWorkClassName = (value) => WORK_CLASS_NAME.test(value) ? undefined : 'expected a letter, then up to 31 letters, digits, spaces, _ or -';
 /**
- * `focus` (T2076). The classes, the class each role names and the allocation must agree; when they do not, each
+ * `priorities` (T2076). The classes, the class each role names and the allocation must agree; when they do not, each
  * problem is reported and all of them take their defaults together, so no task reads under a class the team lacks.
  */
-function parseFocus(read, raw) {
-    const path = 'focus';
-    const defaults = DEFAULT_FOCUS;
+function parsePriorities(read, raw) {
+    const path = 'priorities';
+    const defaults = DEFAULT_PRIORITIES;
     const named = {
-        classes: focusClasses(read, raw, path),
+        classes: priorityClasses(read, raw, path),
         roadmapClass: read.string(raw, 'roadmapClass', path, defaults.roadmapClass, isWorkClassName),
         maintenanceClass: read.string(raw, 'maintenanceClass', path, defaults.maintenanceClass, isWorkClassName),
         defaultClass: read.string(raw, 'defaultClass', path, defaults.defaultClass, isWorkClassName),
-        allocation: focusAllocation(read, read.section(raw, 'allocation', path), `${path}.allocation`),
+        allocation: priorityAllocation(read, read.section(raw, 'allocation', path), `${path}.allocation`),
     };
     const problems = [
         ...['roadmapClass', 'maintenanceClass', 'defaultClass']
             .filter((key) => !named.classes.includes(named[key]))
-            .map((key) => ({ at: `${path}.${key}`, why: `${named[key]} is not one of focus.classes (${named.classes.join(', ')})` })),
+            .map((key) => ({ at: `${path}.${key}`, why: `${named[key]} is not one of priorities.classes (${named.classes.join(', ')})` })),
         ...Object.keys(named.allocation)
             .filter((key) => !named.classes.includes(key))
-            .map((key) => ({ at: `${path}.allocation.${key}`, why: `${key} is not one of focus.classes (${named.classes.join(', ')})` })),
+            .map((key) => ({ at: `${path}.allocation.${key}`, why: `${key} is not one of priorities.classes (${named.classes.join(', ')})` })),
     ];
     const sum = Object.values(named.allocation).reduce((total, share) => total + share, 0);
-    if (Math.abs(sum - 100) > FOCUS_ALLOCATION_SLACK) {
+    if (Math.abs(sum - 100) > PRIORITIES_ALLOCATION_SLACK) {
         problems.push({ at: `${path}.allocation`, why: `the shares sum to ${sum}, not 100` });
     }
     for (const problem of problems) {
         read.report(problem.at, `${problem.why}; classes, roadmapClass, maintenanceClass, defaultClass and allocation take their defaults`);
     }
     const classes = problems.length === 0 ? named : pickClasses(defaults);
-    const wip = read.section(raw, 'wip', path);
-    const mode = read.string(wip, 'mode', `${path}.wip`, defaults.wip.mode, oneOf(WIP_MODES));
+    reportRenamedKey(read, raw, path, 'wip', 'startHold');
+    const startHold = read.section(raw, 'startHold', path);
+    const mode = read.string(startHold, 'mode', `${path}.startHold`, defaults.startHold.mode, oneOf(WIP_MODES));
     const expedite = read.section(raw, 'expedite', path);
     const improvementsDay = read.string(raw, 'improvementsDay', path, defaults.improvementsDay, oneOf(WEEKDAYS));
-    read.dropped(raw, 'maxOpenSlices', path, 'a cap across the tree let a lead fill it with its own team; each session keeps focus.slicesPerSession open');
+    read.dropped(raw, 'maxOpenSlices', path, 'a cap across the tree let a lead fill it with its own team; each session keeps priorities.slicesPerSession open');
     return {
         ...classes,
-        maxActiveKeyResults: read.integer(raw, 'maxActiveKeyResults', path, defaults.maxActiveKeyResults, FOCUS_KEY_RESULTS),
+        maxActiveKeyResults: read.integer(raw, 'maxActiveKeyResults', path, defaults.maxActiveKeyResults, PRIORITIES_KEY_RESULTS),
         slicesPerSession: read.integer(raw, 'slicesPerSession', path, defaults.slicesPerSession, CONFIG_LIMITS.slicesPerSession),
         maxOwnerDecisions: read.integer(raw, 'maxOwnerDecisions', path, defaults.maxOwnerDecisions, CONFIG_LIMITS.maxOwnerDecisions),
-        score: parseFocusScore(read, read.section(raw, 'score', path), `${path}.score`),
+        score: parsePrioritiesScore(read, read.section(raw, 'score', path), `${path}.score`),
         expedite: {
             critical: read.boolean(expedite, 'critical', `${path}.expedite`, defaults.expedite.critical),
             ownerP1: read.boolean(expedite, 'ownerP1', `${path}.expedite`, defaults.expedite.ownerP1),
         },
-        wip: {
-            mode: isWipMode(mode) ? mode : defaults.wip.mode,
-            maxInProgress: read.integer(wip, 'maxInProgress', `${path}.wip`, defaults.wip.maxInProgress, FOCUS_MAX_IN_PROGRESS),
+        startHold: {
+            mode: isWipMode(mode) ? mode : defaults.startHold.mode,
+            maxInProgress: read.integer(startHold, 'maxInProgress', `${path}.startHold`, defaults.startHold.maxInProgress, PRIORITIES_MAX_IN_PROGRESS),
         },
-        leaderWaitMinutes: read.integer(raw, 'leaderWaitMinutes', path, defaults.leaderWaitMinutes, FOCUS_LEADER_WAIT_MINUTES),
-        parkAfterDays: read.integer(raw, 'parkAfterDays', path, defaults.parkAfterDays, FOCUS_PARK_AFTER_DAYS),
-        plannedTargetPct: read.integer(raw, 'plannedTargetPct', path, defaults.plannedTargetPct, FOCUS_PERCENT),
+        leaderWaitMinutes: read.integer(raw, 'leaderWaitMinutes', path, defaults.leaderWaitMinutes, PRIORITIES_LEADER_WAIT_MINUTES),
+        parkAfterDays: read.integer(raw, 'parkAfterDays', path, defaults.parkAfterDays, PRIORITIES_PARK_AFTER_DAYS),
+        plannedTargetPct: read.integer(raw, 'plannedTargetPct', path, defaults.plannedTargetPct, PRIORITIES_PERCENT),
         improvementsDay: isWeekday(improvementsDay) ? improvementsDay : defaults.improvementsDay,
     };
 }
-function pickClasses(focus) {
-    const { classes, roadmapClass, maintenanceClass, defaultClass, allocation } = focus;
+function pickClasses(priorities) {
+    const { classes, roadmapClass, maintenanceClass, defaultClass, allocation } = priorities;
     return { classes, roadmapClass, maintenanceClass, defaultClass, allocation };
 }
-/** `focus.classes`: 1 to 12 names, each once; any bad name, an empty list or a repeat takes the default list. */
-function focusClasses(read, raw, path) {
-    const fallback = DEFAULT_FOCUS.classes;
+/** `priorities.classes`: 1 to 12 names, each once; any bad name, an empty list or a repeat takes the default list. */
+function priorityClasses(read, raw, path) {
+    const fallback = DEFAULT_PRIORITIES.classes;
     const given = raw['classes'];
-    const classes = read.stringList(raw, 'classes', path, fallback, isWorkClassName, FOCUS_MAX_CLASSES);
+    const classes = read.stringList(raw, 'classes', path, fallback, isWorkClassName, PRIORITIES_MAX_CLASSES);
     if (!Array.isArray(given) || classes === fallback) {
         return classes;
     }
     if (given.length === 0) {
-        read.report(`${path}.classes`, `expected a list of 1 to ${FOCUS_MAX_CLASSES} classes`);
+        read.report(`${path}.classes`, `expected a list of 1 to ${PRIORITIES_MAX_CLASSES} classes`);
         return fallback;
     }
     const repeated = classes.find((name, index) => classes.indexOf(name) !== index);
@@ -1219,22 +1221,22 @@ function focusClasses(read, raw, path) {
     }
     return classes.length === given.length ? classes : fallback;
 }
-/** `focus.allocation`: a share from 0 to 100 of the week's spend per class; a bad share reads as the default map. */
-function focusAllocation(read, raw, path) {
+/** `priorities.allocation`: a share from 0 to 100 of the week's spend per class; a bad share reads as the default map. */
+function priorityAllocation(read, raw, path) {
     const entries = Object.entries(raw);
     if (entries.length === 0) {
-        return DEFAULT_FOCUS.allocation;
+        return DEFAULT_PRIORITIES.allocation;
     }
-    const shares = entries.map(([key, value]) => [key, read.numberItem(value, `${path}.${key}`, FOCUS_PERCENT)]);
+    const shares = entries.map(([key, value]) => [key, read.numberItem(value, `${path}.${key}`, PRIORITIES_PERCENT)]);
     const valid = shares.filter((entry) => entry[1] !== undefined);
-    return valid.length === shares.length ? Object.fromEntries(valid) : DEFAULT_FOCUS.allocation;
+    return valid.length === shares.length ? Object.fromEntries(valid) : DEFAULT_PRIORITIES.allocation;
 }
-/** `focus.score`: each part of the WSJF score within its bounds. */
-function parseFocusScore(read, raw, path) {
-    const defaults = DEFAULT_FOCUS.score;
-    const value = (key, fallback) => read.number(raw, key, path, fallback, FOCUS_SCORE_VALUE);
+/** `priorities.score`: each part of the WSJF score within its bounds. */
+function parsePrioritiesScore(read, raw, path) {
+    const defaults = DEFAULT_PRIORITIES.score;
+    const value = (key, fallback) => read.number(raw, key, path, fallback, PRIORITIES_SCORE_VALUE);
     return {
-        rankValues: focusValues(read, raw, 'rankValues', path, defaults.rankValues),
+        rankValues: priorityValues(read, raw, 'rankValues', path, defaults.rankValues),
         roadmapUnranked: value('roadmapUnranked', defaults.roadmapUnranked),
         maintenanceValue: value('maintenanceValue', defaults.maintenanceValue),
         maintenanceBug: value('maintenanceBug', defaults.maintenanceBug),
@@ -1242,25 +1244,25 @@ function parseFocusScore(read, raw, path) {
         improvementsValue: value('improvementsValue', defaults.improvementsValue),
         overdueValue: value('overdueValue', defaults.overdueValue),
         dueSoonValue: value('dueSoonValue', defaults.dueSoonValue),
-        dueSoonDays: read.integer(raw, 'dueSoonDays', path, defaults.dueSoonDays, FOCUS_DUE_SOON_DAYS),
-        unblocksShare: read.number(raw, 'unblocksShare', path, defaults.unblocksShare, FOCUS_UNBLOCKS_SHARE),
-        ownerOrderValues: focusValues(read, raw, 'ownerOrderValues', path, defaults.ownerOrderValues),
-        defaultSizePct: read.number(raw, 'defaultSizePct', path, defaults.defaultSizePct, FOCUS_SIZE_PCT),
-        minSizePct: read.number(raw, 'minSizePct', path, defaults.minSizePct, FOCUS_SIZE_PCT),
+        dueSoonDays: read.integer(raw, 'dueSoonDays', path, defaults.dueSoonDays, PRIORITIES_DUE_SOON_DAYS),
+        unblocksShare: read.number(raw, 'unblocksShare', path, defaults.unblocksShare, PRIORITIES_UNBLOCKS_SHARE),
+        ownerOrderValues: priorityValues(read, raw, 'ownerOrderValues', path, defaults.ownerOrderValues),
+        defaultSizePct: read.number(raw, 'defaultSizePct', path, defaults.defaultSizePct, PRIORITIES_SIZE_PCT),
+        minSizePct: read.number(raw, 'minSizePct', path, defaults.minSizePct, PRIORITIES_SIZE_PCT),
     };
 }
 /**
  * A list of 1 to 20 values from 0 to 1000, read by position (rank 1, rank 2 or p1, p2), so a bad item takes the
  * default list instead of moving the items after it up a place.
  */
-function focusValues(read, raw, key, path, fallback) {
+function priorityValues(read, raw, key, path, fallback) {
     const given = raw[key];
-    const values = read.list(raw, key, path, fallback, (item, itemPath) => read.numberItem(item, itemPath, FOCUS_SCORE_VALUE), FOCUS_MAX_VALUES);
+    const values = read.list(raw, key, path, fallback, (item, itemPath) => read.numberItem(item, itemPath, PRIORITIES_SCORE_VALUE), PRIORITIES_MAX_VALUES);
     if (!Array.isArray(given) || values === fallback) {
         return values;
     }
     if (given.length === 0) {
-        read.report(`${path}.${key}`, `expected a list of 1 to ${FOCUS_MAX_VALUES} numbers`);
+        read.report(`${path}.${key}`, `expected a list of 1 to ${PRIORITIES_MAX_VALUES} numbers`);
         return fallback;
     }
     return values.length === given.length ? values : fallback;

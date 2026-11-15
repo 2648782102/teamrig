@@ -49,7 +49,7 @@ export function sizePctOf(facts, score) {
 }
 /**
  * The band of a task. A p0 always expedites: it means started ahead of the task in hand, whatever its class or who
- * asked, so no config turns it off. Every other expedite needs its arm on in `focus.expedite`.
+ * asked, so no config turns it off. Every other expedite needs its arm on in `priorities.expedite`.
  */
 export function bandOf(facts, focus) {
     const maintenance = facts.workClass === focus.maintenanceClass;

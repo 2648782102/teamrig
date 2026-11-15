@@ -30,7 +30,7 @@ export async function liveTasksNoteOf(runtime, paths, config, id, zone, start) {
         const now = runtime.clock.now();
         const tree = new TaskTree(state.tasks, new Date(now), zone, undefined, elsewhere, ranking);
         // No parent lead here: a hold counts only when it names this session, and a wait on the team above never does.
-        const waiting = heldFirst(tree.waitingOn(id), id, new LeadTree(config), config.focus, now);
+        const waiting = heldFirst(tree.waitingOn(id), id, new LeadTree(config), config.priorities, now);
         return liveTasksForms(blockStartLines(id, start, KIT_NAME), { tasks: [...state.tasks.values()], owner: id, tree, waiting, command: KIT_NAME });
     }
     catch (error) {

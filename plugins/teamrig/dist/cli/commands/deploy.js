@@ -43,12 +43,12 @@ export async function deploy(args, runtime) {
     const { delivery, budget } = config;
     const places = deliveryPlaces(delivery, kit.paths);
     const say = logLineOf(runtime, zone);
-    const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.focus, zone);
+    const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, config.priorities, zone);
     await refuseUnderParentLock(runtime, lock, say, zone, 'teamrig deploy');
     const watching = await watchStarters(runtime, say);
     try {
         const { stop } = watching;
-        const setup = { team, delivery, places, zone, inTeam: (path) => teamPlace(kit.paths, path), focus: config.focus };
+        const setup = { team, delivery, places, zone, inTeam: (path) => teamPlace(kit.paths, path), focus: config.priorities };
         const ports = {
             git: runtime.mergeGit,
             hooks: stoppableHooks(runtime.hooks, stop),

@@ -1,6 +1,6 @@
 import { MS_PER_DAY } from "../core/time.js";
 export function parkRulesOf(config) {
-    return { focus: config.focus, ownerSource: config.register.ownerSource };
+    return { focus: config.priorities, ownerSource: config.register.ownerSource };
 }
 /**
  * Whether the task parks, the rule of design section 6 (2C): only a STORED class counts, so a task no one classed never

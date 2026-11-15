@@ -7,7 +7,7 @@ export function waitedMinutes(task, at) {
 }
 /**
  * The waits that hold `task` on a leader past the limit (T2076): a Roadmap task's decision or approval asked of one of
- * `leaders` and not answered, once its waits have stood strictly past `focus.leaderWaitMinutes`, so a limit of 0 holds
+ * `leaders` and not answered, once its waits have stood strictly past `priorities.leaderWaitMinutes`, so a limit of 0 holds
  * from the first moment after the ask. An answer either way ends the hold, as the next step is then the owner's. The
  * clock is `waitsAt`, never `statusAt`: a task parked for days on other work that only now asks its leader gets the
  * leader the whole limit. `leaders` are the owner's (`LeadTree.approversOf`), so the security reviewer, who may answer

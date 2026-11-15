@@ -21,7 +21,7 @@ export function logLineOf(runtime, zone) {
  * `delivery.queue.memoryFloorMb` plus the step's reserve (`heavyReserveMb` at least for a step that takes the lock),
  * and the commit charge under `open.headroom.commitMaxPct` with the reserve counted, the tabs still loading beside the
  * lock (`tabHoldsDir(path)`, written by `open`) holding their MB of both. Its line is ordered as
- * `delivery.queue.admission` says, a ticket naming no class counting as `focus.defaultClass`; a heavy step joins another
+ * `delivery.queue.admission` says, a ticket naming no class counting as `priorities.defaultClass`; a heavy step joins another
  * heavy one only while `delivery.queue.heavyIdleCpuPct` of the host's CPU is idle. A waiter's ticket says what it waits
  * on with the times on `zone`'s clock.
  */

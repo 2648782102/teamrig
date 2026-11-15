@@ -14,7 +14,7 @@ const SECONDS_PER_MINUTE = 60;
  * days before it as they were. A task the team's events never name was another register's, read by its tag of today.
  */
 function placerOf({ rolled, history }, runtime) {
-    const { focus, register } = rolled.config;
+    const { priorities, register } = rolled.config;
     const zone = teamZone(rolled.config, runtime);
     const tags = weekTagsOf(history.read.events);
     return (day, id) => {
@@ -22,7 +22,7 @@ function placerOf({ rolled, history }, runtime) {
         const noon = Date.parse(`${day}T12:00:00.000Z`);
         const held = tags.get(id);
         const week = held === undefined ? (task?.week ?? null) : weekTagAt(held, noon + MS_PER_DAY / 2);
-        return { workClass: classOf({ workClass: task?.workClass ?? null }, focus), planned: week !== null && inWeek(week, noon, zone, register.check.weekLengthDays) };
+        return { workClass: classOf({ workClass: task?.workClass ?? null }, priorities), planned: week !== null && inWeek(week, noon, zone, register.check.weekLengthDays) };
     };
 }
 /** The team's rollup files of `days`; a damaged one is named and left out, so it shows as a day short and never as a low day. */
@@ -64,7 +64,7 @@ function classLine(use) {
     return `USE ${use.workClass} ${shareText(use.sharePct, use.targetPct)}: ${splitText(use)}`;
 }
 /**
- * The lines of T2076's 3A: how much of the range's task W the plan held, and each class against `focus.allocation`,
+ * The lines of T2076's 3A: how much of the range's task W the plan held, and each class against `priorities.allocation`,
  * from the daily rollups, so only closed UTC days count: today has no file yet. W is raw, as the rollup holds it.
  */
 export async function useLines(runtime, { teams, focus, days, scope }) {

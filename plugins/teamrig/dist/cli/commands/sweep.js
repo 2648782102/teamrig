@@ -26,12 +26,12 @@ async function inputOf(runtime, rolled, needed, now) {
     const { team, config, paths, ranking } = rolled;
     return {
         team,
-        focus: config.focus,
+        focus: config.priorities,
         goals: await new KitTreeGoals(runtime, paths, config).all(),
         ownerSource: config.register.ownerSource,
         now,
         // The ranking's own chain, so a row proposes the size the plan's score divides by.
-        sizeOf: (task) => sizePctOf(ranking.sizingOf(task), config.focus.score),
+        sizeOf: (task) => sizePctOf(ranking.sizingOf(task), config.priorities.score),
         needed: (id) => needed.has(id),
     };
 }

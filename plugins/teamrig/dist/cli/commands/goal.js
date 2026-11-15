@@ -141,7 +141,7 @@ async function written(runtime, gk, verb, write) {
 }
 /**
  * `goal add <tag> --title "<title>" --target <YYYY-MM-DD> [--start <YYYY-MM-DD>] [--parent <tag>]`: the lead adds a
- * goal; its start is today by default. A key result (a goal with a parent) is refused past focus.maxActiveKeyResults
+ * goal; its start is today by default. A key result (a goal with a parent) is refused past priorities.maxActiveKeyResults
  * open ones.
  */
 export async function goalAdd(args, runtime) {
@@ -159,7 +159,7 @@ export async function goalAdd(args, runtime) {
         target: dayOf('target', requiredFlag(args.flags, 'target')),
         parent: parent === undefined || parent === '' ? null : parent,
     };
-    const cap = { max: gk.config.focus.maxActiveKeyResults, today };
+    const cap = { max: gk.config.priorities.maxActiveKeyResults, today };
     return written(runtime, gk, 'ADDED', await gk.store.add(input, writer, cap));
 }
 /** `goal rank <tag> <n>|none`: the lead ranks a goal, 1 first, or takes it off the ranking. */

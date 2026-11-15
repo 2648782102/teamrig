@@ -14,5 +14,5 @@ export async function teamRanking(runtime, paths, config, tasks) {
         readTaskSpend(runtime, paths, config, now).catch(() => undefined),
     ]);
     const spentOf = (task) => spend?.(task) ?? 0;
-    return treeRanking({ focus: config.focus, ownerSource: config.register.ownerSource, goals, sizing: likeSizing(tasks, config.focus, spentOf, now) });
+    return treeRanking({ focus: config.priorities, ownerSource: config.register.ownerSource, goals, sizing: likeSizing(tasks, config.priorities, spentOf, now) });
 }
