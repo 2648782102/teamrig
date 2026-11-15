@@ -4,7 +4,7 @@ import { EXIT, RefusedError } from '../../src/cli/runtime.ts';
 import { mergeStandingOf, type MergeStanding } from '../../src/cli/ship-approval.ts';
 import { CliHarness } from '../../src/testing/cli-harness.ts';
 import { TempRepo } from '../lib/temp-repo.ts';
-import { changePatch, clearMerge, clearMergeFrom, mergeClearance, type StandingOf, taskOfBranch } from './approval.ts';
+import { changePatch, clearMerge, clearMergeFrom, clearPull, clearPullFrom, mergeClearance, pullClearance, type StandingOf, taskOfBranch } from './approval.ts';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
 
@@ -124,6 +124,60 @@ describe('clearMerge', () => {
       throw new Error('disk gone');
     };
     await assert.rejects(clearMerge(caller, broken, 't1-cli', HEAD, HEAD), /disk gone/);
+  });
+});
+
+describe("pullClearance: a contributor's pull request that changes a guarded path needs a security pass (T3029)", () => {
+  const GUARDED = ['src/push-guard/guard.ts'];
+
+  it('clears an approved head that changes no guarded path, as mergeClearance does', async () => {
+    assert.deepEqual(pullClearance(await approvedBy(HEAD), 'T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+  });
+
+  it('clears a guarded change once the approval names a security pass', async () => {
+    assert.deepEqual(pullClearance(await approvedBy(`${HEAD} PASS root/T3024`), 'T1', HEAD, HEAD, GUARDED), { kind: 'approved', by: 'lead' });
+  });
+
+  it('refuses a guarded change whose approval names no security pass, naming the paths', async () => {
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD), 'T1', HEAD, HEAD, GUARDED)), /changes src\/push-guard\/guard\.ts, which needs a security pass: lead's approval of T1 names none/);
+    assert.match(reasonOf(pullClearance(await approvedBy(`${HEAD} PASS`), 'T1', HEAD, HEAD, GUARDED)), /needs a security pass/, 'a bare PASS names no verdict');
+  });
+
+  it("keeps mergeClearance's refusals and a root team lead's own clearance", async () => {
+    assert.match(reasonOf(pullClearance(await approvedBy('looks good'), 'T1', HEAD, HEAD, GUARDED)), /names no sha of the head/);
+    const kit = new CliHarness();
+    assert.equal((await kit.run(['add', '--title', 'Lead work', '--description', 'what and why', '--priority', 'p1', '--session', 'lead'])).code, EXIT.ok);
+    assert.deepEqual(pullClearance(await standing(kit, 'lead'), 'T1', HEAD, null, GUARDED), { kind: 'self' });
+  });
+});
+
+describe('clearPull', () => {
+  const caller = { session: 'alpha', team: 'app' } as const;
+
+  it('reads the standing of the task it names, then clears it with the guarded paths', async () => {
+    const value = await approvedBy(HEAD);
+    const asked: string[][] = [];
+    const standingOf: StandingOf = async (team, session, taskId) => {
+      asked.push([team, session, taskId]);
+      return value;
+    };
+    assert.deepEqual(await clearPull(caller, standingOf, 'T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+    assert.match(reasonOf(await clearPull(caller, standingOf, 'T1', HEAD, HEAD, ['tools/ship/ship.ts'])), /needs a security pass/);
+    assert.deepEqual(asked, [['app', 'alpha', 'T1'], ['app', 'alpha', 'T1']]);
+  });
+
+  it('refuses a name that is no task id before reading the register', async () => {
+    const standingOf: StandingOf = async () => {
+      throw new Error('never read');
+    };
+    assert.match(reasonOf(await clearPull(caller, standingOf, 't1', HEAD, HEAD, [])), /t1 is not a task id/);
+    assert.match(reasonOf(await clearPull(caller, standingOf, 'T1 ', HEAD, HEAD, [])), /is not a task id/);
+  });
+
+  it('clearPullFrom reads the caller and team from the env', async () => {
+    const kit = await waitingKit(['--note', HEAD]);
+    assert.deepEqual(await clearPullFrom({ TEAMRIG_SESSION: 'alpha', TEAMRIG_TEAM: 'app' }, kit.runtime())('T1', HEAD, HEAD, []), { kind: 'approved', by: 'lead' });
+    assert.match(reasonOf(await clearPullFrom({ TEAMRIG_TEAM: 'app' }, kit.runtime())('T1', HEAD, HEAD, [])), /TEAMRIG_SESSION and TEAMRIG_TEAM/);
   });
 });
 
