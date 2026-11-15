@@ -163,6 +163,14 @@ describe("pullClearance: a contributor's pull request that changes a guarded pat
     assert.match(reasonOf(pullClearance(await approvedBy(`${HEAD} PASS`), 'T1', HEAD, HEAD, GUARDED)), /needs a security pass/, 'a bare PASS names no verdict');
   });
 
+  it('holds the approval to the full head: a head sharing its 7- or 12-hex prefix is refused (T3052 F1)', async () => {
+    const twin = `${HEAD.slice(0, 12)}${'f'.repeat(28)}`;
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD.slice(0, 7)), 'T1', twin, HEAD.slice(0, 7), [])), /--approved 0123456 is not the full head/);
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD.slice(0, 12)), 'T1', twin, HEAD.slice(0, 12), [])), /is not the full head/);
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD.slice(0, 12)), 'T1', HEAD, HEAD, [])), /lead's approval of T1 does not name the full head 0123456789abcdef0123456789abcdef01234567/);
+    assert.match(reasonOf(pullClearance(await approvedBy(HEAD), 'T1', twin, twin, [])), /names no sha of the head|does not name the full head/);
+  });
+
   it("keeps mergeClearance's refusals and a root team lead's own clearance", async () => {
     assert.match(reasonOf(pullClearance(await approvedBy('looks good'), 'T1', HEAD, HEAD, GUARDED)), /names no sha of the head/);
     const kit = new CliHarness();
