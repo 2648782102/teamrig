@@ -219,16 +219,23 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
   fails on the old code), Tests and Issue (`Fixes #<n>` or `Refs #<n>`), then the checklist.
 - **From a fork**: fork the repository, branch off its `main`, and open the pull request against this repository's
   `main`. CI runs it with no secrets and a read-only token, and an outside contributor's run waits for the
-  maintainer to approve it.
+  maintainer to approve it. Leave `plugin.json`, `src/core/version.ts` and the dist alone: CI's version and dist
+  gates let a fork's pull request through without them (a dist it does change must still match the build). The
+  maintainer merges it as you wrote it, rebase-merged so your commits and sign-off stay yours
+  (`node tools/ship/ship.ts merge-pr <dir> <n> --approved <sha> --task T<id>`, `tools/ship/merge-pr.ts`), once CI
+  passed on its head, the head contains `main`, and the maintainer approved that head; a push after the approval
+  needs a new one, and a head behind `main` is rebased by you, or by the maintainer when you allow maintainer edits.
+  Right after the merge, a release pull request of the maintainer's raises the version and rebuilds the dist.
 - **Your commit e-mail**: the `Signed-off-by:` line carries your commit e-mail, and the scrub refuses an e-mail
   address in a commit message unless it is one of GitHub's no-reply addresses. Before your first commit, set the
   no-reply address GitHub shows under Settings, Emails: `git config user.email <id>+<user>@users.noreply.github.com`.
 - **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
-  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub or teamrig's guards
-  (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,
-  `src/package-guard/`, `src/permissions/`) also gets a security review.
+  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub, the ship tools or
+  teamrig's guards (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `tools/ship/`, `src/hooks/`,
+  `src/push-guard/`, `src/secret-guard/`, `src/package-guard/`, `src/permissions/`) also gets a security review;
+  `merge-pr` refuses such a pull request until the approval names a security pass.
 - **Rules on `main`**: `.github/rulesets/` holds the repository's two rulesets for `main`, imported under Settings,
   Rules, Rulesets. `main` lets no one push, force-push or delete it and takes a change only through a pull request,
   rebase-merged once its `every check passed` check passed on the newest `main`; `main review` asks a code owner
