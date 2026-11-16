@@ -14,7 +14,7 @@
     "dist/budget/class-spend.js": "2f35921b4d674aa1ac0fe165f7b21d5293b2e3d2a35ce9bc6a262806b62f3ae4",
     "dist/budget/config-dir.js": "d49a1f7cfb60f2b27947fdf09d9361d0203536b267ea348cc142b0f9e6c2e7df",
     "dist/budget/cursor.js": "f60bbe32929c2e6c13cbac3bf7baacb8e0f139a2a84d8c4314b06f071660bbd5",
-    "dist/budget/cut.js": "14bc9545a8ba64ebc5510ad20b73ee14e0bcd5d10fc654821a43c7b246bc564a",
+    "dist/budget/cut.js": "661cdfbff5855e9209a4c30776a20128ea3b146b22ba038b6c30826aa7b3839b",
     "dist/budget/discover.js": "640ead54202d4b303ad4b847696a0473f5645144340ad6b2019ce31065f9b54c",
     "dist/budget/extra.js": "e318ae2fa21d1fb6218833596fecbfa81da9bfe5eb4fcfd4bbcd1ef2df09fd53",
     "dist/budget/five-hour-forecast.js": "cb443322e256c0c34f339f277e90df356f6e4d2d0654623561e219080f47393d",
