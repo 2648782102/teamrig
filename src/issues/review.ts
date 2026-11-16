@@ -39,13 +39,30 @@ export interface PullReviewHost {
 }
 
 /**
+ * A security pass a caller named: the done task as a line shows it (`T9 (done by security)`), and the text its done
+ * change recorded (note and evidence), which must name the head it passed.
+ */
+export interface SecurityPass {
+  readonly shown: string;
+  readonly record: string;
+}
+
+/**
  * What an approval must clear: the merge review gate's entries (teamrig's generic ones and `pushGuard.reviewPaths`,
  * push-guard/review-paths.ts), so GitHub's approval holds the same paths a merge does, and the security pass when
- * one is named: the done task the caller checked, as a line shows it.
+ * one is named: the done task the caller checked.
  */
 export interface ReviewGate {
   readonly entries: readonly ReviewPath[];
-  readonly verdict?: string;
+  readonly verdict?: SecurityPass;
+}
+
+/**
+ * Whether `record` names `head` (a full lowercase commit id) as a word of its own, so a pass recorded for another
+ * head, or another change altogether, passes nothing: the merge review gate also binds its pass to one base..head.
+ */
+export function namesHead(record: string, head: string): boolean {
+  return new RegExp(`(?<![0-9a-f])${head}(?![0-9a-f])`, 'u').test(record.toLowerCase());
 }
 
 /**
@@ -102,7 +119,7 @@ export async function reviewPull(host: PullReviewHost, draft: ReviewDraft, gate:
   if (viewer.login.toLowerCase() === pull.author.toLowerCase()) {
     return refused(`it is ${viewer.login}'s own pull request, the account the access acts as: another reviewer reviews it`);
   }
-  const gated = draft.verdict === 'approve' ? await gatedChange(host, draft.target, gate) : { kind: 'clear' as const };
+  const gated = draft.verdict === 'approve' ? await gatedChange(host, draft, gate) : { kind: 'clear' as const };
   if (gated.kind === 'refused') {
     return refused(gated.reason);
   }
@@ -117,12 +134,15 @@ export async function reviewPull(host: PullReviewHost, draft: ReviewDraft, gate:
 
 type GateEnd = { readonly kind: 'clear' } | { readonly kind: 'passed'; readonly verdict: string } | { readonly kind: 'refused'; readonly reason: string };
 
-/** Whether an approval of the pull request clears the gate: it changes no gated path, or the security pass is named. */
-async function gatedChange(host: PullReviewHost, target: IssueTarget, gate: ReviewGate): Promise<GateEnd> {
+/**
+ * Whether an approval of the pull request clears the gate: it changes no gated path, or the security pass is named
+ * and its record names the very head the review is bound to.
+ */
+async function gatedChange(host: PullReviewHost, draft: ReviewDraft, gate: ReviewGate): Promise<GateEnd> {
   if (!gate.entries.some((entry) => entry.class === 'security')) {
     return { kind: 'clear' };
   }
-  const changed = await host.changedPaths(target);
+  const changed = await host.changedPaths(draft.target);
   if (changed.kind === 'failed') {
     return { kind: 'refused', reason: changed.reason };
   }
@@ -130,12 +150,16 @@ async function gatedChange(host: PullReviewHost, target: IssueTarget, gate: Revi
   if (touched.length === 0) {
     return { kind: 'clear' };
   }
-  if (gate.verdict !== undefined) {
-    return { kind: 'passed', verdict: gate.verdict };
-  }
   const more = touched.length > SHOWN_PATHS ? ` and ${touched.length - SHOWN_PATHS} more` : '';
-  return {
-    kind: 'refused',
-    reason: `it changes ${touched.slice(0, SHOWN_PATHS).join(', ')}${more}, under the review gate's security paths: approve it only with --verdict naming the security reviewer's done task`,
-  };
+  const what = `it changes ${touched.slice(0, SHOWN_PATHS).join(', ')}${more}, under the review gate's security paths`;
+  if (gate.verdict === undefined) {
+    return { kind: 'refused', reason: `${what}: approve it only with --verdict naming the security reviewer's done task` };
+  }
+  if (!namesHead(gate.verdict.record, draft.head)) {
+    return {
+      kind: 'refused',
+      reason: `${what}, and ${gate.verdict.shown} names no pass of its head ${draft.head}: the pass's done note or evidence names the full head it passed, so pass this head first`,
+    };
+  }
+  return { kind: 'passed', verdict: gate.verdict.shown };
 }

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { gatedPathsIn, reviewPull, type ReviewDraft, type ReviewGate } from './review.ts';
+import { gatedPathsIn, namesHead, reviewPull, type ReviewDraft, type ReviewGate } from './review.ts';
 import { FAKE_HEAD, FakeReviewHost } from '../testing/fake-review-host.ts';
 import type { IssueTarget } from './host.ts';
 import type { ReviewPath } from '../config/types.ts';
@@ -95,11 +95,36 @@ describe('reviewPull', () => {
     );
   });
 
-  it('approves a gated change once the security pass is named, and says which', async () => {
+  it('approves a gated change once the security pass of its head is named, and says which', async () => {
     const host = new FakeReviewHost().holds(PULL, {}, ['tools/ship/ship.ts']);
-    const { posted, lines } = await run(host, APPROVE, { ...GUARDED, verdict: 'T9 (done by security)' });
+    const verdict = { shown: 'T9 (done by security)', record: `PASS at head ${FAKE_HEAD.toUpperCase()}\nverdict.md` };
+    const { posted, lines } = await run(host, APPROVE, { ...GUARDED, verdict });
     assert.equal(posted, true);
     assert.equal(lines.at(-1), `REVIEWED acme/web#12: approved at ${FAKE_HEAD.slice(0, 9)}, its gated paths passed by T9 (done by security)`);
+  });
+
+  it('refuses a gated change whose named pass records another head, a short one, the head inside a longer id, or none (T3261 D1)', async () => {
+    for (const record of [`PASS at head ${'b'.repeat(40)}`, `PASS at ${FAKE_HEAD.slice(0, 9)}`, `digest ${FAKE_HEAD}0123`, 'Rotated the push key']) {
+      const host = new FakeReviewHost().holds(PULL, {}, ['tools/ship/ship.ts']);
+      const { posted, lines } = await run(host, APPROVE, { ...GUARDED, verdict: { shown: 'T9 (done by security)', record } });
+      assert.equal(posted, false, record);
+      assert.deepEqual(host.reviews, [], record);
+      assert.equal(
+        lines.at(-1),
+        `FAILED acme/web#12: it changes tools/ship/ship.ts, under the review gate's security paths, and T9 (done by security) names no pass of its head ${FAKE_HEAD}: the pass's done note or evidence names the full head it passed, so pass this head first; no review was posted`,
+        record,
+      );
+    }
+  });
+
+  it('reads a head in a record as a whole word, in any case', () => {
+    const head = 'c'.repeat(40);
+    assert.equal(namesHead(`verdict at ${head.toUpperCase()}.`, head), true);
+    assert.equal(namesHead(`(${head})`, head), true);
+    assert.equal(namesHead(`x${head}`, head), true, 'x is no hex digit');
+    assert.equal(namesHead(`a${head}`, head), false);
+    assert.equal(namesHead(`${head}9`, head), false);
+    assert.equal(namesHead('', head), false);
   });
 
   it('approves with security entries set when the change touches none of them, with no pass named', async () => {

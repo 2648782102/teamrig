@@ -32,13 +32,13 @@ function posted(gh: ScriptedGh): number {
   return gh.ran.filter((request) => request.args.includes('POST')).length;
 }
 
-/** A team whose T1, owned by `owner`, is set to `status` by that owner. */
-async function teamWithTask(owner: string, status: 'done' | 'in-progress', config: JsonRecord = GITHUB_TEAM): Promise<CliHarness> {
+/** A team whose T1, owned by `owner`, is set to `status` by that owner; done, with `evidence`. */
+async function teamWithTask(owner: string, status: 'done' | 'in-progress', config: JsonRecord = GITHUB_TEAM, evidence = `PASS at head ${HEAD}`): Promise<CliHarness> {
   const kit = new CliHarness(config);
   const steps = [['add', '--owner', owner, '--title', 'Security pass of the change', '--description', 'what and why', '--priority', 'p1']];
   steps.push(
     status === 'done'
-      ? ['set', 'T1', '--status', 'done', '--note', 'passed', '--evidence', 'abc1234', '--skill', 'none', '--followups', 'none', '--session', owner]
+      ? ['set', 'T1', '--status', 'done', '--note', 'passed', '--evidence', evidence, '--skill', 'none', '--followups', 'none', '--session', owner]
       : ['set', 'T1', '--status', 'in-progress', '--session', owner],
   );
   for (const argv of steps) {
@@ -125,6 +125,17 @@ describe('teamrig pr review', () => {
     assert.equal(result.code, EXIT.ok, printed(result));
     assert.deepEqual(result.stdout, [ACCESS, 'REVIEWED acme/web#7: approved at aaaaaaaaa, its gated paths passed by T1 (done by bravo)']);
     assert.equal(posted(passed), 1);
+  });
+
+  it("posts nothing when the named pass is the security reviewer's done task for another head or another change (T3261 D1)", async () => {
+    for (const evidence of [`PASS at head ${'b'.repeat(40)}`, 'Rotated the push key']) {
+      const kit = await teamWithTask('bravo', 'done', GITHUB_TEAM, evidence);
+      const gh = github(['.github/workflows/ci.yml']);
+      const result = await kit.run(['pr', 'review', 'acme/web#7', '--approve', '--head', HEAD, '--verdict', 'T1'], { ...AS_LEAD, gh });
+      assert.equal(result.code, EXIT.failed, evidence);
+      assert.match(printed(result), new RegExp(`T1 \\(done by bravo\\) names no pass of its head ${HEAD}: the pass's done note or evidence names the full head it passed`, 'u'), evidence);
+      assert.equal(posted(gh), 0, evidence);
+    }
   });
 
   it("refuses, running no gh, a pass that is no task, not the security reviewer's, or not done, and one on a team with no reviewer", async () => {

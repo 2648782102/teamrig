@@ -1,7 +1,7 @@
 import type { SessionAddress } from '../../core/address.ts';
 import { roleHolderOf } from '../../config/roster.ts';
 import { COMMIT_ID } from '../../github/gh.ts';
-import { reviewPull, type ReviewDraft, type ReviewVerdict } from '../../issues/review.ts';
+import { reviewPull, type ReviewDraft, type ReviewVerdict, type SecurityPass } from '../../issues/review.ts';
 import { GENERIC_REVIEW_PATHS } from '../../push-guard/review-paths.ts';
 import type { Task } from '../../register/fold.ts';
 import { requiredFlag, type ParsedArgs } from '../args.ts';
@@ -66,7 +66,7 @@ function headOf(text: string): string {
 }
 
 /** The security pass `--verdict` names, read from the caller's register and the team tree's others. */
-async function securityPassFor(runtime: CliRuntime, id: string): Promise<string> {
+async function securityPassFor(runtime: CliRuntime, id: string): Promise<SecurityPass> {
   const team = await openTeam(runtime, 'read');
   const [snapshot, elsewhere] = await Promise.all([team.register.snapshot(), team.register.elsewhere()]);
   const own = snapshot.state.tasks.get(id);
@@ -75,10 +75,11 @@ async function securityPassFor(runtime: CliRuntime, id: string): Promise<string>
 }
 
 /**
- * The line naming the security pass of `id` (`T9 (done by security)`), once it is a done task the team's security
- * reviewer (roles.securityReviewer) owns; refused otherwise, as an approval of a gated change rests on that pass.
+ * The security pass of `id`, shown as `T9 (done by security)` with the note and evidence its done change recorded
+ * (issues/review.ts checks they name the head), once it is a done task the team's security reviewer
+ * (roles.securityReviewer) owns; refused otherwise, as an approval of a gated change rests on that pass.
  */
-export function securityPassOf(id: string, found: { readonly team: string; readonly task: Task } | undefined, reviewer: SessionAddress | undefined, ownTeam: string): string {
+export function securityPassOf(id: string, found: { readonly team: string; readonly task: Task } | undefined, reviewer: SessionAddress | undefined, ownTeam: string): SecurityPass {
   if (!TASK_ID.test(id)) {
     throw new RefusedError(`--verdict takes the security reviewer's done task, such as T12, not ${JSON.stringify(id)}`);
   }
@@ -95,5 +96,5 @@ export function securityPassOf(id: string, found: { readonly team: string; reado
   if (found.task.status !== 'done') {
     throw new RefusedError(`--verdict ${id} is ${found.task.status}, not done: approve once ${shown} has passed the change`);
   }
-  return `${id} (done by ${shown})`;
+  return { shown: `${id} (done by ${shown})`, record: [found.task.note, found.task.evidence].filter((text) => text !== null).join('\n') };
 }
