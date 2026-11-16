@@ -4,7 +4,7 @@ import { errorCode, errorMessage, isNonNegativeInteger, isRecord, stringField, t
 import { parseObject } from '../core/jsonl.ts';
 import { UTF8_OUTPUT } from '../core/powershell.ts';
 import { sweepTree, windowsSweepHost, type SweepHost } from '../delivery/tree-kill.ts';
-import { nodeProgramRunner, type ProgramRunner } from '../github/credentials.ts';
+import { nodeProgramRunner, type ProgramResult, type ProgramRunner } from '../github/credentials.ts';
 import { exitText, outcomeOfError } from './processes.ts';
 
 /** One running process as the system describes it. */
@@ -66,6 +66,8 @@ export interface SessionProcesses {
    * through that stub when exactly one is listed.
    */
   lineage(pid: number): Promise<readonly ProcessInfo[] | undefined>;
+  /** `lineage`, or why the system would not tell, so a caller that logs the failure can say why (`LineageLookup`). */
+  lineageLookup(pid: number): Promise<LineageLookup>;
   /**
    * Ends `pid`. On Windows, where a console program cannot be asked to close, it and every process it started end
    * at once through the start-checked sweep (`sweepTree`): a process whose starter has ended is no longer in that
@@ -75,6 +77,20 @@ export interface SessionProcesses {
   end(pid: number, how: EndHow): Promise<EndOutcome>;
   /** Runs a program with `input` on stdin until it exits, for at most a time limit. */
   feed(request: FeedRequest): Promise<FeedOutcome>;
+}
+
+/**
+ * A lineage, or why the listing failed: its program timed out, exited non-zero, gave output that cannot be read
+ * (with stderr's first line) or could not start.
+ */
+export type LineageLookup = { readonly kind: 'listed'; readonly lineage: readonly ProcessInfo[] } | { readonly kind: 'failed'; readonly why: string };
+
+/** Why a listing `program` ran gave nothing: Node ends a run at its time limit with SIGTERM, so that end reads as a timeout. */
+export function listingFailureOf(program: string, result: ProgramResult, timeoutMs: number): string {
+  if (result.end.kind === 'signal') {
+    return result.end.signal === 'SIGTERM' ? `${program} timed out after ${timeoutMs} ms` : `${program} was ended by ${result.end.signal}`;
+  }
+  return `${program} ${exitText(result.end.code, result.stderr)}`;
 }
 
 /** Whether `pid` still runs Claude Code: a pid the system gave another program since does not count. */
@@ -325,6 +341,36 @@ function feedProgram(request: FeedRequest, timeoutMs: number): Promise<FeedOutco
   });
 }
 
+/** `pid`'s lineage from one listing of every process (`SessionProcesses.lineage`), or why the listing failed. */
+async function lookUpLineage(run: ProgramRunner, platform: NodeJS.Platform, pid: number): Promise<LineageLookup> {
+  if (!isPid(pid)) {
+    return { kind: 'failed', why: `${pid} is not a process id` };
+  }
+  const program = platform === 'win32' ? 'powershell.exe' : 'ps';
+  try {
+    if (platform === 'win32') {
+      const result = await run({ program, args: windowsListing() });
+      if (result.end.kind !== 'exited' || result.end.code !== 0) {
+        return { kind: 'failed', why: listingFailureOf(program, result, LOOKUP_TIMEOUT_MS) };
+      }
+      const listed = parseWindowsListing(result.stdout);
+      return listed === undefined ? { kind: 'failed', why: `${program} gave no listing it could read: ${firstLineOf(result.stderr)}` } : { kind: 'listed', lineage: lineageOf(pid, listed) };
+    }
+    // A process whose starter ends is adopted (its parent id changes), so no id in this listing is an ended starter's.
+    const result = await run({ program, args: POSIX_LISTING });
+    return result.end.kind === 'exited' && result.end.code === 0
+      ? { kind: 'listed', lineage: lineageOf(pid, parsePosixListing(result.stdout).map((info) => ({ info }))) }
+      : { kind: 'failed', why: listingFailureOf(program, result, LOOKUP_TIMEOUT_MS) };
+  } catch (error) {
+    return { kind: 'failed', why: `${program} could not start: ${errorMessage(error)}` };
+  }
+}
+
+/** A program's error text, its first line with text; a note when it wrote none. */
+function firstLineOf(text: string): string {
+  return text.split(/\r?\n/).find((line) => line.trim() !== '')?.trim() ?? 'it wrote no error';
+}
+
 /** The real processes of this machine. */
 export function nodeSessionProcesses(options: SessionProcessesOptions = {}): SessionProcesses {
   const platform = options.platform ?? process.platform;
@@ -379,21 +425,11 @@ export function nodeSessionProcesses(options: SessionProcessesOptions = {}): Ses
       }
     },
     async lineage(pid) {
-      if (!isPid(pid)) {
-        return undefined;
-      }
-      try {
-        if (platform === 'win32') {
-          const result = await run({ program: 'powershell.exe', args: windowsListing() });
-          const listed = result.end.kind === 'exited' && result.end.code === 0 ? parseWindowsListing(result.stdout) : undefined;
-          return listed === undefined ? undefined : lineageOf(pid, listed);
-        }
-        // A process whose starter ends is adopted (its parent id changes), so no id in this listing is an ended starter's.
-        const result = await run({ program: 'ps', args: POSIX_LISTING });
-        return result.end.kind === 'exited' && result.end.code === 0 ? lineageOf(pid, parsePosixListing(result.stdout).map((info) => ({ info }))) : undefined;
-      } catch {
-        return undefined;
-      }
+      const looked = await lookUpLineage(run, platform, pid);
+      return looked.kind === 'listed' ? looked.lineage : undefined;
+    },
+    lineageLookup(pid) {
+      return lookUpLineage(run, platform, pid);
     },
     async end(pid, how) {
       if (!isPid(pid)) {

@@ -1,4 +1,4 @@
-import type { EndHow, EndOutcome, FeedOutcome, FeedRequest, ProcessInfo, SessionProcesses } from '../open/session-processes.ts';
+import type { EndHow, EndOutcome, FeedOutcome, FeedRequest, LineageLookup, ProcessInfo, SessionProcesses } from '../open/session-processes.ts';
 
 /**
  * A process table in memory: only the processes added run, ending one also ends every process it started
@@ -17,7 +17,8 @@ export class FakeSessionProcesses implements SessionProcesses {
   private readonly lingering = new Set<number>();
   private readonly feedOutcomes = new Map<string, FeedOutcome>();
   private childrenHidden = false;
-  private lineageHidden = false;
+  /** Why the system will not list a process's starters; undefined while it does. */
+  private lineageFailure: string | undefined;
   private failingLookups = 0;
   /** Called after each end that ended something, as the operating system would tell a waiting parent. */
   private onEnded: (pid: number) => void = () => undefined;
@@ -56,9 +57,9 @@ export class FakeSessionProcesses implements SessionProcesses {
     return this;
   }
 
-  /** From now on the system will not list a process's starters. */
-  hideLineage(): this {
-    this.lineageHidden = true;
+  /** From now on the system will not list a process's starters, for `why` (a lookup that timed out by default). */
+  hideLineage(why: string = 'ps timed out after 20000 ms'): this {
+    this.lineageFailure = why;
     return this;
   }
 
@@ -98,15 +99,20 @@ export class FakeSessionProcesses implements SessionProcesses {
   }
 
   async lineage(pid: number): Promise<readonly ProcessInfo[] | undefined> {
+    const looked = await this.lineageLookup(pid);
+    return looked.kind === 'listed' ? looked.lineage : undefined;
+  }
+
+  async lineageLookup(pid: number): Promise<LineageLookup> {
     this.lineages.push(pid);
-    if (this.lineageHidden) {
-      return undefined;
+    if (this.lineageFailure !== undefined) {
+      return { kind: 'failed', why: this.lineageFailure };
     }
     const chain: ProcessInfo[] = [];
     for (let info = this.running.get(pid); info !== undefined && !chain.includes(info); info = this.running.get(info.parentPid)) {
       chain.push(info);
     }
-    return chain;
+    return { kind: 'listed', lineage: chain };
   }
 
   async end(pid: number, how: EndHow): Promise<EndOutcome> {
