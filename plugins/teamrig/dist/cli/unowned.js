@@ -21,6 +21,11 @@ import { formatIdlePassTrouble } from "./idle-pass-log.js";
  */
 /** The most of a warning's text its inbox line carries; `check --all` prints it in full. */
 export const UNOWNED_NOTICE_CHARS = 300;
+/**
+ * The budgets that total many files: every CLAUDE.md, every skill folder. A task names one of those files for its own
+ * reasons ("add a rule to CLAUDE.md", any task about one skill), so only the config key covers such a warning (#814).
+ */
+const TOTAL_BUDGETS = new Set(['maxClaudeMdChars', 'maxSkillListingChars']);
 function findingWarning(finding) {
     const text = formatFinding(finding);
     switch (finding.kind) {
@@ -33,7 +38,7 @@ function findingWarning(finding) {
                 key: `context ${finding.budget}`,
                 source: `the context check [contextFiles.${finding.budget}]`,
                 text,
-                names: [`contextFiles.${finding.budget}`, ...(finding.paths ?? [])],
+                names: [`contextFiles.${finding.budget}`, ...(TOTAL_BUDGETS.has(finding.budget) ? [] : (finding.paths ?? []))],
             };
     }
 }

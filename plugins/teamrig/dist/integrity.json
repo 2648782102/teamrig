@@ -263,7 +263,7 @@
     "dist/cli/tree-tasks.js": "2d2ef7dce29b892da9b785a99eb0d510d91e245cc096862fb10eb563051dc417",
     "dist/cli/tree.js": "16bf1b21ff3ac6dce932485bd0f0ad84f41d0f5ac9e77d53b0ed0038b022eb11",
     "dist/cli/unowned-notices.js": "72f4a0d334e763b544109da2668aab446c80d3866d1acd81ac093f9ce499b4c6",
-    "dist/cli/unowned.js": "51b477ffb21ec8560ea0466fae602b2be7849d603c6fa66872b5e8e019469a65",
+    "dist/cli/unowned.js": "e43351d0142d36921a7de1f2c5259fcd35f304c97e1816430f82ca54880fe4b6",
     "dist/cli/urgent-line.js": "bdbc20d51a2ab0b5401c48e326b9dd5d54d7dce5868c62304e396dd64fb80875",
     "dist/cli/wake-opened.js": "0574a5b013139d88e7ca2924ed79ad336b8ca1c275e04e561ee494e78ce610c2",
     "dist/config/config-lock.js": "158582e4062053f24ae710077dfa1cd9fc67412f0ecae43b4bc978c7082a6c99",
