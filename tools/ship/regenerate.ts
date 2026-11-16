@@ -121,7 +121,8 @@ export function regenerate(deps: RegenerateDeps, regeneration: Regeneration, pla
     for (const file of regeneration.versionFiles) deps.writeText(file.path, withVersion(deps.readText(file.path), file, to));
     git('add', '--', ...regeneration.versionFiles.map((file) => file.path));
     git('commit', '-q', '-s', '-m', raise.message.replace(versionMention(formatVersion(raise.set), 'g'), formatVersion(to)));
-    done.push(`raised the version ${formatVersion(raise.set)} again as ${formatVersion(to)}`);
+    const [planned, made] = [formatVersion(raise.set), formatVersion(to)];
+    done.push(planned === made ? `raised the version to ${made}` : `raised the version ${planned} again as ${made}`);
   }
   if (plan.rebuild) {
     deps.build();

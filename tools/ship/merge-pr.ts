@@ -7,17 +7,21 @@ import type { Gh } from './github.ts';
 import { booleanAt, isRecord, recordAt, recordOf, stringAt } from './json.ts';
 import { isRegenerated } from './leftovers.ts';
 import { MERGE_ATTEMPTS, type MainBranch, type MergeDeps, type RepoFiles, mainBranchOf, mergeProvenPull, mergeRun, proofFor, realMergeDeps, realRepoFiles } from './merge.ts';
+import { type Cut, releaseFrom, replayPull } from './pull-replay.ts';
 import { type PullRequest, parsePull } from './pulls.ts';
 import { pushOwnBranch } from './push.ts';
 import { type Regeneration, type ReplayPlan, listedPaths, regenerate, regenerationFor } from './regenerate.ts';
 import { type RepoProfile, profileFor, slugOf } from './repos.ts';
 import { TRAILER } from './ship-commits.ts';
 import { describeCredential } from './token-check.ts';
-import { type BumpKind, bumped, compareVersions, formatVersion, versionIn } from './version-bump.ts';
+import { type BumpKind, compareVersions, versionIn } from './version-bump.ts';
 
 /**
  * `ship.ts merge-pr`: merges a contributor's pull request as it is (the T3021 design, section 5), then cuts and merges
- * the release pull request that raises the plugin version and rebuilds the dist for it. A fork's pull request leaves
+ * the release pull request that raises the plugin version and rebuilds the dist for it. A pull request that changes
+ * the version files or the dist, or that main moved past, lands its work replayed on main instead, without those
+ * files, in one pull request with the raise and the dist (pull-replay.ts, T3341), so its author never pushes again
+ * for a release. A fork's pull request leaves
  * both alone (the CI gates let it, tools/ci/github-range.ts `forkOfPull`), so the commits that land are the
  * contributor's own, authorship and sign-off kept by the rebase merge.
  *
@@ -157,53 +161,89 @@ export function releaseOf(git: MergeDeps['git'], regeneration: Regeneration, bas
 }
 
 /** The plan regenerate.ts makes the release by on `tip`: the raise when there is one, and always the dist. */
-export function releasePlan(git: MergeDeps['git'], regeneration: Regeneration, release: Release, pull: number, tip: string): ReplayPlan {
-  const [first] = regeneration.versionFiles;
-  if (release.raise === null || first === undefined) return { work: [], raise: null, rebuild: true };
-  const set = bumped(versionIn(git('show', `${tip}:${first.path}`), first), release.raise);
-  const message = `plugin: version ${formatVersion(set)}, the release of #${pull}\n\nThe pull request #${pull} merged as its author wrote it; this raises the version so installs receive it.\n\n${TRAILER}`;
-  return { work: [], raise: { kind: release.raise, set, message }, rebuild: true };
-}
+export const releasePlan = (git: MergeDeps['git'], regeneration: Regeneration, release: Release, pull: number, tip: string): ReplayPlan =>
+  releaseFrom(
+    git,
+    regeneration,
+    release.raise,
+    tip,
+    (version) => `plugin: version ${version}, the release of #${pull}\n\nThe pull request #${pull} merged as its author wrote it; this raises the version so installs receive it.\n\n${TRAILER}`,
+  );
 
 /** A branch name free here and on origin: `stem` itself, else the first `<stem>-N`. */
 function branchFor(git: MergeDeps['git'], stem: string): string {
   return git('branch', '--list', stem) === '' && git('ls-remote', '--heads', 'origin', `refs/heads/${stem}`) === '' ? stem : freeBranch(git, stem);
 }
 
-/**
- * Cuts the release of `pull` from main's tip as a new branch in the repo dir, pushes it and merges it on a gate that
- * clears only that head; main moving past it cuts a new one, MERGE_ATTEMPTS in all. The exit code.
- */
-export async function releaseAfter(args: MergePrArgs, deps: MergePrDeps, profile: RepoProfile, regeneration: Regeneration, release: Release): Promise<number> {
+/** What lands on a branch cut from main: the release after an as-is merge, or the replayed work of the pull request. */
+export interface Landing {
+  /** Names it in the log: `release`, `replay`. */
+  readonly what: string;
+  /** The stem its branch is named from, numbered when taken. */
+  readonly stem: string;
+  /** Makes it on the new branch checked out at `tip`. */
+  readonly cut: (tip: string) => Cut;
+}
+
+/** The release of `pull` on its branch: the raise and the dist, refused when the build changes anything else. */
+function releaseCut(args: MergePrArgs, deps: MergePrDeps, regeneration: Regeneration, release: Release): Landing {
   const { git } = deps;
-  const listed = listedPaths(regeneration);
+  return {
+    what: 'release',
+    stem: `${args.task.toLowerCase()}-release-pr${args.pull}`,
+    cut: (tip) => {
+      const done = regenerate({ git, log: deps.out, ...deps.files }, regeneration, releasePlan(git, regeneration, release, args.pull, tip), tip);
+      const changed = lines(git('diff', '--name-only', '--no-renames', tip, 'HEAD'));
+      if (changed.length === 0) return { kind: 'nothing', line: `RELEASED nothing: #${args.pull} leaves the version and the dist as they are` };
+      const stray = changed.filter((path) => !isRegenerated(path, listedPaths(regeneration)));
+      if (stray.length > 0) return { kind: 'refused', reason: `it changes ${stray.join(', ')}, beyond the version and the dist: nothing was pushed` };
+      return { kind: 'cut', done };
+    },
+  };
+}
+
+/** The work of `pull` replayed on its branch without its version and dist, then the raise and the dist (pull-replay.ts). */
+function replayCut(args: MergePrArgs, deps: MergePrDeps, regeneration: Regeneration, sha: string): Landing {
+  return {
+    what: 'replay',
+    stem: `${args.task.toLowerCase()}-pr${args.pull}`,
+    cut: (tip) => replayPull({ git: deps.git, log: deps.out, ...deps.files }, regeneration, { pull: args.pull, sha, tip, raise: args.raise }),
+  };
+}
+
+/**
+ * Cuts `landing` from main's tip as a new branch in the repo dir, pushes it and merges it on a gate that clears only
+ * that head; main moving past it cuts a new one, MERGE_ATTEMPTS in all. A cut that is refused or holds nothing is
+ * dropped with the repo dir back on main's tip. The exit code.
+ */
+export async function landAfter(args: MergePrArgs, deps: MergePrDeps, profile: RepoProfile, regeneration: Regeneration, landing: Landing): Promise<number> {
+  const { git } = deps;
   for (let attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
     const tip = mainBranchOf(git, profile.main).tip();
-    const branch = branchFor(git, `${args.task.toLowerCase()}-release-pr${args.pull}`);
+    const branch = branchFor(git, landing.stem);
     git('switch', '--quiet', '--create', branch, tip);
-    deps.out(`release of #${args.pull} on ${branch} from ${profile.main} ${tip.slice(0, 7)}: ${regenerate({ git, log: deps.out, ...deps.files }, regeneration, releasePlan(git, regeneration, release, args.pull, tip), tip)}`);
-    const changed = lines(git('diff', '--name-only', '--no-renames', tip, 'HEAD'));
-    if (changed.length === 0) {
-      git('switch', '--quiet', '--detach', tip);
-      git('branch', '--quiet', '--delete', branch);
-      deps.out(`RELEASED nothing: #${args.pull} leaves the version and the dist as they are`);
-      return 0;
+    const cut = landing.cut(tip);
+    if (cut.kind !== 'cut') {
+      // A failed build may leave new files in the dist, which are this branch's own until it is dropped.
+      git('clean', '-fdq', '--', regeneration.dist);
+      git('switch', '--quiet', '--discard-changes', '--detach', tip);
+      git('branch', '--quiet', '--delete', '--force', branch);
+      if (cut.kind === 'nothing') {
+        deps.out(cut.line);
+        return 0;
+      }
+      return refusedWith(deps, `the ${landing.what} of #${args.pull} on ${branch}: ${cut.reason}`);
     }
-    const stray = changed.filter((path) => !isRegenerated(path, listed));
-    if (stray.length > 0) {
-      deps.err(`REFUSED the release ${branch} changes ${stray.join(', ')}, beyond the version and the dist: nothing was pushed`);
-      return 1;
-    }
+    deps.out(`${landing.what} of #${args.pull} on ${branch} from ${profile.main} ${tip.slice(0, 7)}: ${cut.done}`);
     pushOwnBranch(git, profile.main);
     const sha = git('rev-parse', 'HEAD');
     const exit = await mergeRun({ dir: args.dir, head: branch, timeoutMin: args.timeoutMin, intervalS: args.intervalS, noteFile: null, approved: null }, deps, async (head, at) =>
-      head === branch && at === sha ? null : `${head} ${at.slice(0, 9)} is not the release ${branch} ${sha.slice(0, 9)} this merge cut`,
+      head === branch && at === sha ? null : `${head} ${at.slice(0, 9)} is not the ${landing.what} ${branch} ${sha.slice(0, 9)} this merge cut`,
     );
     if (exit.kind === 'done') return exit.code;
-    deps.out(`the release ${branch} fell behind: ${exit.reason}; cutting it again`);
+    deps.out(`the ${landing.what} ${branch} fell behind: ${exit.reason}; cutting it again`);
   }
-  deps.err(`REFUSED main moved past ${MERGE_ATTEMPTS} releases of #${args.pull}: run merge-pr's release again once main is quiet`);
-  return 1;
+  return refusedWith(deps, `main moved past ${MERGE_ATTEMPTS} cuts of the ${landing.what} of #${args.pull}: run merge-pr again once main is quiet`);
 }
 
 const refusedWith = (deps: MergePrDeps, reason: string): number => {
@@ -250,11 +290,21 @@ export async function runMergePr(args: MergePrArgs, deps: MergePrDeps): Promise<
   if (pull.state !== 'open') return refusedWith(deps, `#${args.pull} is ${pull.merged ? 'merged' : pull.state} already`);
   if (pull.baseRef !== profile.main) return refusedWith(deps, `#${args.pull} goes into ${pull.baseRef}, not ${profile.main}`);
   if (pull.headSha !== sha) return refusedWith(deps, `#${args.pull}'s head moved to ${pull.headSha.slice(0, 9)} while it was read: the lead approves the new head`);
-  if (!main.contains(sha, tip)) return refusedWith(deps, behindReason(pull, profile.main, tip));
-  const release = regeneration === null ? null : releaseOf(git, regeneration, tip, sha, changed, args.raise);
-
   // The title is the contributor's text, so it never reaches the merging session's output (T3052 N1).
   deps.out(`#${args.pull} ${pull.url} from ${pull.headRepo ?? 'a deleted fork'}`);
+  const behind = !main.contains(sha, tip);
+  const regenerated = regeneration === null ? [] : changed.filter((path) => isRegenerated(path, listedPaths(regeneration)));
+  if (regeneration !== null && (behind || regenerated.length > 0)) {
+    // Merged as it is, its version and dist would land over main's, and its author would push again for every release.
+    const why = `${behind ? `does not contain ${profile.main} ${tip.slice(0, 7)}` : 'is up to date'}${regenerated.length > 0 ? ` and changes ${regenerated.length} version or dist file(s)` : ''}`;
+    deps.out(`#${args.pull} ${why}: its work is replayed on ${profile.main} without its version and dist`);
+    const landed = await landAfter(args, deps, profile, regeneration, replayCut(args, deps, regeneration, sha));
+    if (landed === 0) deps.out(`LANDED the work of #${args.pull}: close #${args.pull} with credit to its author, naming its commits on ${profile.main}`);
+    return landed;
+  }
+  if (behind) return refusedWith(deps, behindReason(pull, profile.main, tip));
+  const release = regeneration === null ? null : releaseOf(git, regeneration, tip, sha, changed, args.raise);
+
   const result = await mergeProvenPull(
     { repo, head: `#${args.pull}`, base: profile.main, sha, title: pull.title, body: '' },
     gh,
@@ -268,7 +318,7 @@ export async function runMergePr(args: MergePrArgs, deps: MergePrDeps): Promise<
   deps.out(`MERGED #${args.pull} into ${profile.main}, now at ${result.sha.slice(0, 7)}`);
   if (result.kind === 'drifted') deps.err(`DRIFTED ${result.reason}`);
   // A drifted merge landed too, so its release goes ahead.
-  const released = regeneration === null || release === null ? 0 : await releaseAfter(args, deps, profile, regeneration, release);
+  const released = regeneration === null || release === null ? 0 : await landAfter(args, deps, profile, regeneration, releaseCut(args, deps, regeneration, release));
   return result.kind === 'drifted' ? 1 : released;
 }
 
