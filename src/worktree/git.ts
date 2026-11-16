@@ -1,4 +1,4 @@
-import { outcome, query, queryLine, runGit, type GitOutcome } from '../core/git-run.ts';
+import { outcome, query, queryLine, QUERY_TIMEOUT_MS, runGit, type GitOutcome } from '../core/git-run.ts';
 
 export type { GitOutcome };
 
@@ -101,13 +101,13 @@ export function parseStatus(text: string): string[] {
 }
 
 /** How many commits of `ref` (a full ref name, or `HEAD`) have no equal change on `base`; undefined when git cannot tell. */
-function refCommitsNotOn(dir: string, ref: string, base: string): number | undefined {
+function refCommitsNotOn(dir: string, ref: string, base: string, queryMs: number): number | undefined {
   // Both must name a commit; the caller refuses a base that starts with `-`, which git would read as an option.
-  if (queryLine(dir, ['rev-parse', '--verify', '-q', `${ref}^{commit}`]) === undefined || queryLine(dir, ['rev-parse', '--verify', '-q', `${base}^{commit}`]) === undefined) {
+  if (queryLine(dir, ['rev-parse', '--verify', '-q', `${ref}^{commit}`], queryMs) === undefined || queryLine(dir, ['rev-parse', '--verify', '-q', `${base}^{commit}`], queryMs) === undefined) {
     return undefined;
   }
   // Exit 0: base holds the tip; 1: it does not; anything else: git could not tell.
-  const ancestor = runGit(dir, ['merge-base', '--is-ancestor', ref, base]).status;
+  const ancestor = runGit(dir, ['merge-base', '--is-ancestor', ref, base], queryMs).status;
   if (ancestor === 0) {
     return 0;
   }
@@ -115,43 +115,52 @@ function refCommitsNotOn(dir: string, ref: string, base: string): number | undef
     return undefined;
   }
   // `git cherry` marks each commit of the ref `-` when base has an equal change (same patch id), else `+`.
-  const cherry = query(dir, ['cherry', base, ref]);
+  const cherry = query(dir, ['cherry', base, ref], queryMs);
   return cherry === undefined ? undefined : cherry.split('\n').filter((line) => line.startsWith('+')).length;
 }
 
-/** The git CLI. */
-export const GIT_WORKTREES: WorktreeGit = {
-  topOf: (dir) => queryLine(dir, ['rev-parse', '--show-toplevel']),
-  worktrees(dir) {
-    const text = query(dir, ['worktree', 'list', '--porcelain']);
-    return text === undefined ? undefined : parseWorktreeList(text);
-  },
-  changes(top, excluded) {
-    const pathspecs = ['.', ...excluded.map((path) => `:(exclude,literal)${path}`)];
-    const text = query(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--', ...pathspecs]);
-    return text === undefined ? undefined : parseStatus(text);
-  },
-  tracked(top, paths) {
-    if (paths.length === 0) {
-      return [];
-    }
-    const text = query(top, ['ls-files', '-z', '--', ...paths.map(literal)]);
-    return text === undefined ? undefined : fields(text);
-  },
-  defaultBase: (dir) => queryLine(dir, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD']),
-  commitsNotOn: (dir, branch, base) => refCommitsNotOn(dir, `${BRANCH_REF}${branch}`, base),
-  // Run in the worktree's own folder, `HEAD` is that worktree's, not the main checkout's.
-  headCommitsNotOn: (top, base) => refCommitsNotOn(top, 'HEAD', base),
-  removeWorktree: (mainDir, top) => outcome(runGit(mainDir, ['worktree', 'remove', top], REMOVE_TIMEOUT_MS), 'git worktree remove'),
-  // A branch name never starts with `-` (git refuses one), so it cannot read as an option.
-  deleteBranch: (mainDir, branch) => outcome(runGit(mainDir, ['branch', '-D', branch]), 'git branch -D'),
-  hasBranch(dir, branch) {
-    // Exit 0: the ref exists; 1: it does not; anything else: git could not tell.
-    const status = runGit(dir, ['show-ref', '--verify', '--quiet', `${BRANCH_REF}${branch}`]).status;
-    return status === 0 ? true : status === 1 ? false : undefined;
-  },
-  // The remote and branch come from origin/HEAD, never from the caller's words, so neither starts with `-`.
-  fetch: (dir, remote, branch) => outcome(runGit(dir, ['fetch', '--quiet', remote, branch], ADD_TIMEOUT_MS), 'git fetch'),
-  // The caller gives an absolute path and a branch name it checked starts with a letter or digit, so neither reads as an option.
-  addWorktree: (mainDir, path, branch, base) => outcome(runGit(mainDir, ['worktree', 'add', '--quiet', '--no-track', '-b', branch, path, base], ADD_TIMEOUT_MS), 'git worktree add'),
-};
+/**
+ * The git CLI, each query and short step given `queryMs` (a query that outlasts it reads as unknown, so the caller
+ * refuses); removing, fetching and adding keep their own longer limits. Specs that drive a real git on a loaded host
+ * pass more room than the default, so a slow git reads as slow, not as unknown (GeneralA6/teamrig#844).
+ */
+export function worktreeGit(queryMs: number = QUERY_TIMEOUT_MS): WorktreeGit {
+  return {
+    topOf: (dir) => queryLine(dir, ['rev-parse', '--show-toplevel'], queryMs),
+    worktrees(dir) {
+      const text = query(dir, ['worktree', 'list', '--porcelain'], queryMs);
+      return text === undefined ? undefined : parseWorktreeList(text);
+    },
+    changes(top, excluded) {
+      const pathspecs = ['.', ...excluded.map((path) => `:(exclude,literal)${path}`)];
+      const text = query(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--', ...pathspecs], queryMs);
+      return text === undefined ? undefined : parseStatus(text);
+    },
+    tracked(top, paths) {
+      if (paths.length === 0) {
+        return [];
+      }
+      const text = query(top, ['ls-files', '-z', '--', ...paths.map(literal)], queryMs);
+      return text === undefined ? undefined : fields(text);
+    },
+    defaultBase: (dir) => queryLine(dir, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD'], queryMs),
+    commitsNotOn: (dir, branch, base) => refCommitsNotOn(dir, `${BRANCH_REF}${branch}`, base, queryMs),
+    // Run in the worktree's own folder, `HEAD` is that worktree's, not the main checkout's.
+    headCommitsNotOn: (top, base) => refCommitsNotOn(top, 'HEAD', base, queryMs),
+    removeWorktree: (mainDir, top) => outcome(runGit(mainDir, ['worktree', 'remove', top], REMOVE_TIMEOUT_MS), 'git worktree remove'),
+    // A branch name never starts with `-` (git refuses one), so it cannot read as an option.
+    deleteBranch: (mainDir, branch) => outcome(runGit(mainDir, ['branch', '-D', branch], queryMs), 'git branch -D'),
+    hasBranch(dir, branch) {
+      // Exit 0: the ref exists; 1: it does not; anything else: git could not tell.
+      const status = runGit(dir, ['show-ref', '--verify', '--quiet', `${BRANCH_REF}${branch}`], queryMs).status;
+      return status === 0 ? true : status === 1 ? false : undefined;
+    },
+    // The remote and branch come from origin/HEAD, never from the caller's words, so neither starts with `-`.
+    fetch: (dir, remote, branch) => outcome(runGit(dir, ['fetch', '--quiet', remote, branch], ADD_TIMEOUT_MS), 'git fetch'),
+    // The caller gives an absolute path and a branch name it checked starts with a letter or digit, so neither reads as an option.
+    addWorktree: (mainDir, path, branch, base) => outcome(runGit(mainDir, ['worktree', 'add', '--quiet', '--no-track', '-b', branch, path, base], ADD_TIMEOUT_MS), 'git worktree add'),
+  };
+}
+
+/** The git CLI, with the default query timeout. */
+export const GIT_WORKTREES: WorktreeGit = worktreeGit();

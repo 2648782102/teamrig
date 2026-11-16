@@ -34,15 +34,15 @@ export function runGit(dir: string, args: readonly string[], timeout: number = Q
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-/** A query's stdout when git exits 0, else undefined. */
-export function query(dir: string, args: readonly string[]): string | undefined {
-  const run = runGit(dir, args);
+/** A query's stdout when git exits 0, else undefined (a query that outlasts `timeout` too). */
+export function query(dir: string, args: readonly string[], timeout: number = QUERY_TIMEOUT_MS): string | undefined {
+  const run = runGit(dir, args, timeout);
   return run.status === 0 ? run.stdout : undefined;
 }
 
 /** A one-line query, trimmed; an empty answer reads as unknown too. */
-export function queryLine(dir: string, args: readonly string[]): string | undefined {
-  const value = query(dir, args)?.trim();
+export function queryLine(dir: string, args: readonly string[], timeout: number = QUERY_TIMEOUT_MS): string | undefined {
+  const value = query(dir, args, timeout)?.trim();
   return value === '' ? undefined : value;
 }
 

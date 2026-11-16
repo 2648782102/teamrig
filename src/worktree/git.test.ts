@@ -4,7 +4,13 @@ import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TempRepo } from '../../tools/lib/temp-repo.ts';
-import { GIT_WORKTREES as git, parseStatus, parseWorktreeList } from './git.ts';
+import { parseStatus, parseWorktreeList, worktreeGit } from './git.ts';
+
+/**
+ * Room for each real git query here, far past the CLI's 10 s: under the full gate on a loaded host a query took longer,
+ * read as unknown, and failed the spec (GeneralA6/teamrig#844).
+ */
+const git = worktreeGit(120_000);
 
 describe('parseWorktreeList', () => {
   it('reads each worktree with its branch and lock, the main one first', () => {

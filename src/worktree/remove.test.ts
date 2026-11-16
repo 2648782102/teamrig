@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { TempRepo } from '../../tools/lib/temp-repo.ts';
 import { FakeWorktreeFiles, FakeWorktreeGit, type FakeGitAnswers, type FakeNode } from '../testing/fake-worktrees.ts';
 import { NODE_WORKTREE_FILES, type WorktreeFiles } from './files.ts';
-import { GIT_WORKTREES, type GitOutcome, type WorktreeEntry } from './git.ts';
+import { type GitOutcome, type WorktreeEntry, worktreeGit } from './git.ts';
 import {
   carryOut,
   clearLeftover,
@@ -662,7 +662,11 @@ function realWorld(prefix: string): { repo: TempRepo; worktree: string; modules:
   return { repo, worktree, modules };
 }
 
-const REAL: WorktreePorts = { git: GIT_WORKTREES, files: NODE_WORKTREE_FILES };
+/**
+ * Room for each real git query here, far past the CLI's 10 s: under the full gate on a loaded host a query took longer,
+ * read as unknown, and failed the spec (GeneralA6/teamrig#844).
+ */
+const REAL: WorktreePorts = { git: worktreeGit(120_000), files: NODE_WORKTREE_FILES };
 
 describe('removing a real worktree with a real node_modules link', () => {
   it('unlinks the link, removes the worktree and its merged branch, and keeps every file the link pointed to', async () => {
