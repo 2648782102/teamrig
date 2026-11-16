@@ -4,9 +4,28 @@ import { programsOf } from "../package-guard/programs.js";
 import { refusalOutput } from "./permission.js";
 /**
  * gh's command groups that act on a repository and, given no `-R`, take it from the folder's git remote. `gh repo`
- * reads one from its first argument too.
+ * reads one from its first argument too. `gh browse` and `gh attestation` only read, so they are not listed.
  */
-const REPO_GROUPS = new Set(['issue', 'pr', 'run', 'workflow', 'release', 'label', 'cache', 'secret', 'variable', 'ruleset', 'browse', 'repo', 'attestation']);
+const REPO_GROUPS = new Set(['issue', 'pr', 'run', 'workflow', 'release', 'label', 'cache', 'secret', 'variable', 'ruleset', 'repo']);
+/**
+ * Per group, the commands that run as before: they only read and no teamrig command takes them, or (`gh pr create`)
+ * they are the team's way to open a pull request. Any other command of a group counts as a write. `gh issue view`,
+ * `list` and `status` read too, but `teamrig issue sync` takes them, so they are refused naming it.
+ */
+const PASSING_STEPS = new Map([
+    ['pr', new Set(['view', 'list', 'status', 'diff', 'checks', 'checkout', 'create'])],
+    ['run', new Set(['list', 'view', 'watch', 'download'])],
+    ['workflow', new Set(['list', 'view'])],
+    ['release', new Set(['list', 'view', 'download', 'verify', 'verify-asset'])],
+    ['label', new Set(['list'])],
+    ['cache', new Set(['list'])],
+    ['secret', new Set(['list'])],
+    ['variable', new Set(['list', 'get'])],
+    ['ruleset', new Set(['list', 'view', 'check'])],
+    ['repo', new Set(['view', 'clone', 'fork'])],
+]);
+/** gh api methods that only read. */
+const API_READS = new Set(['GET', 'HEAD']);
 /** `gh repo` commands whose first argument, when given, is no existing repository of the team's: a new one, or an owner. */
 const REPO_NOT_TARGET = new Set(['create', 'list', 'set-default', 'gitignore', 'license']);
 /** gh api options that take the next word as their value. */
@@ -15,14 +34,33 @@ const API_VALUED = new Set([
 ]);
 /** gh api options that send a body, so the method is POST when none is named. */
 const API_BODY = new Set(['-f', '--raw-field', '-F', '--field', '--input']);
-/** An issue or pull request URL on GitHub: its repository and number. */
-const ITEM_URL = /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/([1-9][0-9]*)(?:[/?#].*)?$/u;
+/** An issue or pull request URL on GitHub, scheme and `www.` optional: its repository and number. */
+const ITEM_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/([1-9][0-9]*)(?:[/?#].*)?$/iu;
 /** An `owner/name` argument. */
 const REPO_WORD = /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/u;
 /** An issue or pull request number argument, `12` or `#12`. */
 const NUMBER_WORD = /^#?([1-9][0-9]*)$/u;
 /** A gh api path into a repository: `repos/<owner>/<name>[/<rest>]`, with gh's `{owner}`/`{repo}` placeholders. */
 const API_REPO_PATH = /^\/?repos\/([^/?#]+)\/([^/?#]+)(\/[^?#]*)?/u;
+/** A gh api path into a repository named by its id: `repositories/<id>[/<rest>]`. */
+const API_ID_PATH = /^\/?repositories\/([0-9]+)(?:[/?#]|$)/u;
+/** The API host's prefix of a full gh api URL, which gh takes as well as the bare path. */
+const API_HOST = /^https?:\/\/api\.github\.com(?=\/)/iu;
+/**
+ * A repository word as `owner/name` in lower case, in each form gh takes it: `owner/name`, `github.com/owner/name`, a
+ * URL (`https://`, `ssh://`, `git@github.com:`), with a trailing `.git` or `/`. Undefined for a repository on another
+ * host, or a word that names none.
+ */
+function repoName(word) {
+    const bare = word
+        .toLowerCase()
+        .replace(/^(?:https?|ssh|git):\/\//u, '')
+        .replace(/^git@/u, '')
+        .replace(/^(?:www\.)?github\.com[/:]/u, '')
+        .replace(/\/+$/u, '')
+        .replace(/\.git$/u, '');
+    return REPO_WORD.test(bare) ? bare : undefined;
+}
 function wordsOf(args) {
     return args.map((word) => (word.dynamic ? undefined : word.text));
 }
@@ -85,6 +123,40 @@ function positionals(words, valued) {
         found.push(word);
     }
     return found;
+}
+/**
+ * A group call's command and its other words: the first word after the group that is no option, as gh takes the
+ * group's `-R`/`--repo` before the command too (`gh issue -R acme/web close 12`). The command is undefined when the call
+ * names none, or one known only when the line runs.
+ */
+function commandOf(words) {
+    for (let i = 1; i < words.length; i++) {
+        const word = words[i];
+        if (word === undefined || word === '--') {
+            break;
+        }
+        if (word === '-R' || word === '--repo') {
+            i++;
+        }
+        else if (!word.startsWith('-')) {
+            return { sub: word, rest: [...words.slice(1, i), ...words.slice(i + 1)] };
+        }
+    }
+    return { sub: undefined, rest: words.slice(1) };
+}
+/**
+ * The repository a group call acts on: its `-R`/`--repo` in any form gh takes, else `named` (a repository argument),
+ * else the folder's origin. Undefined for a repository known only when the line runs, or one on another host.
+ */
+function repoOf(rest, named, origin) {
+    const flag = optionValue(rest, '-R', '--repo');
+    if (flag === null) {
+        return undefined;
+    }
+    if (typeof flag === 'string') {
+        return repoName(flag);
+    }
+    return named ?? origin();
 }
 /** Options of `gh issue` and `gh pr` commands that take a value, so their value is no positional. */
 const ITEM_VALUED = new Set([
@@ -149,22 +221,23 @@ function itemCommands(group, sub, words, repo, target) {
 }
 /** The repository, the step and its commands of a `gh issue` or `gh pr` call; undefined when it names no repository. */
 function itemStep(group, words, origin) {
-    const sub = words[1];
-    if (sub === undefined) {
-        return undefined;
-    }
-    const rest = words.slice(2);
-    const flag = optionValue(rest, '-R', '--repo');
-    if (flag === null) {
+    const { sub, rest } = commandOf(words);
+    if (sub === undefined || PASSING_STEPS.get(group)?.has(sub) === true) {
         return undefined;
     }
     const item = itemOf(positionals(rest, ITEM_VALUED)[0]);
-    const repo = (typeof flag === 'string' ? flag.toLowerCase() : undefined) ?? item.repo ?? origin();
+    const repo = repoOf(rest, item.repo, origin);
     if (repo === undefined) {
         return undefined;
     }
     const target = item.number === undefined ? `${repo}#<n>` : `${repo}#${item.number}`;
-    return { repo, shape: `gh ${group} ${sub}`, commands: itemCommands(group, sub, rest, repo, target) };
+    const reads = group === 'issue' && (sub === 'view' || sub === 'list' || sub === 'status');
+    return {
+        repo,
+        shape: `gh ${group} ${sub}`,
+        commands: itemCommands(group, sub, rest, repo, target),
+        ...(reads ? { then: 'read the issue in the task it holds' } : {}),
+    };
 }
 /** The method a gh api call sends: `-X`/`--method`, else POST with a body, else GET. */
 function apiMethod(words) {
@@ -212,11 +285,23 @@ function apiCommands(method, rest, words, repo) {
 /** The repository, the step and its commands of a `gh api` call; undefined when its path is no repository's. */
 function apiStep(words, origin) {
     const rest = words.slice(1);
-    const path = positionals(rest, API_VALUED)[0];
-    const match = path === undefined ? null : API_REPO_PATH.exec(path);
+    const path = positionals(rest, API_VALUED)[0]?.replace(API_HOST, '');
+    if (path === undefined) {
+        return undefined;
+    }
+    const method = apiMethod(rest);
+    const byId = API_ID_PATH.exec(path)?.[1];
+    if (byId !== undefined) {
+        return API_READS.has(method) ? undefined : { repo: `repositories/${byId}`, shape: `gh api ${method} ${path.replace(/^\//u, '')}`, commands: [], byId: true };
+    }
+    const match = API_REPO_PATH.exec(path);
     const owner = match?.[1];
     const name = match?.[2];
     if (owner === undefined || name === undefined) {
+        return undefined;
+    }
+    const tail = match?.[3] ?? '';
+    if (API_READS.has(method) && !/^\/issues(?:\/|$)/u.test(tail)) {
         return undefined;
     }
     const placeholder = owner === '{owner}' || name === '{repo}';
@@ -224,24 +309,17 @@ function apiStep(words, origin) {
     if (repo === undefined) {
         return undefined;
     }
-    const method = apiMethod(rest);
-    const tail = match?.[3] ?? '';
     return { repo, shape: `gh api ${method} repos/${repo}${tail}`, commands: apiCommands(method, tail, rest, repo) };
 }
 /** The repository and step of any other repository-bound gh call: `-R`, `gh repo <sub> <owner/name>`, else the origin. */
 function groupStep(group, words, origin) {
-    const sub = words[1];
-    const rest = words.slice(sub === undefined || sub.startsWith('-') ? 1 : 2);
-    const flag = optionValue(rest, '-R', '--repo');
-    if (flag === null) {
-        return undefined;
-    }
-    if (group === 'repo' && sub !== undefined && REPO_NOT_TARGET.has(sub)) {
+    const { sub, rest } = commandOf(words);
+    if (sub === undefined || PASSING_STEPS.get(group)?.has(sub) === true || (group === 'repo' && REPO_NOT_TARGET.has(sub))) {
         return undefined;
     }
     const named = group === 'repo' ? positionals(rest, ITEM_VALUED)[0] : undefined;
-    const repo = (typeof flag === 'string' ? flag.toLowerCase() : undefined) ?? (named !== undefined && REPO_WORD.test(named) ? named.toLowerCase() : undefined) ?? origin();
-    return repo === undefined ? undefined : { repo, shape: `gh ${group}${sub === undefined || sub.startsWith('-') ? '' : ` ${sub}`}`, commands: [] };
+    const repo = repoOf(rest, named === undefined ? undefined : repoName(named), origin);
+    return repo === undefined ? undefined : { repo, shape: `gh ${group} ${sub}`, commands: [] };
 }
 /**
  * The step a gh call takes and the repository it acts on, from its words after `gh`; undefined for a call that names
@@ -264,13 +342,21 @@ export function ghStepOf(args, origin) {
 }
 /** Why the calls are refused: per step, the teamrig command to run instead, or that none takes it yet. */
 export function ghGuardReason(steps, command) {
-    const repos = [...new Set(steps.map((step) => step.repo))].join(', ');
-    const lines = steps.map((step) => step.commands.length === 0
-        ? `${step.shape}: no ${command} command takes this step yet; report the gap to your leader rather than running it another way.`
-        : `${step.shape}: run ${step.commands.map((one) => `\`${command} ${one}\``).join(' and ')} instead.`);
-    return (`${command} gh guard: ${repos} ${repos.includes(',') ? 'are' : 'is'} under github.repos, so GitHub steps there go through ${command}'s commands, on the key ${command} saves for the ` +
-        `repository's owner and with their checks (secret scan, private data, stale writes); raw gh runs on your own login, which may not reach it. ` +
-        `${lines.join(' ')} [github.repos]`);
+    const repos = [...new Set(steps.filter((step) => step.byId !== true).map((step) => step.repo))].join(', ');
+    const lines = steps.map((step) => {
+        if (step.byId === true) {
+            return `${step.shape}: names its repository by id, which ${command} cannot match to github.repos; name it as repos/<owner>/<name> instead.`;
+        }
+        if (step.commands.length === 0) {
+            return `${step.shape}: no ${command} command takes this step yet; report the gap to your leader rather than running it another way.`;
+        }
+        return `${step.shape}: run ${step.commands.map((one) => `\`${command} ${one}\``).join(' and ')} instead${step.then === undefined ? '' : `, then ${step.then}`}.`;
+    });
+    const why = repos === ''
+        ? `${command} gh guard: this team lists repositories under github.repos, and GitHub steps there go through ${command}'s commands. `
+        : `${command} gh guard: ${repos} ${repos.includes(',') ? 'are' : 'is'} under github.repos, so GitHub steps there go through ${command}'s commands, on the key ${command} saves for the ` +
+            `repository's owner and with their checks (secret scan, private data, stale writes); raw gh runs on your own login, which may not reach it. `;
+    return `${why}${lines.join(' ')} [github.repos]`;
 }
 /** Each step once, in the order first found: a call both readings of a line make is named once. */
 function uniqueSteps(steps) {
@@ -291,7 +377,7 @@ function teamSteps(runs, env, repos, fallback) {
             return [];
         }
         const step = ghStepOf(run.args, () => env.originOf(run.dir ?? fallback));
-        return step !== undefined && repos.has(step.repo) ? [step] : [];
+        return step !== undefined && (step.byId === true || repos.has(step.repo)) ? [step] : [];
     });
 }
 /**
@@ -305,7 +391,8 @@ export function ghGuardOutput(payload, env) {
         return '';
     }
     const command = stringField(recordField(payload, 'tool_input') ?? {}, 'command');
-    if (command === undefined || !/\bgh\b/u.test(command)) {
+    // No text prefilter for `gh`: the shell reader alone decides which program a line runs, and a text match can disagree.
+    if (command === undefined) {
         return '';
     }
     const tool = stringField(payload, 'tool_name');
