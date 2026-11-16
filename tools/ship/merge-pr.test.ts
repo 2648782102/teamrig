@@ -21,6 +21,9 @@ const RELEASE_SHA = 'rel5678abc';
 const PULL = 7;
 const RELEASE_PULL = 8;
 const BRANCH = 't3029-release-pr7';
+const REPLAY_BRANCH = 't3029-pr7';
+/** The one commit of the contributor's pull request. */
+const WORK = 'c0ffee1234';
 const PLUGIN_JSON = 'plugins/teamrig/.claude-plugin/plugin.json';
 const VERSION_TS = 'src/core/version.ts';
 const pluginJson = (version: string): string => `{"name":"teamrig","version":"${version}"}`;
@@ -47,6 +50,8 @@ interface Fixture {
   credential?: ReturnType<MergePrDeps['credential']>;
   /** A repo that regenerates nothing, so no release follows the merge. */
   noRegeneration?: boolean;
+  /** The work diff its replay on main makes; the approved head's by default. */
+  replayed?: string;
   /** The conclusion of the gates job on the contributor's head. */
   conclusion?: string;
 }
@@ -91,6 +96,9 @@ function fixture(options: Fixture = {}) {
   let merges = 0;
   let built: readonly string[] = [];
   const mainTip = (): string => [BASE, MERGED, RELEASED][merges] ?? RELEASED;
+  // A head behind main, or one carrying the version files or the dist, has its work replayed on main (T3341).
+  const replays = options.noRegeneration !== true && (options.behind === true || (options.changed ?? []).some((path) => path === PLUGIN_JSON || path.startsWith('plugins/teamrig/dist/')));
+  const branch = replays ? REPLAY_BRANCH : BRANCH;
   const answers = (key: string): string | undefined => {
     const fixed: Record<string, string> = {
       'remote get-url origin': `git@github.com:${REPO}.git`,
@@ -107,26 +115,35 @@ function fixture(options: Fixture = {}) {
       [`rev-parse ${MERGED}^{tree}`]: 'tree-pr',
       [`rev-parse ${RELEASE_SHA}^{tree}`]: 'tree-release',
       [`rev-parse ${RELEASED}^{tree}`]: 'tree-release',
-      [`branch --list ${BRANCH}`]: '',
-      [`ls-remote --heads origin refs/heads/${BRANCH}`]: '',
+      [`branch --list ${branch}`]: '',
+      [`ls-remote --heads origin refs/heads/${branch}`]: '',
       'diff --cached --numstat': built.map((path) => `1\t1\t${path}`).join('\n'),
       [`diff --name-only --no-renames ${MERGED} HEAD`]: [...calls.filter((call) => call.startsWith('commit ')).length > 0 ? [PLUGIN_JSON, VERSION_TS] : [], ...built, ...(options.strayRelease ?? [])].join('\n'),
-      'rev-parse --abbrev-ref HEAD': BRANCH,
+      'rev-parse --abbrev-ref HEAD': branch,
       'rev-parse HEAD': RELEASE_SHA,
-      [`rev-parse refs/heads/${BRANCH}`]: RELEASE_SHA,
-      [`rev-parse refs/remotes/origin/${BRANCH}`]: RELEASE_SHA,
+      [`rev-parse refs/heads/${branch}`]: RELEASE_SHA,
+      [`rev-parse refs/remotes/origin/${branch}`]: RELEASE_SHA,
       [`log --reverse --format=%s refs/remotes/origin/main..${RELEASE_SHA}`]: 'plugin: version 0.400.1, the release of #7\nbuild: rebuild the plugin dist',
       [`merge-base ${RELEASE_SHA} ${MERGED}`]: MERGED,
+      // The replay of the contributor's work on main's tip (pull-replay.ts).
+      [`merge-base ${RELEASE_SHA} ${BASE}`]: BASE,
+      [`log --reverse --no-merges --format=%H ${BASE}..${SHA}`]: WORK,
+      'diff --cached --name-only': 'src/cli/a.ts',
+      [`diff --name-only --no-renames ${BASE} HEAD`]: ['src/cli/a.ts', ...built].join('\n'),
     };
     return fixed[key];
   };
-  const WRITES = ['fetch ', 'switch ', 'add ', 'commit ', 'push ', 'branch --quiet --delete '];
+  const WRITES = ['fetch ', 'switch ', 'add ', 'commit ', 'push ', 'branch --quiet --delete ', 'clean ', 'cherry-pick ', 'restore '];
+  // The work diff, of the approved head over its base and of the replay over main's tip.
+  const workDiff = `diff --unified=3 --no-color --no-ext-diff --no-renames ${BASE} `;
   const git = (...args: string[]): string => {
     const key = args.join(' ');
     calls.push(key);
     const answer = answers(key);
     if (answer !== undefined) return answer;
     if (WRITES.some((write) => key.startsWith(write))) return '';
+    if (key.startsWith(`${workDiff}${SHA} `)) return 'the work';
+    if (key.startsWith(`${workDiff}${RELEASE_SHA} `)) return options.replayed ?? 'the work';
     throw new Error(`unexpected git ${key}`);
   };
   const ghCalls: string[] = [];
@@ -139,15 +156,15 @@ function fixture(options: Fixture = {}) {
       return `{"sha":"${MERGED}","merged":true,"message":"merged"}`;
     }
     if (path.startsWith(`repos/${REPO}/pulls?state=open`)) return '[]';
-    if (path === `repos/${REPO}/pulls`) return pullJson(RELEASE_PULL, RELEASE_SHA, BRANCH);
+    if (path === `repos/${REPO}/pulls`) return pullJson(RELEASE_PULL, RELEASE_SHA, branch);
     if (path === `repos/${REPO}/pulls/${RELEASE_PULL}/merge`) {
       merges = 2;
       return `{"sha":"${RELEASED}","merged":true,"message":"merged"}`;
     }
     const run = /actions\/runs\?head_sha=(\w+)/.exec(path);
     if (run !== null) {
-      const branch = run[1] === SHA ? 'fix-typo' : BRANCH;
-      return JSON.stringify({ workflow_runs: [{ id: 1, workflow_id: 1, event: 'pull_request', run_number: 1, run_attempt: 1, head_branch: branch }] });
+      const head = run[1] === SHA ? 'fix-typo' : branch;
+      return JSON.stringify({ workflow_runs: [{ id: 1, workflow_id: 1, event: 'pull_request', run_number: 1, run_attempt: 1, head_branch: head }] });
     }
     if (path.includes('/actions/runs/1/jobs')) return JSON.stringify({ jobs: [{ name: 'gates', status: 'completed', conclusion: merges === 0 ? (options.conclusion ?? 'success') : 'success', steps: [{ name: 'Set up job' }] }] });
     if (path.endsWith('/status')) return '{"statuses":[]}';
@@ -275,12 +292,43 @@ describe('runMergePr (T3029)', () => {
     assert.equal(credential.mock.callCount(), 0);
   });
 
-  it('refuses a head behind main, saying who rebases it', async () => {
-    const own = fixture({ behind: true });
+  it("replays the work of a head behind main on main's tip without its version and dist, merges that with the raise and the dist, and says to close the pull request (T3341)", async () => {
+    const { deps, calls, ghCalls, out, err, files, sweep } = fixture({ behind: true, distBuilt: ['plugins/teamrig/dist/cli/main.js'] });
+    assert.equal(await runMergePr(ARGS, deps), 0, err.join('\n'));
+    assert.deepEqual(err, []);
+    assert.ok(out.includes('#7 does not contain main base000: its work is replayed on main without its version and dist'), out.join('\n'));
+    assert.ok(calls.includes(`switch --quiet --create ${REPLAY_BRANCH} ${BASE}`), "cut from main's tip");
+    assert.ok(calls.includes(`cherry-pick --no-commit ${WORK}`));
+    assert.ok(calls.includes(`commit --quiet --reuse-message ${WORK}`), 'its author and message kept');
+    assert.ok(calls.includes(`push --quiet origin HEAD:refs/heads/${REPLAY_BRANCH}`));
+    assert.ok(!ghCalls.includes(`repos/${REPO}/pulls/${PULL}/merge`), "the contributor's pull request itself is never merged");
+    assert.equal(files.get(PLUGIN_JSON), pluginJson('0.400.1'));
+    assert.deepEqual(sweep.mock.calls.map((call) => call.arguments[0].head), [REPLAY_BRANCH]);
+    assert.equal(out.at(-1), 'LANDED the work of #7: close #7 with credit to its author, naming its commits on main');
+  });
+
+  it('replays the work of an up-to-date head that carries the version files or the dist, the same way (T3341)', async () => {
+    const { deps, out, err } = fixture({ changed: ['src/cli/a.ts', PLUGIN_JSON] });
+    assert.equal(await runMergePr(ARGS, deps), 0, err.join('\n'));
+    assert.ok(out.includes('#7 is up to date and changes 1 version or dist file(s): its work is replayed on main without its version and dist'), out.join('\n'));
+    assert.equal(out.at(-1), 'LANDED the work of #7: close #7 with credit to its author, naming its commits on main');
+  });
+
+  it('refuses a replay whose work diff changes on main, dropping its branch with nothing pushed (T3341)', async () => {
+    const { deps, calls, err } = fixture({ behind: true, replayed: 'other work' });
+    assert.equal(await runMergePr(ARGS, deps), 1);
+    assert.match(err[0] ?? '', /^REFUSED the replay of #7 on t3029-pr7: the work of #7 changes when replayed on main base000: its author rebases it onto main, then the lead approves the new head$/);
+    assert.ok(calls.includes(`switch --quiet --discard-changes --detach ${BASE}`));
+    assert.ok(calls.includes(`branch --quiet --delete --force ${REPLAY_BRANCH}`));
+    assert.ok(!calls.some((call) => call.startsWith('push ')));
+  });
+
+  it('refuses a head behind main in a repo that regenerates nothing, saying who rebases it', async () => {
+    const own = fixture({ behind: true, noRegeneration: true });
     assert.equal(await runMergePr(ARGS, own.deps), 1);
     assert.match(own.err[0] ?? '', /#7 abc1234 does not contain main base000: its author rebases it onto main/);
     assert.ok(!own.ghCalls.includes(`repos/${REPO}/pulls/${PULL}/merge`));
-    const editable = fixture({ behind: true, pull: { maintainerCanModify: true } });
+    const editable = fixture({ behind: true, noRegeneration: true, pull: { maintainerCanModify: true } });
     assert.equal(await runMergePr(ARGS, editable.deps), 1);
     assert.match(editable.err[0] ?? '', /its author, or a maintainer since it lets maintainers edit it, rebases it/);
   });
@@ -304,14 +352,15 @@ describe('runMergePr (T3029)', () => {
     const { deps, calls, out, err } = fixture({ changed: ['docs/a.md'] });
     assert.equal(await runMergePr(ARGS, deps), 0, err.join('\n'));
     assert.equal(out.at(-1), 'RELEASED nothing: #7 leaves the version and the dist as they are');
-    assert.ok(calls.includes(`branch --quiet --delete ${BRANCH}`));
+    assert.ok(calls.includes(`branch --quiet --delete --force ${BRANCH}`));
+    assert.ok(calls.includes(`switch --quiet --discard-changes --detach ${MERGED}`), "the repo dir back on main's tip");
     assert.ok(!calls.some((call) => call.startsWith('push ')));
   });
 
   it('refuses to push a release that changes anything beyond the version and the dist', async () => {
     const { deps, calls, err } = fixture({ strayRelease: ['src/cli/a.ts'] });
     assert.equal(await runMergePr(ARGS, deps), 1);
-    assert.match(err[0] ?? '', /the release t3029-release-pr7 changes src\/cli\/a\.ts, beyond the version and the dist: nothing was pushed/);
+    assert.match(err[0] ?? '', /^REFUSED the release of #7 on t3029-release-pr7: it changes src\/cli\/a\.ts, beyond the version and the dist: nothing was pushed/);
     assert.ok(!calls.some((call) => call.startsWith('push ')));
   });
 
