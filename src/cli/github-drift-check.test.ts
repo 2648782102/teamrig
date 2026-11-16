@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
 import { CliHarness, TEAM, TEAM_HOME, type RunOptions } from '../testing/cli-harness.ts';
-import { FakeGh, ghIssue } from '../testing/fake-gh.ts';
+import { FakeGh, ghIssue, ghPull } from '../testing/fake-gh.ts';
 import { EXIT } from './runtime.ts';
 
 const GITHUB_TEAM: JsonRecord = { ...TEAM, github: { repos: ['acme/web'], owners: { octocat: 'bravo' } } };
@@ -36,6 +36,23 @@ describe('check GH-DRIFT (T3205)', () => {
 
     await sync(kit, reviewed(['status:in review']));
     assert.deepEqual(await driftRows(kit), [], 'set right: the row drops out');
+  });
+
+  it('shows an outside pull request no one labelled until it carries a label, and keeps it while its read fails', async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    const outside = (labels: number): FakeGh =>
+      new FakeGh().holds('acme/web', []).holdsPulls('acme/web', [ghPull('acme/web', 12, { authorAssociation: 'CONTRIBUTOR', author: 'stranger', labels }), ghPull('acme/web', 13)]);
+    await sync(kit, outside(0));
+    const rows = await driftRows(kit);
+    assert.equal(rows.length, 1, rows.join('\n'));
+    assert.match(rows[0] ?? '', /GH-DRIFT gh:acme\/web#12: an outside pull request no one labelled/);
+
+    const failing = outside(1).failsPulls('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Bad credentials\n' });
+    assert.equal((await kit.run(['issue', 'sync', '--yes'], { gh: failing })).code, EXIT.failed);
+    assert.equal((await driftRows(kit)).length, 1, 'a failed pull request read keeps what the last read found');
+
+    await sync(kit, outside(1));
+    assert.deepEqual(await driftRows(kit), [], 'labelled: the row drops out');
   });
 
   it('finds nothing on a preview, which writes no state', async () => {

@@ -35,7 +35,7 @@ import { openTeamKit, requireConfig } from '../kit.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { teamRegister } from '../team-register.ts';
 import type { Thread } from '../../github/clock.ts';
-import { issueDrift, type Drift } from '../../github/drift.ts';
+import { issueDrift, pullDrift, type Drift } from '../../github/drift.ts';
 import type { HostIssue } from '../../issues/issue.ts';
 import { claimBudget, recordClaims } from './issue-claim.ts';
 import { pullThreads, recordClocks, repoThreads } from './issue-clock.ts';
@@ -130,8 +130,13 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   /** The open threads of the repositories read, for the response clock, and those repositories. */
   const threads: Thread[] = [];
   const clocked = new Set<string>();
-  /** The threads out of step in those same repositories, for GH-DRIFT. */
+  /**
+   * The threads out of step, for GH-DRIFT, and the repositories whose issues and whose pull requests were read for it:
+   * a failed pull request read keeps that repository's pull request rows while its issue rows move on.
+   */
   const drift: Drift[] = [];
+  const issued = new Set<string>();
+  const pulled = new Set<string>();
   for (const repo of reposOf(config.github.repos, args.flags.get('repo'))) {
     const reach = await host.reach(repo, 'read');
     if (reach.kind === 'unreachable') {
@@ -176,6 +181,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       const outcomes = await applySteps(register, plan.steps);
       // Against the tasks as written, so an issue the import just took is held by its new task.
       issueThreads = repoThreads(read.issues, [...(await register.snapshot()).state.tasks.values()], rules, ours);
+      issued.add(repo);
       drift.push(...read.issues.flatMap(issueDrift));
       claimRead.set(repo, read.issues);
       [...resultLines(repo, plan, outcomes), ...leftOutText].forEach(say);
@@ -205,6 +211,8 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       const ownerOf = (id: string): string | undefined => tasks.find((held) => held.id === id)?.owner;
       threads.push(...issueThreads, ...pullThreads(watch.open, (pull) => pullRecipient(pull, ours, ownerOf, watcher), ours));
       clocked.add(repo);
+      pulled.add(repo);
+      drift.push(...watch.open.flatMap((pull) => pullDrift(pull, ours)));
     }
     if (auto) {
       const items = mentionItems(repo, { issues: read.issues, pulls: watch.pulls }, { ofRef: (ref) => holders.get(ref)?.owner, ofTask: (id) => tasks.find((held) => held.id === id)?.owner }, ours);
@@ -248,7 +256,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   }
   if (write) {
     (await recordClocks(runtime, kit, config, clocked, threads)).forEach(say);
-    await recordDrift(runtime, kit, config, clocked, drift);
+    await recordDrift(runtime, kit, config, { issues: issued, pulls: pulled }, drift);
   }
   if (pushing) {
     const hour = await reserveHour(runtime, kit, config);
