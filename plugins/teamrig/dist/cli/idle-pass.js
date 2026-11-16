@@ -42,7 +42,7 @@ function byReopenOrder(a, b) {
  * and a running one the pass would close has been quiet `open.headroom.closeIdleMinutes`.
  */
 async function wakeWeightOf(runtime, kit, config, roster, id, configured) {
-    const rest = config.budget.enabled ? wakeRestOf(await budgetFactsOf(runtime, { kit, config, roster, id }, undefined), config.budget.quietHours, runtime.clock.now(), COLD_WAKE_W) : AWAKE;
+    const rest = config.budget.enabled ? wakeRestOf(await budgetFactsOf(runtime, { kit, config, roster, id }, undefined), config.budget, runtime.clock.now(), COLD_WAKE_W) : AWAKE;
     return { rest, maxPriority: effectivePriority(configured, rest, config.budget.quietHours) };
 }
 /**
