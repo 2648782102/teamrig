@@ -107,7 +107,8 @@ export function soonTimeWaitOf(tasks, session, maxPriority, now, zone) {
 /**
  * Whether a session teamrig closed reopens now, as the wake check would wake its open tab: for urgent lines posted to
  * it, whatever its rest and at once (each is urgent by its sender's choice, and a pass's closes post theirs together),
- * else for work it can start within `maxPriority` that someone else or the clock changed since it last touched it
+ * else for work it can start that another session waits on (`awaited`), whatever its rest and whether or not it saw
+ * it before the close, else for work it can start within `maxPriority` that someone else or the clock changed since it last touched it
  * (`isNews`, so work it saw before the close does not reopen it), else for a day start after its close when it has any
  * work it can start and does not rest (quiet hours, held by its budget). Else it stays closed.
  */
@@ -116,7 +117,12 @@ export function reopenVerdict(input) {
     if (input.asks.length > 0) {
         return { kind: 'asked', asks: input.asks, at: Math.min(...input.asks.map((ask) => ask.at)) };
     }
-    const handed = startableTasks(tasks, elsewhere, session, now, zone, parking, input.maxPriority).filter((task) => isNews(task, session, tasks, elsewhere, zone));
+    const startable = startableTasks(tasks, elsewhere, session, now, zone, parking);
+    const awaited = startable.filter((task) => input.awaited.has(task.id));
+    if (awaited.length > 0) {
+        return { kind: 'awaited', tasks: awaited };
+    }
+    const handed = startable.filter((task) => task.priority <= input.maxPriority && isNews(task, session, tasks, elsewhere, zone));
     if (handed.length > 0) {
         return { kind: 'handed', tasks: handed };
     }
@@ -124,6 +130,5 @@ export function reopenVerdict(input) {
     if (dayStart === undefined || dayStart > now || dayStart <= input.closedAt || input.rest.quiet || input.rest.held) {
         return { kind: 'stay' };
     }
-    const startable = startableTasks(tasks, elsewhere, session, now, zone, parking);
     return startable.length === 0 ? { kind: 'stay' } : { kind: 'day-start', at: dayStart, tasks: startable };
 }
