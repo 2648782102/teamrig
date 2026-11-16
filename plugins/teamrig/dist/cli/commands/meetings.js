@@ -22,6 +22,7 @@ import { openSession, TERMINAL_LABELS } from "./open.js";
 import { ownRegister } from "./register.js";
 import { sessionProjectOf } from "./setup.js";
 import { fileLockOf } from "../file-locks.js";
+import { loadTree } from "../tree.js";
 /**
  * `meeting schedule|list|move|start <id>|start --about|end <id>|drop` (T1358): the owner's meetings with one session,
  * any session, a worker's as well as a lead's, at a set time or on the spot (T2985), apart from the daily meeting with
@@ -43,6 +44,8 @@ async function meetingsKit(args, runtime, access) {
     const { files, clock } = runtime;
     return {
         kit,
+        team: found.team,
+        leadAbove: false,
         from: found.from,
         config,
         roster,
@@ -52,6 +55,42 @@ async function meetingsKit(args, runtime, access) {
         now: clock.now(),
         zone: teamZone(config, runtime),
     };
+}
+/**
+ * The kit and session `--meets` names: a bare id or name on the caller's own team, or `<team>/<id>` on any team of its
+ * tree (#834), booked in that team's schedule so its tab, status line and held messages see the meeting as one of its
+ * own. Only the caller's own lead books for another team, and that team's lines name it `<team>/<id>`.
+ */
+async function meetsOf(runtime, mk, access, meets) {
+    const slash = meets.indexOf('/');
+    const team = slash < 0 ? undefined : meets.slice(0, slash);
+    if (team === undefined || team === mk.team) {
+        return { mk, session: sessionIdOf(mk.roster, slash < 0 ? meets : meets.slice(slash + 1)) };
+    }
+    const { tree } = await loadTree(runtime);
+    if (tree.node(team) === undefined || !tree.sameTree(mk.team, team)) {
+        throw new RefusedError(`team ${team} is not in the tree of team ${mk.team}`);
+    }
+    const lead = mk.roster.holderOf('lead');
+    if (mk.caller !== lead) {
+        throw new RefusedError(`only the lead${lead === undefined ? '' : ` (${mk.roster.nameOf(lead) ?? lead})`} books a meeting for a session of team ${team}`);
+    }
+    const kit = await openKit(runtime, team);
+    const config = requireConfig(kit, runtime, access);
+    const roster = await rosterOf(runtime, kit, config);
+    const other = {
+        ...mk,
+        kit,
+        team,
+        leadAbove: true,
+        config,
+        roster,
+        caller: `${mk.team}/${mk.caller}`,
+        schedule: new MeetingSchedule(runtime.files, kit.paths.meetings),
+        lock: fileLockOf(runtime, kit.paths.meetingsLock, config.lock),
+        zone: teamZone(config, runtime),
+    };
+    return { mk: other, session: sessionIdOf(roster, meets.slice(slash + 1)) };
 }
 /** One meeting as a list line: its id, status (a scheduled one past its slot reads missed), time, length, sessions, tasks and what it is about. */
 export function meetingLine(meeting, zone, now) {
@@ -150,7 +189,7 @@ async function tasksOf(runtime, text) {
 /** The lead and the session met change a meeting; anyone else is refused, told who may `what`. */
 function mayChange(mk, session, what) {
     const lead = mk.roster.holderOf('lead');
-    if (mk.caller !== lead && mk.caller !== session) {
+    if (mk.caller !== lead && mk.caller !== session && !mk.leadAbove) {
         throw new RefusedError(`only the lead${lead === undefined ? '' : ` (${mk.roster.nameOf(lead) ?? lead})`} or ${session}, the session met, may ${what}`);
     }
 }
@@ -199,8 +238,7 @@ async function bookingOf(args, runtime, mk, session, at) {
 /** `meeting schedule`: books a meeting and tells the session met and those joining. */
 export async function meetingSchedule(args, runtime) {
     noPositionals(args);
-    const mk = await meetingsKit(args, runtime, 'write');
-    const session = sessionIdOf(mk.roster, requiredFlag(args.flags, 'meets'));
+    const { mk, session } = await meetsOf(runtime, await meetingsKit(args, runtime, 'write'), 'write', requiredFlag(args.flags, 'meets'));
     mayChange(mk, session, `book a meeting with ${session}`);
     const fields = await bookingOf(args, runtime, mk, session, futureAt(requiredFlag(args.flags, 'at'), mk));
     const meeting = await mk.lock.run(async () => {
@@ -394,9 +432,9 @@ export async function meetingStartScheduled(args, runtime) {
  */
 export async function meetingStartNow(args, runtime) {
     noPositionals(args);
-    const mk = await meetingsKit(args, runtime, 'write');
+    const own = await meetingsKit(args, runtime, 'write');
     const meets = args.flags.get('meets');
-    const session = meets === undefined ? mk.caller : sessionIdOf(mk.roster, meets);
+    const { mk, session } = meets === undefined ? { mk: own, session: own.caller } : await meetsOf(runtime, own, 'write', meets);
     mayChange(mk, session, `start a meeting with ${session}`);
     const fields = await bookingOf(args, runtime, mk, session, mk.now);
     const started = await mk.lock.run(async () => {
