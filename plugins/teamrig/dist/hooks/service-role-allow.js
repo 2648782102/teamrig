@@ -19,7 +19,7 @@ export function roleHolding(roles, command, holder) {
         return role !== undefined && holds(role, command, holder);
     });
 }
-/** How many closes and comments the role's allow let run at or after `sinceMs`, by the prompt-answers log's text; a ship counts toward no cap. */
+/** How many closes the role's allow let run at or after `sinceMs`, by the prompt-answers log's text; a ship counts toward no cap. */
 export function roleAllowsSince(log, role, sinceMs) {
     return parseJsonl(log).records.filter(({ record }) => {
         const at = record['at'];
