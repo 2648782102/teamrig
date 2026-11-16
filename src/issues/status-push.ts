@@ -290,6 +290,11 @@ export function onePushPlan(repo: string, change: IssueChange): PushPlan {
   return { repo, changes: [change], deferred: [], heldCloses: [], unchanged: 0, closedActive: [], unlisted: [] };
 }
 
+/** The task speaking for `target`, as the push picks it (a team task over one the import added), or undefined when none holds it. */
+export function holderOf(target: IssueTarget, tasks: Iterable<Task>): Task | undefined {
+  return holders(target.repo, tasks).get(target.number);
+}
+
 /** The task speaking for each issue number of `repo` a task holds: a team task over one the import added. */
 function holders(repo: string, tasks: Iterable<Task>): Map<number, Task> {
   const byNumber = new Map<number, Task>();
