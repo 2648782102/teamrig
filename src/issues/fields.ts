@@ -45,10 +45,15 @@ export type HostFieldRead =
   | { readonly kind: 'none'; readonly reason: string }
   | { readonly kind: 'failed'; readonly reason: string };
 
+/** The enabled issue types of one repository, by name (none on one that has no types), or why they could not be read. */
+export type HostTypesRead = { readonly kind: 'read'; readonly types: readonly string[] } | { readonly kind: 'failed'; readonly reason: string };
+
 /** A tracker's issue fields and types: one read of a repository, and one write per value or type. Each ends in a result and never throws. */
 export interface IssueFields {
   /** The fields and types of `repo` and the values its open issues hold. */
   read(repo: string): Promise<HostFieldRead>;
+  /** Only the enabled issue types of `repo`: one small read for an issue opened with its type (T3349), where `read` pages every open issue. */
+  types(repo: string): Promise<HostTypesRead>;
   /** Sets `field` of the issue to `value`, which is of the field's kind. */
   setField(target: IssueTarget, field: HostField, value: FieldValue): Promise<HostEnd>;
   /** Sets the issue's type to `type`, one of the repository's enabled types, spelled as the read gave it. */

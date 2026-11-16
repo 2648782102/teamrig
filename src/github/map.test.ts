@@ -123,6 +123,7 @@ describe('issuePriority', () => {
   it('takes the most urgent p<n> label that is a team level, in any case', () => {
     assert.equal(issuePriority(['P3', 'bug', ' p2 '], [1, 2, 3]), 2);
     assert.equal(issuePriority(['p9', 'p3'], [1, 2, 3]), 3);
+    assert.equal(issuePriority(['p1', 'P0'], [0, 1, 2, 3]), 0);
   });
 
   it('falls back to p2, or to the least urgent level of a team with no p2', () => {

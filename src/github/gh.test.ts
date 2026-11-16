@@ -72,7 +72,7 @@ const ENV = { ...process.env };
 /** A first page of acme/web's open issues: a command line the runner starts. */
 const READ = openPageArgs({ owner: 'acme', name: 'web', after: undefined });
 /** An issue to open; its body holds what a shell or `-F` would read as code or a file, to show it stays text. */
-const DRAFT: IssueDraft = { repo: 'acme/web', title: 'Fix login', body: 'Steps: $(x) @file', labels: ['bug', 'p1'] };
+const DRAFT: IssueDraft = { repo: 'acme/web', title: 'Fix login', body: 'Steps: $(x) @file', labels: ['bug', 'p1'], type: null, assignees: [] };
 /** An issue, or a pull request, to comment on or close. */
 const ISSUE: IssueNumber = { repo: 'acme/web', number: 7 };
 
@@ -139,6 +139,37 @@ describe('isIssueCreate', () => {
     assert.equal(isIssueCreate(issueCreateArgs({ ...DRAFT, repo: 'acme-co/web.site_2' })), true);
   });
 
+  it('takes a type and assignees, the type before the labels and the assignees after them (T3349)', () => {
+    const full = issueCreateArgs({ ...DRAFT, type: 'Feature', assignees: ['octocat', 'Mona-Lisa'] });
+    assert.deepEqual(full.slice(8), ['-f', 'type=Feature', '-f', 'labels[]=bug', '-f', 'labels[]=p1', '-f', 'assignees[]=octocat', '-f', 'assignees[]=Mona-Lisa']);
+    assert.equal(isIssueCreate(full), true);
+    assert.equal(isIssueCreate(issueCreateArgs({ ...DRAFT, labels: [], type: 'Bug' })), true);
+    assert.equal(isIssueCreate([...CREATE, '-f', 'assignees[]=octocat']), true);
+  });
+
+  it('takes any one-line type the config names, as the type set does, sent raw', () => {
+    const head = CREATE.slice(0, 8);
+    assert.equal(isIssueCreate([...head, '-f', 'type=Product idea']), true);
+    assert.equal(isIssueCreate([...head, '-f', 'type=Révision @file']), true);
+  });
+
+  it('refuses a type out of place, empty or over a line, a second type, and an assignee before a label or of no login', () => {
+    const head = CREATE.slice(0, 8);
+    for (const args of [
+      [...CREATE, '-f', 'type=Bug'],
+      [...head, '-f', 'type=Bug', '-f', 'type=Task'],
+      [...head, '-f', 'type=Bug\nTask'],
+      [...head, '-f', 'type='],
+      [...head, '-F', 'type=@type.txt'],
+      [...head, '-f', 'assignees[]=octocat', '-f', 'labels[]=bug'],
+      [...head, '-f', 'assignees[]=-bad-'],
+      [...head, '-f', 'assignees[]=a b'],
+      [...CREATE, '-f', 'assignees[]=octocat', '-f', 'type=Bug'],
+    ]) {
+      assert.equal(isIssueCreate(args), false, args.slice(8).join(' '));
+    }
+  });
+
   it('refuses any path but one repository\'s issues: an issue, its comments, another API', () => {
     for (const path of ['repos/acme/web/issues/7', 'repos/acme/web/issues/7/comments', 'repos/acme/issues', 'repos/acme/web/x/issues', 'repos/../web/issues', 'repos/acme/../issues', 'repos/acme/./issues', 'user/repos', 'repos/acme/web/labels']) {
       assert.equal(isIssueCreate(['api', path, ...CREATE.slice(2)]), false, path);
@@ -152,7 +183,6 @@ describe('isIssueCreate', () => {
       ['api', 'repos/acme/web/issues', ...fields],
       [...CREATE, '-F', 'labels[]=x'],
       [...CREATE, '--input', 'file.json'],
-      [...CREATE, '-f', 'assignees[]=octocat'],
       [...CREATE, '-f', 'title=Again'],
       ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'body=b', '-f', 'title=t'],
       ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=t'],

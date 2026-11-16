@@ -172,6 +172,19 @@ export const OPEN_PULLS_QUERY = `query($owner: String!, $name: String!, $after: 
   }
 }`;
 
+/** The most issue types an organisation has (GitHub allows 25), so one page reads them all. */
+export const ISSUE_TYPE_PAGE = 25;
+
+/**
+ * The issue types a repository's issues can take, with whether each is turned on. Only a repository an organisation
+ * owns has them: on one a person owns, `issueTypes` is empty or null.
+ */
+export const ISSUE_TYPES_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    issueTypes(first: ${ISSUE_TYPE_PAGE}) { nodes { name isEnabled } }
+  }
+}`;
+
 /** Each shipped text with the variables it declares: gh.ts runs a query only with these, each at most once. */
 export const QUERY_VARIABLES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [OPEN_ISSUES_QUERY, new Set(['owner', 'name', 'after'])],
@@ -180,7 +193,14 @@ export const QUERY_VARIABLES: ReadonlyMap<string, ReadonlySet<string>> = new Map
   [ISSUE_FIELDS_QUERY, new Set(['owner', 'name', 'after'])],
   [PULL_REQUESTS_QUERY, new Set(['owner', 'name', 'after'])],
   [OPEN_PULLS_QUERY, new Set(['owner', 'name', 'after'])],
+  [ISSUE_TYPES_QUERY, new Set(['owner', 'name'])],
 ]);
+
+/** The arguments for the read of `repo`'s (`owner/name`) issue types. */
+export function issueTypesArgs(repo: string): string[] {
+  const [owner = '', name = ''] = repo.split('/');
+  return pageArgs(ISSUE_TYPES_QUERY, { owner, name, after: undefined }, []);
+}
 
 /** Which page of which repository a read asks for: `after` is the cursor the page before ended on. */
 export interface PageVariables {

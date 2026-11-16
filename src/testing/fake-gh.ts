@@ -35,7 +35,7 @@ import {
   type WatchPath,
 } from '../github/gh.ts';
 import { nodesOf } from '../github/issues.ts';
-import { CLOSED_ISSUES_QUERY, ISSUE_FIELDS_QUERY, ISSUE_LINKS_QUERY, ISSUE_PAGE_SIZE, OPEN_ISSUES_QUERY, OPEN_PULLS_QUERY, PULL_PAGE_SIZE, PULL_REQUESTS_QUERY, RAW_FIELD } from '../github/queries.ts';
+import { CLOSED_ISSUES_QUERY, ISSUE_FIELDS_QUERY, ISSUE_LINKS_QUERY, ISSUE_TYPES_QUERY, ISSUE_PAGE_SIZE, OPEN_ISSUES_QUERY, OPEN_PULLS_QUERY, PULL_PAGE_SIZE, PULL_REQUESTS_QUERY, RAW_FIELD } from '../github/queries.ts';
 
 /** What a test sets on an issue; the rest takes a plain default. */
 export interface IssueSpec {
@@ -45,6 +45,8 @@ export interface IssueSpec {
   readonly stateReason?: string;
   readonly labels?: readonly string[];
   readonly assignees?: readonly string[];
+  /** The issue's type by name; none when unset. */
+  readonly type?: string;
   readonly updatedAt?: string;
   /** For a closed issue; it closed at its last change unless set. */
   readonly closedAt?: string;
@@ -104,6 +106,7 @@ export function ghIssue(repo: string, number: number, spec: IssueSpec = {}): Jso
     author: spec.author === null ? null : { __typename: spec.authorKind ?? 'User', login: spec.author ?? 'maintainer' },
     labels: { nodes: (spec.labels ?? []).map((name) => ({ name })) },
     assignees: { nodes: (spec.assignees ?? []).map((login) => ({ login })) },
+    issueType: spec.type === undefined ? null : { name: spec.type },
     timelineItems: { nodes: spec.timeline ?? [] },
     fullDatabaseId: String(spec.hostId ?? 1000 + number),
     parent: spec.parent === undefined ? null : issueNode(spec.parent),
@@ -360,6 +363,12 @@ export class FakeGh implements GhRunner {
     return { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ data: { repository } }), stderr: '' };
   }
 
+  /** The answer of the types query for `repo` (github/queries.ts ISSUE_TYPES_QUERY): only the types `holdsFields` gave. */
+  private typesRead(repo: string): GhResult {
+    const repository = { issueTypes: { nodes: this.fielded.get(repo)?.types ?? [] } };
+    return { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ data: { repository } }), stderr: '' };
+  }
+
   /** From now on, `repo` holds these issues (as ghIssue builds them). */
   holds(repo: string, issues: readonly JsonRecord[]): this {
     this.issues.set(repo, issues);
@@ -568,6 +577,9 @@ export class FakeGh implements GhRunner {
     if (query === ISSUE_FIELDS_QUERY) {
       return this.fieldsRead(repo);
     }
+    if (query === ISSUE_TYPES_QUERY) {
+      return this.typesRead(repo);
+    }
     const since = Date.parse(fieldOf(request.args, 'since') ?? '');
     const held =
       query === OPEN_ISSUES_QUERY
@@ -736,7 +748,9 @@ export class FakeGh implements GhRunner {
     const held = this.issues.get(repo) ?? [];
     const number = Math.max(0, ...held.map((issue) => (typeof issue['number'] === 'number' ? issue['number'] : 0))) + 1;
     const labels = args.flatMap((arg, at) => (args[at - 1] === RAW_FIELD && arg.startsWith(LABEL_PREFIX) ? [arg.slice(LABEL_PREFIX.length)] : []));
-    this.issues.set(repo, [...held, ghIssue(repo, number, { title: fieldOf(args, 'title') ?? '', body: fieldOf(args, 'body') ?? '', labels })]);
+    const assignees = args.flatMap((arg, at) => (args[at - 1] === RAW_FIELD && arg.startsWith(ASSIGNEE_PREFIX) ? [arg.slice(ASSIGNEE_PREFIX.length)] : []));
+    const type = fieldOf(args, 'type');
+    this.issues.set(repo, [...held, ghIssue(repo, number, { title: fieldOf(args, 'title') ?? '', body: fieldOf(args, 'body') ?? '', labels, assignees, ...(type === undefined ? {} : { type }) })]);
     return { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ number, html_url: `https://github.com/${repo}/issues/${number}` }), stderr: '' };
   }
 
@@ -794,6 +808,7 @@ const LINK_WRITE = /^repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/(sub_issues|dependenc
 
 /** How a label field of an issue create starts. */
 const LABEL_PREFIX = 'labels[]=';
+const ASSIGNEE_PREFIX = 'assignees[]=';
 
 /** A comment node of the issue queries' shape, as GitHub's REST API spells it. */
 function restCommentOfNode(comment: JsonRecord): JsonRecord {

@@ -74,6 +74,7 @@ export type HostLabelFile = { readonly kind: 'read'; readonly labels: readonly L
  */
 export type HostAssignee = { readonly kind: 'found'; readonly login: string } | { readonly kind: 'missing' } | { readonly kind: 'failed'; readonly reason: string };
 
+
 /** The comments one read of an issue's new comments gave, oldest first, each with its text matched and dropped; or the read failed. */
 export type HostComments = { readonly kind: 'read'; readonly comments: readonly ReadComment[] } | { readonly kind: 'failed'; readonly reason: string };
 
@@ -110,12 +111,18 @@ export type HostJobLog =
   | { readonly kind: 'read'; readonly step: string | undefined; readonly lines: readonly string[] }
   | { readonly kind: 'failed'; readonly reason: string };
 
-/** One issue to open: its repository (`owner/name`), title, body and labels. */
+/**
+ * One issue to open: its repository (`owner/name`), title, body, labels, the host's issue type (null: none, as on a
+ * repository whose host has no types for it) and the logins it is assigned to, all set by the one create, so the
+ * issue never shows unassigned or unlabelled in between.
+ */
 export interface IssueDraft {
   readonly repo: string;
   readonly title: string;
   readonly body: string;
   readonly labels: readonly string[];
+  readonly type: string | null;
+  readonly assignees: readonly string[];
 }
 
 /** How opening an issue ended: the issue opened, or one plain line saying why there is none. */

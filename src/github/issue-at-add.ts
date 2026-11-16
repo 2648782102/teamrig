@@ -85,7 +85,7 @@ function openPlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueA
     return text;
   }
   const labels = issueLabels(ask.type ?? 'task', priorityLabelOf(ask.priority));
-  return { ok: true, value: { kind: 'open', draft: { repo: repo.value, ...text.value, labels } } };
+  return { ok: true, value: { kind: 'open', draft: { repo: repo.value, ...text.value, labels, type: null, assignees: [] } } };
 }
 
 /** `--issue-repo`, else `github.issueAtAdd`, else the one repository of `github.repos`. */

@@ -6,6 +6,7 @@ import type { Task } from '../register/fold.ts';
 import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from '../register/model.ts';
 import type { Verdict } from '../register/policy.ts';
 import type { IssueDraft } from '../issues/host.ts';
+import { fieldsText, wantedFields, type IssueRules, type WantedFields } from '../issues/issue-fields.ts';
 
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
@@ -17,16 +18,16 @@ import type { IssueDraft } from '../issues/host.ts';
  */
 
 /** The priorities a row gives, as the sync reads them back from an issue's labels (map.ts). */
-const PRIORITY_LABELS = ['p1', 'p2', 'p3'] as const;
+const PRIORITY_LABELS = ['p0', 'p1', 'p2', 'p3'] as const;
 type PriorityLabel = (typeof PRIORITY_LABELS)[number];
 
 /** A row's kind of work, and the GitHub label each one gets: a bug stays `bug`, a task is an `enhancement`. */
 const TYPE_LABELS = { bug: 'bug', task: 'enhancement' } as const;
 export type RowType = keyof typeof TYPE_LABELS;
 
-/** The priority label of a task's priority: p0 and p1 are `p1`, the sync's highest, p2 is `p2`, any lower `p3`. */
+/** The priority label of a task's priority: p0, p1 and p2 as they are, any lower `p3`. */
 export function priorityLabelOf(priority: number): PriorityLabel {
-  return priority <= 1 ? 'p1' : priority === 2 ? 'p2' : 'p3';
+  return priority <= 0 ? 'p0' : priority === 1 ? 'p1' : priority === 2 ? 'p2' : 'p3';
 }
 
 /** The labels an issue gets: its kind of work, then its priority. */
@@ -65,7 +66,10 @@ export type MigrateRow = IssueRow | LocalRow;
 /** One issue to open for one task. */
 export interface MigrateCreate {
   readonly id: string;
+  /** The issue's wording and its kind and priority labels; the fit (issues/issue-fields.ts) adds `wanted` to it before the create. */
   readonly draft: IssueDraft;
+  /** The type, status and area labels and assignee the task calls for. */
+  readonly wanted: WantedFields;
   /** The task's ref the issue ref replaces, or null when it has none. */
   readonly replaces: string | null;
 }
@@ -226,7 +230,7 @@ export function rowLabels(row: IssueRow): string[] {
  * after a stop skips each task already holding its issue. A ref that is no issue is replaced, and its create names
  * it. A live task no row names is listed, so none is left behind unseen.
  */
-export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<string, Task>, repos: readonly string[], judge: RefJudge): MigratePlan {
+export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<string, Task>, repos: readonly string[], judge: RefJudge, rules: IssueRules): MigratePlan {
   const creates: MigrateCreate[] = [];
   const local: LocalRow[] = [];
   const skipped: MigrateSkip[] = [];
@@ -237,8 +241,9 @@ export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<st
       skipped.push({ id: row.id, reason });
     } else if (row.decision === 'local') {
       local.push(row);
-    } else {
-      creates.push({ id: row.id, draft: { repo: row.repo, title: row.title, body: row.body, labels: rowLabels(row) }, replaces: task?.ref ?? null });
+    } else if (task !== undefined) {
+      const draft = { repo: row.repo, title: row.title, body: row.body, labels: rowLabels(row), type: null, assignees: [] };
+      creates.push({ id: row.id, draft, wanted: wantedFields(task, draft, rules), replaces: task.ref });
     }
   }
   const named = new Set(rows.map((row) => row.id));
@@ -284,6 +289,8 @@ export function createdNumber(stdout: string): number | undefined {
 export function previewMarkdown(plan: MigratePlan): string {
   const issues = plan.creates.flatMap((create) => [
     `### ${create.id} → ${create.draft.repo} [${create.draft.labels.join(', ')}]`,
+    '',
+    `Opens with ${fieldsText(create.wanted)}, each one the repository has.`,
     '',
     ...(create.replaces === null ? [] : [`Replaces the task's ref ${create.replaces} (kept in the task's history, not posted).`, '']),
     `**${create.draft.title}**`,

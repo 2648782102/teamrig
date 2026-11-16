@@ -3,6 +3,7 @@ import type { SecretScanner } from '../../core/secrets.ts';
 import { issueRef } from '../../github/map.ts';
 import type { AddIssueAsk } from '../../github/issue-at-add.ts';
 import type { IssueDraft, IssueHost } from '../../issues/host.ts';
+import { fitIssueFields, wantedFields, type FieldTask, type IssueRules } from '../../issues/issue-fields.ts';
 import type { TaskFields } from '../../register/events.ts';
 import type { AddInput, Verdict } from '../../register/policy.ts';
 import type { WriteResult } from '../../register/register.ts';
@@ -44,11 +45,18 @@ export function addIssueHost(runtime: CliRuntime, scanner: SecretScanner, stamp:
   return githubOff(runtime.env) ? undefined : hostOf('github', runtime, scanner, stamp);
 }
 
+/** The judged task as its issue's fields read it: a task an add writes always starts open. */
+function newTaskFields(fields: TaskFields): FieldTask {
+  return { type: fields.type, after: fields.after, due: fields.due, owner: fields.owner, status: 'open' };
+}
+
 /**
- * Adds a task with its issue, all or nothing: the add is judged, the issue opened, then the task written with its ref
- * pointing at it, so the sync adds no second task for it. A refused add, GitHub off here or a GitHub failure writes
- * nothing and opens nothing. A write the register refuses after the issue opened (a task written between the two)
- * closes the issue as not planned, or says to close it by hand when that fails; the caller reports the refusal.
+ * Adds a task with its issue, all or nothing: the add is judged, the issue opened with the type, status and area
+ * labels and assignee the judged task calls for (issues/issue-fields.ts, each one the repository has), then the task
+ * written with its ref pointing at it, so the sync adds no second task for it. A refused add, GitHub off here or a
+ * GitHub failure writes nothing and opens nothing. A write the register refuses after the issue opened (a task written
+ * between the two) closes the issue as not planned, or says to close it by hand when that fails; the caller reports
+ * the refusal.
  */
 export async function addWithIssue(
   say: (line: string) => void,
@@ -57,6 +65,7 @@ export async function addWithIssue(
   by: string,
   input: AddInput,
   draft: IssueDraft,
+  rules: IssueRules,
 ): Promise<IssueAddEnd> {
   const judged = await register.judgeAdd(by, input);
   if (!judged.ok) {
@@ -66,7 +75,13 @@ export async function addWithIssue(
     throw new RefusedError(`${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine, so the new task's issue cannot open and nothing is written: turn GitHub on, or add the task with --local <reason>`);
   }
   const reach = await host.reach(draft.repo, 'open');
-  const opened = reach.kind === 'unreachable' ? { kind: 'failed' as const, reason: reach.reason } : await host.open(draft);
+  if (reach.kind === 'unreachable') {
+    say(`FAILED the new task's issue: ${reach.reason}; nothing is written`);
+    return { kind: 'stopped', code: EXIT.failed };
+  }
+  const fitted = await fitIssueFields(host, draft, wantedFields(newTaskFields(judged.value), draft, rules));
+  fitted.skipped.forEach(say);
+  const opened = await host.open(fitted.draft);
   if (opened.kind === 'failed') {
     say(`FAILED the new task's issue: ${opened.reason}; nothing is written`);
     return { kind: 'stopped', code: EXIT.failed };

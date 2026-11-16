@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { SecretScanner } from '../core/secrets.ts';
 import type { Task } from '../register/fold.ts';
 import { testTask } from '../testing/task.ts';
-import { MAX_TITLE, countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, rowLabels, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
+import { DEFAULT_ISSUE_FIELDS } from '../config/defaults.ts';
+import type { IssueRules } from '../issues/issue-fields.ts';
+import { MAX_TITLE, countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, priorityLabelOf, rowLabels, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
 
 const REPO = 'acme/tool';
 
@@ -36,6 +38,8 @@ function tasksOf(...tasks: Task[]): Map<string, Task> {
 }
 
 const allow: RefJudge = () => undefined;
+/** No session has a login or an area: an issue is assigned only to the repository's owner. */
+const RULES: IssueRules = { logins: new Map(), areaOwners: new Map(), fields: DEFAULT_ISSUE_FIELDS };
 
 describe('parseMigrateRows', () => {
   it('reads an issue row and a local row, skipping blank lines and trimming text', () => {
@@ -74,9 +78,9 @@ describe('parseMigrateRows', () => {
     assert.equal(refused(issueLine({ body: null })), 'line 1: T1: repo, title and body are text');
   });
 
-  it('refuses a type other than bug or task, and a priority outside p1 to p3', () => {
+  it('refuses a type other than bug or task, and a priority outside p0 to p3', () => {
     assert.equal(refused(issueLine({ type: 'idea' })), 'line 1: T1: type is neither "bug" nor "task"');
-    assert.equal(refused(issueLine({ priority: 'p4' })), 'line 1: T1: priority is not one of p1, p2, p3');
+    assert.equal(refused(issueLine({ priority: 'p4' })), 'line 1: T1: priority is not one of p0, p1, p2, p3');
   });
 
   it('refuses an empty, multi-line or over-long title, and an empty body', () => {
@@ -126,15 +130,29 @@ describe('rowLabels', () => {
   it('labels a task an enhancement and a bug a bug, then the priority', () => {
     assert.deepEqual(rowLabels(issueRow()), ['enhancement', 'p2']);
     assert.deepEqual(rowLabels(issueRow({ type: 'bug', priority: 'p1' })), ['bug', 'p1']);
+    assert.deepEqual(rowLabels(issueRow({ priority: 'p0' })), ['enhancement', 'p0']);
+  });
+});
+
+describe('priorityLabelOf', () => {
+  it('keeps p0, p1 and p2 as they are and puts any lower priority at p3', () => {
+    assert.deepEqual([0, 1, 2, 3, 5].map(priorityLabelOf), ['p0', 'p1', 'p2', 'p3', 'p3']);
   });
 });
 
 describe('planMigration', () => {
   it('opens an issue for a live task with no ref, and keeps a local row local', () => {
     const local: MigrateRow = { decision: 'local', id: 'T2', reason: 'Private.' };
-    const plan = planMigration([issueRow(), local], tasksOf(testTask(), testTask({ id: 'T2', status: 'waiting' })), [REPO], allow);
+    const plan = planMigration([issueRow(), local], tasksOf(testTask(), testTask({ id: 'T2', status: 'waiting' })), [REPO], allow, RULES);
     assert.deepEqual(plan, {
-      creates: [{ id: 'T1', draft: { repo: REPO, title: 'Add a health check', body: 'Why and what.', labels: ['enhancement', 'p2'] }, replaces: null }],
+      creates: [
+        {
+          id: 'T1',
+          draft: { repo: REPO, title: 'Add a health check', body: 'Why and what.', labels: ['enhancement', 'p2'], type: null, assignees: [] },
+          wanted: { types: ['Task'], labels: ['status:open'], assignees: [] },
+          replaces: null,
+        },
+      ],
       local: [local],
       skipped: [],
       unrowed: [],
@@ -142,7 +160,7 @@ describe('planMigration', () => {
   });
 
   it('skips a row whose task is missing or finished, issue and local alike', () => {
-    const plan = planMigration([issueRow({ id: 'T9' }), issueRow(), { decision: 'local', id: 'T2', reason: 'x' }], tasksOf(testTask({ status: 'done' }), testTask({ id: 'T2', status: 'dropped' })), [REPO], allow);
+    const plan = planMigration([issueRow({ id: 'T9' }), issueRow(), { decision: 'local', id: 'T2', reason: 'x' }], tasksOf(testTask({ status: 'done' }), testTask({ id: 'T2', status: 'dropped' })), [REPO], allow, RULES);
     assert.deepEqual(plan.skipped, [
       { id: 'T9', reason: 'no such task in the working set' },
       { id: 'T1', reason: 'the task is done' },
@@ -153,12 +171,12 @@ describe('planMigration', () => {
   });
 
   it('skips a task that holds its issue already, so a rerun opens no second one', () => {
-    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: `gh:${REPO}#7` })), [REPO], allow);
+    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: `gh:${REPO}#7` })), [REPO], allow, RULES);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: `the task has its issue already: gh:${REPO}#7` }]);
   });
 
   it('replaces a ref that is no issue, naming it', () => {
-    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: 'notes/plan.md' })), [REPO], allow);
+    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: 'notes/plan.md' })), [REPO], allow, RULES);
     assert.deepEqual(plan.skipped, []);
     assert.deepEqual(
       plan.creates.map((create) => [create.id, create.replaces]),
@@ -167,7 +185,7 @@ describe('planMigration', () => {
   });
 
   it("skips a repo outside the team's github.repos", () => {
-    const plan = planMigration([issueRow({ repo: 'acme/other' })], tasksOf(testTask()), [REPO, 'acme/pane'], allow);
+    const plan = planMigration([issueRow({ repo: 'acme/other' })], tasksOf(testTask()), [REPO, 'acme/pane'], allow, RULES);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: `acme/other is not one of github.repos (${REPO}, acme/pane)` }]);
   });
 
@@ -177,14 +195,28 @@ describe('planMigration', () => {
       asked.push(`${task.id} ${ref}`);
       return 'not your task';
     };
-    const plan = planMigration([issueRow()], tasksOf(testTask()), [REPO], judge);
+    const plan = planMigration([issueRow()], tasksOf(testTask()), [REPO], judge, RULES);
     assert.deepEqual(asked, [`T1 gh:${REPO}#1`]);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: 'not your task' }]);
   });
 
+  it("gives a started task's issue its type, status and area labels and its owner's login, a goal the types of github.fields.types.goal", () => {
+    const rules: IssueRules = { logins: new Map([['alpha', 'octocat']]), areaOwners: new Map([['area:cli', 'beta'], ['area:sync', 'alpha']]), fields: DEFAULT_ISSUE_FIELDS };
+    const tasks = tasksOf(testTask({ status: 'in-progress' }), testTask({ id: 'T2', type: 'bug', due: '2030-01-02' }), testTask({ id: 'T3', after: ['T1'] }));
+    const plan = planMigration([issueRow(), issueRow({ id: 'T2' }), issueRow({ id: 'T3' })], tasks, [REPO], allow, rules);
+    assert.deepEqual(
+      plan.creates.map((create) => create.wanted),
+      [
+        { types: ['Task'], labels: ['status:in progress', 'area:sync'], assignees: ['octocat'] },
+        { types: ['Bug'], labels: ['status:claimed', 'area:sync'], assignees: ['octocat'] },
+        { types: ['Feature', 'Goal'], labels: ['area:sync'], assignees: [] },
+      ],
+    );
+  });
+
   it('lists each live task no row names, and leaves out finished ones', () => {
     const tasks = tasksOf(testTask(), testTask({ id: 'T3', status: 'verifying' }), testTask({ id: 'T4', status: 'done' }), testTask({ id: 'T5', status: 'in-progress' }));
-    assert.deepEqual(planMigration([issueRow()], tasks, [REPO], allow).unrowed, ['T3', 'T5']);
+    assert.deepEqual(planMigration([issueRow()], tasks, [REPO], allow, RULES).unrowed, ['T3', 'T5']);
   });
 });
 
@@ -207,6 +239,7 @@ describe('previewMarkdown', () => {
       tasksOf(testTask({ ref: 'notes/plan.md' }), testTask({ id: 'T2' }), testTask({ id: 'T3' })),
       [REPO],
       allow,
+      RULES,
     );
     assert.equal(
       previewMarkdown(plan),
@@ -218,6 +251,8 @@ describe('previewMarkdown', () => {
         '## Issues to open',
         '',
         `### T1 → ${REPO} [bug, p1]`,
+        '',
+        'Opens with type Task, labels status:open, unassigned, each one the repository has.',
         '',
         "Replaces the task's ref notes/plan.md (kept in the task's history, not posted).",
         '',

@@ -20,7 +20,11 @@ import {
   PULL_REQUESTS_QUERY,
   pullPageArgs,
   QUERY_VARIABLES,
+  ISSUE_TYPE_PAGE,
+  ISSUE_TYPES_QUERY,
+  issueTypesArgs,
 } from './queries.ts';
+import { isIssueQuery } from './gh.ts';
 
 const PAGE = { owner: 'acme', name: 'web', after: undefined };
 
@@ -106,6 +110,14 @@ describe('the shipped queries', () => {
     const withoutPosts = OPEN_PULLS_QUERY.replace('states: [OPEN], ', '').replace(/\n\s*comments\(last: [^\n]*\n\s*reviews\(last: [^\n]*/, '');
     assert.equal(withoutPosts, PULL_REQUESTS_QUERY);
     assert.deepEqual(pullPageArgs(PAGE, 'open'), ['api', 'graphql', '-f', `query=${OPEN_PULLS_QUERY}`, '-f', 'owner=acme', '-f', 'name=web']);
+  });
+
+  it('read the issue types of one repository, by owner and name, and change nothing (T3349)', () => {
+    assert.match(ISSUE_TYPES_QUERY, /^query\(/);
+    assert.doesNotMatch(ISSUE_TYPES_QUERY, /mutation/i);
+    assert.ok(ISSUE_TYPES_QUERY.includes(`issueTypes(first: ${ISSUE_TYPE_PAGE})`) && ISSUE_TYPES_QUERY.includes('isEnabled'));
+    assert.deepEqual(issueTypesArgs('acme/web'), ['api', 'graphql', '-f', `query=${ISSUE_TYPES_QUERY}`, '-f', 'owner=acme', '-f', 'name=web']);
+    assert.equal(isIssueQuery(issueTypesArgs('acme/web')), true);
   });
 
   it('declare exactly the variables gh.ts lets through', () => {

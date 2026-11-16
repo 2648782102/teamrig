@@ -41,13 +41,14 @@ import {
 } from './gh.ts';
 import { GitHubIssueHost, issueIdIn, loginIn } from './host.ts';
 import { ISSUE_LIMIT, issuePageArgs } from './issues.ts';
-import { CLOSED_ISSUES_QUERY, PULL_PAGE_SIZE } from './queries.ts';
+import { CLOSED_ISSUES_QUERY, ISSUE_TYPES_QUERY, PULL_PAGE_SIZE } from './queries.ts';
+import type { HostTypesRead } from '../issues/fields.ts';
 import { PULL_LIMIT } from './pulls.ts';
 import { RepoTokens } from './tokens.ts';
 
 const ENV = { HOME: '/u' };
 const TARGET = { repo: 'acme/web', number: 7 };
-const DRAFT: IssueDraft = { repo: 'acme/web', title: 'Fix login', body: 'Steps', labels: ['bug'] };
+const DRAFT: IssueDraft = { repo: 'acme/web', title: 'Fix login', body: 'Steps', labels: ['bug'], type: null, assignees: [] };
 
 function hostWith(
   gh: GhRunner,
@@ -207,6 +208,25 @@ describe('GitHubIssueHost.posts', () => {
     const odd: GhResult = { end: { kind: 'exited', code: 2 }, stdout: '', stderr: 'boom tok_abcdefgh\n' };
     const failed = await hostWith(new FakeGh().answers('acme/web', odd)).posts('acme/web', '2030-01-01T00:00:00Z');
     assert.equal(failed.kind === 'failed' && !failed.reason.includes('tok_abcdefgh'), true, JSON.stringify(failed));
+  });
+});
+
+describe('GitHubIssueHost.fields.types', () => {
+  it("reads only the repository's enabled types through the shipped types query, and none where it has no types (T3349)", async () => {
+    const types = [{ name: 'Task', isEnabled: true }, { name: 'Epic', isEnabled: false }, { name: 'Bug', isEnabled: true }];
+    const gh = new FakeGh().holds('acme/web', []).holds('mona/tool', []).holdsFields('acme/web', { fields: [], types, issues: [] });
+    const host = hostWith(gh, new FakeCredentials().savesTokensFor(['acme', 'mona']));
+    assert.deepEqual(await host.fields.types('acme/web'), { kind: 'read', types: ['Task', 'Bug'] });
+    assert.deepEqual(await host.fields.types('mona/tool'), { kind: 'read', types: [] });
+    assert.ok(gh.ran.every((request) => isIssueQuery(request.args) && request.args.includes(`query=${ISSUE_TYPES_QUERY}`)));
+  });
+
+  it('fails with what went wrong: no such repository, output that is no answer, gh stopped', async () => {
+    const types = (gh: FakeGh): Promise<HostTypesRead> => hostWith(gh).fields.types('acme/web');
+    assert.deepEqual(await types(new FakeGh().answers('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' })), { kind: 'failed', reason: 'GitHub found no repository acme/web to read its issue types' });
+    assert.deepEqual(await types(new FakeGh().answers('acme/web', { end: { kind: 'exited', code: 0 }, stdout: '{"data":{}}', stderr: '' })), { kind: 'failed', reason: 'gh printed no issue types for acme/web' });
+    const stopped = await types(new FakeGh().answers('acme/web', { end: { kind: 'signal', signal: 'SIGTERM' }, stdout: '', stderr: '' }));
+    assert.deepEqual(stopped, { kind: 'failed', reason: 'gh was stopped (SIGTERM) while reading the issue types of acme/web' });
   });
 });
 

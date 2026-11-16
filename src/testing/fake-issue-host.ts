@@ -1,5 +1,5 @@
 import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLabelFile, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
-import type { FieldValue, HostField, HostFieldRead, IssueFields } from '../issues/fields.ts';
+import type { FieldValue, HostField, HostFieldRead, HostTypesRead, IssueFields } from '../issues/fields.ts';
 import type { LinkedIssue } from '../issues/issue.ts';
 import type { HostPost, HostPosts } from '../issues/post.ts';
 import type { HostPull } from '../issues/pull.ts';
@@ -57,14 +57,31 @@ export class FakeIssueHost implements IssueHost {
   private unassignEnd: HostEnd = { kind: 'done' };
   /** No fields capability until a test gives one, as a tracker without issue fields has none. */
   fields?: IssueFields;
+  /** Each repository whose issue types were read alone (`fields.types`), in order. */
+  readonly typesReads: string[] = [];
+
+  /** From now on, it has issue fields whose read finds only these enabled `types`. */
+  hasIssueTypes(...types: string[]): this {
+    return this.hasFields({ kind: 'read', fields: [], types, issues: [], notes: [] });
+  }
+
+  /** From now on, it has issue fields whose read fails for `reason`. */
+  failsIssueTypes(reason: string): this {
+    return this.hasFields({ kind: 'failed', reason });
+  }
 
   /**
    * From now on, it has issue fields: a read of any repository gives `read`, and each field or type write is recorded
    * and ends with `end`.
    */
   hasFields(read: HostFieldRead, end: HostEnd = { kind: 'done' }): this {
+    const types: HostTypesRead = read.kind === 'read' ? { kind: 'read', types: read.types } : read.kind === 'none' ? { kind: 'read', types: [] } : read;
     this.fields = {
       read: (_repo: string) => Promise.resolve(read),
+      types: (repo: string) => {
+        this.typesReads.push(repo);
+        return Promise.resolve(types);
+      },
       setField: (target: IssueTarget, field: HostField, value: FieldValue) => {
         this.calls.push({ kind: 'field', target, field: field.name, value });
         return Promise.resolve(end);

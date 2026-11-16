@@ -3,6 +3,7 @@ import { ENV, KIT_NAME } from '../../core/home.ts';
 import { SecretScanner } from '../../core/secrets.ts';
 import { issueRef } from '../../github/map.ts';
 import { countsLine, parseMigrateRows, planMigration, previewMarkdown, replacedRefNote, type MigrateCreate, type MigratePlan, type MigrateRow, type RefJudge } from '../../github/migrate.ts';
+import { fitIssueFields, issueRulesOf, RepoTypes } from '../../issues/issue-fields.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import { onePositional, type ParsedArgs } from '../args.ts';
 import { callerOf } from '../inputs.ts';
@@ -49,7 +50,7 @@ export async function issueMigrate(args: ParsedArgs, runtime: CliRuntime): Promi
     const verdict = policy.update(task, by, { ref }, refNote(task.ref), snapshot.state, elsewhere);
     return verdict.ok ? undefined : verdict.error;
   };
-  const plan = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge);
+  const plan = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge, issueRulesOf(team.config.github));
   const out = args.flags.get('out');
   if (out !== undefined) {
     const at = resolve(runtime.cwd, out);
@@ -100,6 +101,7 @@ async function openIssues(runtime: CliRuntime, team: Team, by: string, creates: 
   // planMigration plans issues only for github.repos, GitHub's list, so every one is GitHub's.
   const host = hostOf('github', runtime, scanner, team.config.github.stamp);
   const told = new Set<string>();
+  const types = new RepoTypes(host);
   let opened = 0;
   const stopped = (id: string): string => `STOPPED at ${id} after opening ${opened} issue(s); fix the cause and rerun: tasks holding their issue are skipped`;
   for (const create of creates) {
@@ -113,7 +115,9 @@ async function openIssues(runtime: CliRuntime, team: Team, by: string, creates: 
       told.add(reach.scope);
       say(`ACCESS ${reach.access}`);
     }
-    const end = await host.open(create.draft);
+    const fitted = await fitIssueFields(host, create.draft, create.wanted, types);
+    fitted.skipped.forEach(say);
+    const end = await host.open(fitted.draft);
     if (end.kind === 'failed') {
       say(`FAILED ${create.id}: ${end.reason}`);
       say(stopped(create.id));

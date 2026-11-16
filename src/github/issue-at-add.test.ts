@@ -36,15 +36,15 @@ describe('addIssuePlan', () => {
   it('opens the issue in --issue-repo, else issueAtAdd, else the only repository, labelled by type and priority', () => {
     assert.deepEqual(planned({ ...ISSUE, repo: 'Acme/Web', type: 'bug', priority: 0 }, AT_ADD), {
       kind: 'open',
-      draft: { repo: 'acme/web', title: 'Add a health check', body: 'Why it is needed.', labels: ['bug', 'p1'] },
+      draft: { repo: 'acme/web', title: 'Add a health check', body: 'Why it is needed.', labels: ['bug', 'p0'], type: null, assignees: [] },
     });
     assert.deepEqual(planned({ ...ISSUE, priority: 2 }, AT_ADD), {
       kind: 'open',
-      draft: { repo: 'acme/api', title: 'Add a health check', body: 'Why it is needed.', labels: ['enhancement', 'p2'] },
+      draft: { repo: 'acme/api', title: 'Add a health check', body: 'Why it is needed.', labels: ['enhancement', 'p2'], type: null, assignees: [] },
     });
     assert.deepEqual(planned({ ...ISSUE, type: 'task', priority: 3 }, ONE_REPO), {
       kind: 'open',
-      draft: { repo: 'acme/web', title: 'Add a health check', body: 'Why it is needed.', labels: ['enhancement', 'p3'] },
+      draft: { repo: 'acme/web', title: 'Add a health check', body: 'Why it is needed.', labels: ['enhancement', 'p3'], type: null, assignees: [] },
     });
   });
 

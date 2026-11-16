@@ -23,7 +23,7 @@ import {
   type IssueTarget,
   type WatchMarks,
 } from '../issues/host.ts';
-import type { FieldValue, HostField, HostFieldRead, IssueFields } from '../issues/fields.ts';
+import type { FieldValue, HostField, HostFieldRead, HostTypesRead, IssueFields } from '../issues/fields.ts';
 import type { IssueState } from '../issues/issue.ts';
 import type { HostPosts } from '../issues/post.ts';
 import { LABEL_FILE, parseLabelFile } from '../issues/label-file.ts';
@@ -67,7 +67,8 @@ import { createdNumber } from './migrate.ts';
 import { latestIssues } from './plan.ts';
 import { readPosts } from './posts.ts';
 import { listPulls, PULL_LIMIT } from './pulls.ts';
-import { PULL_PAGE_SIZE } from './queries.ts';
+import { issueTypesArgs, PULL_PAGE_SIZE } from './queries.ts';
+import { typeNamesIn } from './issue-types.ts';
 import { NoAccessError, type RepoAccess, type RepoTokens } from './tokens.ts';
 
 /** A failed job's log read, as a failure line words it: the Actions permission lets a token read it. */
@@ -329,6 +330,19 @@ export class GitHubIssueHost implements IssueHost {
     return read.kind === 'found' ? { kind: 'found', login: spelled } : read;
   }
 
+  /** Reads the repository's enabled issue types (queries.ts ISSUE_TYPES_QUERY); a repository a person owns has none. */
+  private async readTypes(repo: string): Promise<HostTypesRead> {
+    const read = await this.read(repo, issueTypesArgs(repo), `the issue types of ${repo}`);
+    if (read.kind === 'missing') {
+      return { kind: 'failed', reason: `GitHub found no repository ${repo} to read its issue types` };
+    }
+    if (read.kind === 'failed') {
+      return read;
+    }
+    const types = typeNamesIn(read.stdout);
+    return types === undefined ? { kind: 'failed', reason: `gh printed no issue types for ${repo}` } : { kind: 'read', types };
+  }
+
   /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
   private async read(repo: string, args: readonly string[], what: string): Promise<HostRead> {
     const access = await this.tokens.accessFor(repo);
@@ -421,6 +435,7 @@ export class GitHubIssueHost implements IssueHost {
       const access = await this.tokens.accessFor(repo);
       return access instanceof NoAccessError ? { kind: 'failed', reason: access.message } : readFields(this.gh, access, repo);
     },
+    types: (repo: string): Promise<HostTypesRead> => this.readTypes(repo),
     setField: (target: IssueTarget, field: HostField, value: FieldValue): Promise<HostEnd> =>
       this.write(target, fieldValueSetArgs(target, field.id, value), `set the field ${JSON.stringify(field.name)} of`),
     setType: (target: IssueTarget, type: string): Promise<HostEnd> => this.write(target, issueTypeSetArgs(target, type), 'set the type of'),
