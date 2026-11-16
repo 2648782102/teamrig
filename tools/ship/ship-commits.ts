@@ -1,6 +1,6 @@
 import { DEFAULT_COMMITS } from '../../src/config/defaults.ts';
 import { pathMatcher, weighCommit, type CommitWeight, type FileChange } from '../../src/push-guard/commit-size.ts';
-import { workChanges, type ClearMerge, type WorkCommit } from './approval.ts';
+import { named, workChanges, type ClearMerge, type WorkCommit } from './approval.ts';
 import { freeBranch } from './branch-names.ts';
 import type { BuildStep } from './build-steps.ts';
 import type { GateVerdict } from './local-gate.ts';
@@ -43,10 +43,15 @@ export interface ShipDeps {
   mainMove: () => MainMove | null;
   /** Whether the caller may merge the branch at its head on the approval it names (approval.ts, T2788). */
   clearMerge: ClearMerge;
-  /** The fingerprint of what `rev` changes over origin's main, regenerated paths apart (approval.ts `changePatch`). */
-  patchOf: (rev: string) => string;
+  /**
+   * The fingerprint of what `rev` changes, regenerated paths apart: over origin's main (approval.ts `changePatch`), or
+   * over `from`, one of its commits (`changePatchFrom`).
+   */
+  patchOf: (rev: string, from: string | null) => string;
   /** The work commits `rev` carries over origin's main, with their patch ids (approval.ts `workCommitsOf`). */
   workOf: (rev: string) => readonly WorkCommit[];
+  /** `rev`'s leading work commits whose patch origin's main carries under another sha: a parent that merged first (approval.ts `landedRun`). */
+  landedOf: (rev: string) => readonly WorkCommit[];
 }
 
 /** The approved head a --merge run started from, and the fingerprint of its change, which the push must still carry. */
@@ -145,7 +150,8 @@ export async function shipCommits(args: ShipArgs, written: readonly Chunk[], dep
  */
 async function clearedChange(args: ShipArgs, branch: string, deps: ShipDeps): Promise<ApprovedChange | null> {
   const head = deps.git(['rev-parse', 'HEAD']).trim();
-  const approvedHead = args.approved === null || head.startsWith(args.approved) ? head : rebasedFrom(args.approved, head, deps);
+  const rebased = args.approved === null || head.startsWith(args.approved) ? null : rebasedFrom(args.approved, head, deps);
+  const approvedHead = rebased?.full ?? head;
   const clearance = await deps.clearMerge(branch, approvedHead, args.approved);
   if (clearance.kind === 'refused') throw new Error(`REFUSED ${clearance.reason}`);
   if (clearance.kind === 'self') {
@@ -153,28 +159,34 @@ async function clearedChange(args: ShipArgs, branch: string, deps: ShipDeps): Pr
     return null;
   }
   deps.log(`merge of ${branch} ${approvedHead.slice(0, 9)}: approved by ${clearance.by}`);
-  return { head: approvedHead, patch: deps.patchOf(approvedHead) };
+  // A ship rebases a stacked head past its parent's work (sync.ts), so the approved change is read past it too (T3343).
+  const landed = rebased?.landed ?? deps.landedOf(approvedHead);
+  const from = landed.at(-1)?.sha ?? null;
+  if (from !== null) deps.log(`${approvedHead.slice(0, 9)} is stacked on a parent main holds already (${landed.map(named).join(', ')}): its approved change is read from ${from.slice(0, 9)}`);
+  return { head: approvedHead, patch: deps.patchOf(approvedHead, from) };
 }
 
 /**
  * The full sha of `approved` when `head` is a rebase of it: the same work commits, patch for patch, in the same order
  * (T2913). Main moving under an approved branch then needs no new approval, as the ship sets the version files and the
- * dist again; a changed, dropped, added or reordered work commit throws `REFUSED`, naming each.
+ * dist again; a changed, dropped, added or reordered work commit throws `REFUSED`, naming each. The approved head's
+ * leading commits whose patch main carries, a parent that merged first, are no part of the compare (T3343).
  */
-function rebasedFrom(approved: string, head: string, deps: ShipDeps): string {
+function rebasedFrom(approved: string, head: string, deps: ShipDeps): { readonly full: string; readonly landed: readonly WorkCommit[] } {
   let full: string;
   try {
     full = deps.git(['rev-parse', '--verify', '--quiet', `${approved}^{commit}`]).trim();
   } catch {
     throw new Error(`REFUSED --approved ${approved} is not the branch head ${head.slice(0, 9)}, nor a commit here to compare its work with`);
   }
-  const work = deps.workOf(full);
+  const landed = deps.landedOf(full);
+  const work = deps.workOf(full).filter((commit) => !landed.some((one) => one.sha === commit.sha));
   const changes = workChanges(work, deps.workOf(head));
   if (changes.length > 0) {
     throw new Error(`REFUSED the head ${head.slice(0, 9)} is not the approved ${full.slice(0, 9)} rebased: ${changes.join('; ')}. Ship it without --merge and ask for approval of the new head`);
   }
   deps.log(`head ${head.slice(0, 9)} carries the approved ${full.slice(0, 9)}'s ${work.length} work commit(s), patch for patch`);
-  return full;
+  return { full, landed };
 }
 
 const pathsOf = (text: string): string[] => text.split('\n').map((line) => line.trim()).filter((line) => line !== '');
@@ -255,7 +267,7 @@ async function shipOnce(args: ShipArgs, written: readonly Chunk[], deps: ShipDep
     deps.log(`\nlocal checks: ${verdict.reason}, and ${move.reason}`);
     return { kind: 'moved', ...move };
   }
-  if (approved !== null && deps.patchOf('HEAD') !== approved.patch) {
+  if (approved !== null && deps.patchOf('HEAD', null) !== approved.patch) {
     throw new Error(`REFUSED the change differs from the approved head ${approved.head.slice(0, 9)} outside the version files and dist: ship it without --merge and ask for approval of the new head`);
   }
 
