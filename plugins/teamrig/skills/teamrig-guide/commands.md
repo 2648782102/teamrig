@@ -6963,7 +6963,7 @@ reason ends with the route to take) with the reason naming each secret.
 
 After a Bash, PowerShell, Read (of a text file) or Grep call, replaces each secret the call's result holds (a token
 by its shape, credentials in a URL or a header, a `register.secretPatterns` match, a secret variable's value in
-`NAME=value` form) with `[redacted <kind>]` before Claude and the transcript see it, and tells the session which
+`NAME=value` form or a YAML or JSON map's `NAME: value`) with `[redacted <kind>]` before Claude and the transcript see it, and tells the session which
 kinds it held and the task it filed to rotate each. See [Hooks and permissions](hooks.md#after-a-tool-call-the-secret-redactor).
 
 Flags: none.

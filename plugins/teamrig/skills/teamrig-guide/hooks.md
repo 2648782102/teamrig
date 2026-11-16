@@ -628,11 +628,13 @@ guard's shapes: GitHub, Anthropic, `sk-`, AWS, Slack, Google, Stripe live, a JSO
 credentials in a URL, the credentials of an `Authorization` or API key header, a quoted literal given to a
 secret-like name, a match of `register.secretPatterns`, and the value of a secret variable as an environment dump, a
 `.env` file or `docker inspect` prints it: `NAME=value`, an upper-case name the guard's names judge secret, with no
-space around `=`. A value found once goes from every part of the result, `stdout` and `stderr` alike. A value that
+space around `=`, or as a YAML or JSON map writes it (a Kubernetes secret's `stringData`, a compose file's
+`environment`): `NAME: value` or `"NAME": "value"`, the value quoted or bare. A digest under a name that is not a
+secret one (`IMAGE_DIGEST: <sha256>`) stays. A value found once goes from every part of the result, `stdout` and `stderr` alike. A value that
 only names or points to a secret stays: a placeholder or a reference, a number (`TOKEN_LIMIT=200000`), a path
 (`KEY_FILE=~/.ssh/id`), one lower-case word (`AUTH_MODE=oauth`) or a function's name right before `(`
-(`TOKEN=makeToken(`, a call no dump prints; a token-shaped value before `(` is still a hit); source code (`token = x`, `token: string`) is no
-such assignment. A URL value (`DB_URL=scheme://...`) is judged by the parts that carry a secret: a login or password,
+(`TOKEN=makeToken(`, a call no dump prints; a token-shaped value before `(` is still a hit); source code (`token = x`, `token: string`, a
+capitalised key holding a type, a call, `config.apiKey` or a quoted sentence) is no such assignment. A URL value (`DB_URL=scheme://...`) is judged by the parts that carry a secret: a login or password,
 a parameter with a secret name (`?access_token=`) or a token-shaped path segment (a webhook's) takes the whole URL,
 and one with none of them (a connection string naming only a certificate file) stays. The model then gets one line
 naming the kinds, never a value:
