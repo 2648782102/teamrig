@@ -1,6 +1,6 @@
 ---
 name: write-issue
-description: Use before opening or rewriting a GitHub issue someone else will take, so its body holds the whole spec, or a design issue for talk before anything is agreed.
+description: Use before opening or rewriting a GitHub issue, a spec someone else takes alone, a design issue for talk, or the issue of a task you start.
 ---
 
 # Write an issue someone can take alone
@@ -104,8 +104,30 @@ After posting, read the issue on GitHub (`gh issue view <n>`, or its page) and c
 renders (headings, lists, code, links), every path exists, every `#number` is the one meant, the labels and the
 parent are set, and nothing private is in it. Fix it by editing the body, then call it done.
 
+## A task you start with no issue
+
+On a team that tracks its work on GitHub (`github.repos` set), a task you start gets its issue before the work does,
+so a contributor sees the work is taken and its pull request has an issue to link. The issue is written by this
+skill, whole, as for any taker.
+
+1. Look at the task's ref (`teamrig show <id>`). A `gh:<owner>/<name>#<n>` ref means it has its issue: go on with
+   the work.
+2. Search for one first (step 1's search). An open issue that is the same work becomes the task's ref:
+   `teamrig update <id> --ref gh:<owner>/<name>#<n>`.
+3. Else write its body by steps 1 to 3 and open it with `teamrig issue migrate <rows.jsonl> --yes`, one issue row for
+   the task: it labels the issue with the task's type and priority (p0 and p1 both as `p1`) and sets the task's ref
+   to it. A task you are adding gets its issue in the same step: `teamrig add ... --issue "<title>" --issue-body
+   "<text>"`.
+4. Label what it is now: `teamrig issue label <owner/name#n> --add "status:in progress"`, with the area label too
+   when the repository has area labels.
+5. Read it back by step 7.
+
+A task that must stay off GitHub (a security hole, or private data that cannot be worded out) takes a local row in
+place of the issue row, with its reason, or `--local "<why>"` as it is added.
+
 ## Posting
 
 - A task of a teamrig team going to GitHub: `teamrig issue migrate`, its row's body written by these steps
-  ([the command](../teamrig-guide/commands.md#teamrig-issue-migrate)).
+  ([the command](../teamrig-guide/commands.md#teamrig-issue-migrate)); a task you start, by
+  [its section](#a-task-you-start-with-no-issue).
 - Any other new issue: `gh issue create --title "<title>" --body-file <file> --label "<label>"`, or the web form.
