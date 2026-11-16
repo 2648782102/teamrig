@@ -6,14 +6,14 @@ import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, star
 import { listLinks } from "./links.js";
 import { createdNumber } from "./migrate.js";
 import { latestIssues } from "./plan.js";
-import { TokenReadError } from "./tokens.js";
+import { NoAccessError } from "./tokens.js";
 /** What each use does with an access, as its ACCESS line words it. */
 const USE_VERB = { read: 'read with', open: 'opens issues with', write: 'writes with' };
 /**
  * GitHub as an issue host (issues/host.ts): a list is pages of the two shipped issue queries, a links read pages of
  * the third, and each write one gh REST call the runner's allowlist takes (gh.ts), made with the token saved for the
- * repository's owner, else, when none is saved, the gh login. A saved token the store cannot read reaches nothing: never the login in its place
- * (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a write failed.
+ * repository's owner. An owner with no saved token, or one the store cannot read, is reached by nothing: never the
+ * gh login in its place (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a write failed.
  */
 export class GitHubIssueHost {
     name = 'GitHub';
@@ -25,16 +25,16 @@ export class GitHubIssueHost {
         this.tokens = tokens;
         this.scanner = scanner;
     }
-    /** Reached with the owner's saved token, else the gh login; the scope is the owner, as one token serves all its repositories. */
+    /** Reached with the owner's saved token only; the scope is the owner, as one token serves all its repositories. */
     async reach(repo, use) {
         const access = await this.tokens.accessFor(repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'unreachable', reason: access.message };
         }
         const verb = USE_VERB[use];
         return {
             kind: 'reached',
-            access: access.via === 'token' ? `${access.owner}: ${verb} the token saved as ${access.credential}` : `${access.owner}: ${verb} the gh login; no token saved as ${access.credential}`,
+            access: `${access.owner}: ${verb} the token saved as ${access.credential}`,
             scope: access.owner,
         };
     }
@@ -44,7 +44,7 @@ export class GitHubIssueHost {
      */
     async list(repo, closedSince) {
         const access = await this.tokens.accessFor(repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         const open = await listIssues(this.gh, access, { repo, state: 'open', limit: ISSUE_LIMIT });
@@ -64,7 +64,7 @@ export class GitHubIssueHost {
      */
     async open(draft) {
         const access = await this.tokens.accessFor(draft.repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         let result;
@@ -100,7 +100,7 @@ export class GitHubIssueHost {
     async issueId(target) {
         const shown = targetText(target);
         const access = await this.tokens.accessFor(target.repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         let result;
@@ -167,7 +167,7 @@ export class GitHubIssueHost {
     /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
     async read(repo, args, what) {
         const access = await this.tokens.accessFor(repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         let result;
@@ -195,7 +195,7 @@ export class GitHubIssueHost {
     async createLabel(repo, label) {
         const shown = `the label ${JSON.stringify(label.name)} in ${repo}`;
         const access = await this.tokens.accessFor(repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         let result;
@@ -224,7 +224,7 @@ export class GitHubIssueHost {
     /** Every issue of the repository with its links, read with the same access as a list. */
     async links(repo) {
         const access = await this.tokens.accessFor(repo);
-        return access instanceof TokenReadError ? { kind: 'failed', reason: access.message } : listLinks(this.gh, access, repo);
+        return access instanceof NoAccessError ? { kind: 'failed', reason: access.message } : listLinks(this.gh, access, repo);
     }
     addSubIssue(parent, childId) {
         return this.write(parent, subIssueAddArgs(parent, childId), 'add a sub-issue to');
@@ -243,7 +243,7 @@ export class GitHubIssueHost {
      */
     async watch(repo, marks) {
         const access = await this.tokens.accessFor(repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         const next = new Map(marks);
@@ -283,7 +283,7 @@ export class GitHubIssueHost {
     /** One write; `missing`, when given, says what a Not Found means for it in place of the issue not being there. */
     async write(target, args, what, missing) {
         const access = await this.tokens.accessFor(target.repo);
-        if (access instanceof TokenReadError) {
+        if (access instanceof NoAccessError) {
             return { kind: 'failed', reason: access.message };
         }
         let result;
@@ -310,22 +310,17 @@ function listNotes(state, list) {
         ...(list.unreadable > 0 ? [`${list.unreadable} ${state} item(s) gh printed did not read as issues and were left out`] : []),
     ];
 }
-/** Why a write failed, with the fix when it is a known one: a refused token or login, a missing permission, an issue not there. */
+/** Why a write failed, with the fix when it is a known one: a refused token, a missing permission, an issue not there. */
 export function writeFailureText(target, what, code, stderr, access) {
     const shown = targetText(target);
     const token = `the token saved as ${access.credential}`;
-    const saveOne = `save a token for ${access.owner} with Issues and Pull requests read and write, with: ${access.save}`;
     switch (ghFailureKind(code, stderr)) {
         case 'no-login':
-            return access.via === 'token'
-                ? `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`
-                : `gh is not logged in to GitHub: run gh auth login, or ${saveOne}`;
+            return `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`;
         case 'no-permission':
-            return access.via === 'token'
-                ? `${token} may not ${what} ${shown}: on GitHub, edit that token and set Issues and Pull requests to Read and write; its text stays the same, so nothing needs saving again`
-                : `the gh login may not ${what} ${shown}: ${saveOne}`;
+            return `${token} may not ${what} ${shown}: on GitHub, edit that token and set Issues and Pull requests to Read and write; its text stays the same, so nothing needs saving again`;
         case 'not-visible':
-            return `${shown} is not there for ${access.via === 'token' ? token : 'the gh login'}: check the number, and that the token reaches ${target.repo}`;
+            return `${shown} is not there for ${token}: check the number, and that the token reaches ${target.repo}`;
         case undefined:
             return plainLine(`gh api to ${what} ${shown} ${exitText(code, stderr)}`);
     }
