@@ -96,7 +96,7 @@ export async function waitForChecks(
   const rerun = new Set<number>();
   let readFailed = false;
   for (;;) {
-    const read = readOnceMore(() => readChecks(gh, repo, sha, branch, required), readFailed, log);
+    const read = readOnceMore(() => readChecks(gh, repo, sha, branch, required, waiter.now()), readFailed, log);
     readFailed = read instanceof Error;
     if (read instanceof Error) {
       if (waiter.now() >= deadline) throw read;
@@ -566,7 +566,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   const gh = deps.ghFor(credential.secret);
   const proof =
     profile.gate === 'ci'
-      ? awayDuring(ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 }), deps.share)
+      ? awayDuring(ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky, checkMinutes: profile.checkMinutes }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 }), deps.share)
       : { proof: localProof(args.dir, profile.local, deps.gate), away: () => false };
   const result = await mergeThroughPull(
     { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, note) },
