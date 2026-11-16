@@ -3,14 +3,17 @@ import { GITHUB_SOURCE, ISSUE_REF_PREFIX, type TaskStatus } from '../register/mo
 import { DESIGN_LABEL } from './design-label.ts';
 import { parseIssueTarget, targetText, type CloseReason, type IssueTarget, type LabelSpec } from './host.ts';
 import type { HostIssue } from './issue.ts';
+import { fieldsOf, heldFields, type PushedEntry, type PushedFields, type PushedState } from './pushed-record.ts';
 
 /**
  * The status push (T2682): each issue a task holds shows that task's status, so a reader of the issue list sees
  * where the work stands without a teamrig team. The register is the store of record: an active task gives its
  * issue one `status:` label, a done task closes it as completed, a dropped one as not planned. The plan compares
  * the task with the issue as the host lists it now, not with what an earlier run sent, so five status changes since
- * the last run are one label swap, a run that failed half way is redone by the next, and a status label someone
- * edited by hand is set back. A person's close is never undone here: the issue stays closed and the plan names it.
+ * the last run are one label swap, and a run that failed half way is redone by the next. A status label or assignee
+ * a person changed since teamrig last wrote it stays as they set it (T3230, pushed-record.ts): the push holds that
+ * write, named, until the task's status matches it again. A person's close is never undone here: the issue stays
+ * closed and the plan names it.
  * An open issue with no assignee gets one (T2999): the login of the task's owning session, else the repository's owner
  * account; an issue a person assigned keeps its assignees, and the push takes none off.
  * An open task no session has scheduled leaves its issue open to anyone (T3021): `status:open` and no assignee, so a
@@ -199,6 +202,16 @@ export interface PushPlan {
   readonly closedActive: readonly ClosedActive[];
   /** Issues an active task holds that the list did not include: closed before the listed days, or gone. */
   readonly unlisted: readonly UnlistedIssue[];
+  /** The writes held because a person changed the field since teamrig's last write. */
+  readonly held: readonly IssueChange[];
+  /** The record entries to set before any write: each issue first seen, and each field whose hold the task now matches. */
+  readonly recorded: readonly PushedEntry[];
+}
+
+/** What teamrig last left on each issue (pushed-record.ts), and the time a new entry is stamped with. */
+export interface PushRecord {
+  readonly state: PushedState;
+  readonly at: number;
 }
 
 /** The writes one change sends: one per label added or taken off, one for the assign, and one for the close. */
@@ -227,13 +240,24 @@ export const SESSION_PUSH: PushLimits = { writesPerRun: PUSH_WRITES_PER_RUN, clo
  * When a team task and an imported one hold the same issue, the team task speaks for it: the issue is its work.
  * The run sends at most `limits.writesPerRun` writes; the rest is deferred. Without `limits.closes` a closing change
  * is held instead, taking none of the run's writes. With `logins` an open issue of a scheduled task with no assignee
- * is assigned (assigneeOf); without, the plan assigns nobody.
+ * is assigned (assigneeOf); without, the plan assigns nobody. With `record`, a label write is held when the issue's
+ * status labels differ from what teamrig last left, and an assign when its assignees do: a person changed them, so
+ * their change stays until the task's status matches it (heldWrites). A close is never held: it ends the work.
  */
-export function planPush(repo: string, issues: readonly HostIssue[], tasks: Iterable<Task>, limits: PushLimits = SESSION_PUSH, logins?: SessionLogins): PushPlan {
+export function planPush(
+  repo: string,
+  issues: readonly HostIssue[],
+  tasks: Iterable<Task>,
+  limits: PushLimits = SESSION_PUSH,
+  logins?: SessionLogins,
+  record?: PushRecord,
+): PushPlan {
   const listed = new Map(issues.filter((issue) => issue.repo === repo).map((issue) => [issue.number, issue]));
   const planned: IssueChange[] = [];
   const closedActive: ClosedActive[] = [];
   const unlisted: UnlistedIssue[] = [];
+  const held: IssueChange[] = [];
+  const recorded: PushedEntry[] = [];
   let unchanged = 0;
   for (const [target, task] of [...holders(repo, tasks)].sort(([a], [b]) => a - b).map(([number, holder]) => [{ repo, number }, holder] as const)) {
     const issue = listed.get(target.number);
@@ -252,17 +276,83 @@ export function planPush(repo: string, issues: readonly HostIssue[], tasks: Iter
       continue;
     }
     const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(repo, task.owner, logins) : undefined;
-    const change = changeFor(target, task, issue, goal, assign);
-    if (change === undefined) {
+    const wanted = changeFor(target, task, issue, goal, assign);
+    // A close is never held, and a closed issue is no longer kept: neither is compared with the record.
+    const kept = record !== undefined && issue.state === 'open' && wanted?.close === undefined;
+    const writes = kept ? heldWrites(record, issue, wanted) : { send: wanted, held: undefined, entry: undefined };
+    if (writes.entry !== undefined) {
+      recorded.push(writes.entry);
+    }
+    if (writes.held !== undefined) {
+      held.push(writes.held);
+    }
+    if (writes.send !== undefined) {
+      planned.push(writes.send);
+    } else if (writes.held === undefined) {
       unchanged += 1;
-    } else {
-      planned.push(change);
     }
   }
   const heldCloses = limits.closes ? [] : planned.filter((change) => change.close !== undefined);
   const sendable = limits.closes ? planned : planned.filter((change) => change.close === undefined);
   const { changes, deferred } = withinRun(sendable, limits.writesPerRun);
-  return { repo, changes, deferred, heldCloses, unchanged, closedActive, unlisted };
+  return { repo, changes, deferred, heldCloses, unchanged, closedActive, unlisted, held, recorded };
+}
+
+/** One open issue's writes against the record: what goes, what is held, and its entry when the record must change. */
+interface RecordedWrites {
+  readonly send: IssueChange | undefined;
+  readonly held: IssueChange | undefined;
+  readonly entry: PushedEntry | undefined;
+}
+
+/**
+ * Splits `wanted`, an open issue's writes, by the record: a field that differs from teamrig's last entry is a
+ * person's, so its writes are held. With no entry, nothing tells a person's field from one teamrig left before the
+ * record began, so the entry starts at the issue's fields and every write is sent. A field whose writes are not held
+ * takes the issue's value in the entry, as teamrig agrees with it; a held one keeps the old value, so the hold lasts.
+ */
+function heldWrites(record: PushRecord, issue: HostIssue, wanted: IssueChange | undefined): RecordedWrites {
+  const now = fieldsOf(
+    issue.labels.filter((label) => label.startsWith(STATUS_LABEL_PREFIX)),
+    issue.assignees,
+  );
+  const entry = record.state.get(targetText(issue));
+  const hold = heldFields(entry, now);
+  const holdLabels = hold.labels && wanted !== undefined && wanted.add.length + wanted.remove.length > 0;
+  const holdAssign = hold.assignees && wanted?.assign !== undefined;
+  const kept: PushedFields = {
+    labels: entry !== undefined && holdLabels ? entry.labels : now.labels,
+    assignees: entry !== undefined && holdAssign ? entry.assignees : now.assignees,
+  };
+  const changed = entry === undefined || !sameFields(entry, kept);
+  const next = changed ? { repo: issue.repo, number: issue.number, ...kept, at: record.at } : undefined;
+  if (wanted === undefined || (!holdLabels && !holdAssign)) {
+    return { send: wanted, held: undefined, entry: next };
+  }
+  const { assign, ...labels } = wanted;
+  const heldPart: IssueChange = {
+    ...labels,
+    add: holdLabels ? wanted.add : [],
+    remove: holdLabels ? wanted.remove : [],
+    ...(holdAssign && assign !== undefined ? { assign } : {}),
+  };
+  const sent: IssueChange = {
+    ...labels,
+    add: holdLabels ? [] : wanted.add,
+    remove: holdLabels ? [] : wanted.remove,
+    ...(!holdAssign && assign !== undefined ? { assign } : {}),
+  };
+  return { send: changeWrites(sent) > 0 ? sent : undefined, held: heldPart, entry: next };
+}
+
+function sameFields(a: PushedFields, b: PushedFields): boolean {
+  const same = (x: readonly string[], y: readonly string[]): boolean => x.length === y.length && x.every((item, index) => item === y[index]);
+  return same(a.labels, b.labels) && same(a.assignees, b.assignees);
+}
+
+/** One held change on one line: the writes the push leaves, and why. */
+export function heldLine(held: IssueChange): string {
+  return `${changeLine(held).replace(/^(LABEL|ASSIGN)/u, 'HELD')}; a person changed it since teamrig's last write, so the push leaves it until the task's status matches it`;
 }
 
 /** The task speaking for each issue number of `repo` a task holds: a team task over one the import added. */

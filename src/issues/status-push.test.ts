@@ -8,16 +8,19 @@ import {
   changeLine,
   changeWrites,
   heldIssue,
+  heldLine,
   isGoal,
   issueGoal,
   planPush,
   PUSH_WRITES_PER_HOUR,
   PUSH_WRITES_PER_RUN,
   scheduled,
+  SESSION_PUSH,
   STATUS_LABELS,
   assigneeOf,
   sessionLogins,
   type IssueChange,
+  type PushRecord,
 } from './status-push.ts';
 
 const REPO = 'acme/web';
@@ -226,6 +229,87 @@ describe('planPush (T2682)', () => {
     );
     assert.deepEqual(plan.deferred, []);
     assert.deepEqual(planPush(REPO, issues, tasks).heldCloses, []);
+  });
+});
+
+describe('planPush against the pushed record (T3230)', () => {
+  const AT = 5000;
+  const IN_PROGRESS = 'status:in progress';
+  /** The record holding what teamrig last left on acme/web#7. */
+  const recordOf = (labels: readonly string[], assignees: readonly string[] = []): PushRecord => ({
+    state: new Map([['acme/web#7', { repo: REPO, number: 7, labels, assignees, at: 1000 }]]),
+    at: AT,
+  });
+
+  it("leaves a status label a person changed since teamrig's last write, naming the held write", () => {
+    const issue = testHostIssue(7, { labels: ['status:waiting', 'bug'] });
+    const plan = planPush(REPO, [issue], [holding('T1', 7, { status: 'in-progress' })], SESSION_PUSH, undefined, recordOf([IN_PROGRESS]));
+    assert.deepEqual(plan.changes, []);
+    assert.equal(plan.unchanged, 0);
+    assert.deepEqual(plan.recorded, []);
+    assert.deepEqual(plan.held.map(heldLine), [
+      `HELD acme/web#7 T1 in-progress: add ${IN_PROGRESS}, take off status:waiting; a person changed it since teamrig's last write, so the push leaves it until the task's status matches it`,
+    ]);
+  });
+
+  it("sends the write when the issue still shows teamrig's last write, holding nothing", () => {
+    const issue = testHostIssue(7, { labels: [IN_PROGRESS] });
+    const plan = planPush(REPO, [issue], [holding('T1', 7, { status: 'waiting' })], SESSION_PUSH, undefined, recordOf([IN_PROGRESS]));
+    assert.deepEqual(plan.changes.map(changeLine), [`LABEL acme/web#7 T1 waiting: add status:waiting, take off ${IN_PROGRESS}`]);
+    assert.deepEqual(plan.held, []);
+    assert.deepEqual(plan.recorded, []);
+  });
+
+  it('starts the entry of an issue the record lacks at its fields, sending every write, so a later change by a person is held', () => {
+    const issue = testHostIssue(7, { labels: ['status:open'], assignees: ['OctoCat'] });
+    const tasks = [holding('T1', 7, { status: 'in-progress' })];
+    const first = planPush(REPO, [issue], tasks, SESSION_PUSH, undefined, { state: new Map(), at: AT });
+    assert.deepEqual(first.changes.map(changeLine), [`LABEL acme/web#7 T1 in-progress: add ${IN_PROGRESS}, take off status:open`]);
+    assert.deepEqual(first.held, []);
+    assert.deepEqual(first.recorded, [{ repo: REPO, number: 7, labels: ['status:open'], assignees: ['octocat'], at: AT }]);
+    const state = new Map(first.recorded.map((entry) => [`${entry.repo}#${entry.number}`, entry]));
+    const changed = testHostIssue(7, { labels: ['status:waiting'], assignees: ['OctoCat'] });
+    const next = planPush(REPO, [changed], tasks, SESSION_PUSH, undefined, { state, at: AT + 1 });
+    assert.deepEqual([next.changes, next.held.length], [[], 1]);
+  });
+
+  it('records an issue the record lacks that already shows its status, holding nothing', () => {
+    const plan = planPush(REPO, [testHostIssue(7, { labels: [IN_PROGRESS] })], [holding('T1', 7, { status: 'in-progress' })], SESSION_PUSH, undefined, { state: new Map(), at: AT });
+    assert.equal(plan.unchanged, 1);
+    assert.deepEqual(plan.held, []);
+    assert.deepEqual(plan.recorded, [{ repo: REPO, number: 7, labels: [IN_PROGRESS], assignees: [], at: AT }]);
+  });
+
+  it('holds the assign of an issue a person unassigned, sending its label write', () => {
+    const logins = sessionLogins({ octocat: 'bravo' });
+    const issue = testHostIssue(7, { labels: ['status:claimed'] });
+    const tasks = [holding('T1', 7, { status: 'in-progress', owner: 'bravo' })];
+    const plan = planPush(REPO, [issue], tasks, SESSION_PUSH, logins, recordOf(['status:claimed'], ['octocat']));
+    assert.deepEqual(plan.changes.map(changeLine), [`LABEL acme/web#7 T1 in-progress: add ${IN_PROGRESS}, take off status:claimed`]);
+    assert.deepEqual(
+      plan.held.map(changeLine),
+      ['ASSIGN acme/web#7 T1 in-progress: assign octocat'],
+    );
+    // The entry keeps the held assignee; the label write records itself as it goes through the recording host.
+    assert.deepEqual(plan.recorded, []);
+  });
+
+  it("takes a person's change into the record once the task's status matches it, so later writes go", () => {
+    const issue = testHostIssue(7, { labels: ['status:waiting'], assignees: ['hubot'] });
+    const plan = planPush(REPO, [issue], [holding('T1', 7, { status: 'waiting' })], SESSION_PUSH, undefined, recordOf([IN_PROGRESS], ['octocat']));
+    assert.equal(plan.unchanged, 1);
+    assert.deepEqual(plan.held, []);
+    assert.deepEqual(plan.recorded, [{ repo: REPO, number: 7, labels: ['status:waiting'], assignees: ['hubot'], at: AT }]);
+  });
+
+  it('never holds a close, and leaves a closed issue out of the record', () => {
+    const open = testHostIssue(7, { labels: ['status:waiting'] });
+    const plan = planPush(REPO, [open], [holding('T1', 7, { status: 'done' })], SESSION_PUSH, undefined, recordOf([IN_PROGRESS]));
+    assert.deepEqual(plan.changes.map(changeLine), ['CLOSE acme/web#7 T1 done: close as completed, take off status:waiting']);
+    assert.deepEqual(plan.held, []);
+    const closed = testHostIssue(8, { state: 'closed', stateReason: 'COMPLETED' });
+    const after = planPush(REPO, [closed], [holding('T2', 8, { status: 'done' })], SESSION_PUSH, undefined, { state: new Map(), at: AT });
+    assert.deepEqual([after.unchanged, after.recorded], [1, []]);
   });
 });
 

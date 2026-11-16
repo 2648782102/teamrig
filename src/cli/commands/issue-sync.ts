@@ -27,6 +27,7 @@ import { GITHUB_ACTOR } from '../../register/policy.ts';
 import { noPositionals, type ParsedArgs } from '../args.ts';
 import { hostOf, reposOf } from '../issue-hosts.ts';
 import { openTeamKit, requireConfig } from '../kit.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { teamRegister } from '../team-register.ts';
 import type { Thread } from '../../github/clock.ts';
@@ -91,7 +92,8 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   /** The issues of each repository read, for the claim pass, which writes to GitHub only when the run pushes. */
   const claimRead = new Map<string, readonly HostIssue[]>();
   // github.repos is GitHub's list, so every repository it names is GitHub's.
-  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
+  const record = pushedStoreOf(runtime, kit.paths, config.lock);
+  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), record);
   const told = new Set<string>();
   const ends: RepoEnd[] = [];
   const added: AddedTask[] = [];
@@ -221,6 +223,8 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
         limits: { writesPerRun: Math.max(0, writesPerRun - claimed.writes), closes: false },
         logins: sessionLogins(config.github.owners),
         told,
+        pushed: record,
+        at: runtime.clock.now(),
       },
       say,
     );

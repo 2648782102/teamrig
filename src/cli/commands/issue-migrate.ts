@@ -7,6 +7,7 @@ import { RegisterPolicy } from '../../register/policy.ts';
 import { onePositional, type ParsedArgs } from '../args.ts';
 import { callerOf } from '../inputs.ts';
 import { hostOf } from '../issue-hosts.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { sessionIdOf } from '../kit.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
@@ -98,7 +99,7 @@ function planLines(plan: MigratePlan): string[] {
 async function openIssues(runtime: CliRuntime, team: Team, by: string, creates: readonly MigrateCreate[], scanner: SecretScanner): Promise<ExitCode> {
   const say = (line: string): void => runtime.out.stdout(line);
   // planMigration plans issues only for github.repos, GitHub's list, so every one is GitHub's.
-  const host = hostOf('github', runtime, scanner);
+  const host = hostOf('github', runtime, scanner, pushedStoreOf(runtime, team.paths, team.config.lock));
   const told = new Set<string>();
   let opened = 0;
   const stopped = (id: string): string => `STOPPED at ${id} after opening ${opened} issue(s); fix the cause and rerun: tasks holding their issue are skipped`;

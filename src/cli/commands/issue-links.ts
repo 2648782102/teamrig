@@ -5,6 +5,7 @@ import { changedIssues, planLinks, type LinkPlan, type LinkWrite } from '../../i
 import { noPositionals, type ParsedArgs } from '../args.ts';
 import { hostOf, reposOf } from '../issue-hosts.ts';
 import { openTeamKit, requireConfig } from '../kit.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { EXIT, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { teamRegister } from '../team-register.ts';
 import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
@@ -34,7 +35,7 @@ export async function issueLinks(args: ParsedArgs, runtime: CliRuntime): Promise
   }
   const tasks = (await teamRegister(runtime, kit.paths, config).snapshot()).state.tasks;
   // github.repos is GitHub's list, so every repository it names is GitHub's.
-  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
+  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), pushedStoreOf(runtime, kit.paths, config.lock));
   const told = new Set<string>();
   let failed = false;
   let added = 0;

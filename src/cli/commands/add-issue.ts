@@ -6,6 +6,7 @@ import type { IssueDraft } from '../../issues/host.ts';
 import type { AddInput } from '../../register/policy.ts';
 import type { Flags } from '../args.ts';
 import { hostOf } from '../issue-hosts.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { EXIT, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
 import { reportRotation } from './register.ts';
@@ -40,7 +41,7 @@ export async function openAddedIssue(runtime: CliRuntime, team: Team, by: string
     say(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; ${later}`);
     return EXIT.ok;
   }
-  const host = hostOf('github', runtime, scanner);
+  const host = hostOf('github', runtime, scanner, pushedStoreOf(runtime, team.paths, team.config.lock));
   const reach = await host.reach(draft.repo, 'open');
   if (reach.kind === 'unreachable') {
     say(`FAILED ${id}'s issue: ${reach.reason}; ${later}`);

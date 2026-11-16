@@ -23,6 +23,7 @@ import { noPositionals, type ParsedArgs } from '../args.ts';
 import { fileLockOf } from '../file-locks.ts';
 import { hostOf } from '../issue-hosts.ts';
 import { openTeamKit, requireConfig, type Kit } from '../kit.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { EXIT, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
 import { issueSync } from './issue-sync.ts';
@@ -168,7 +169,7 @@ async function watchLoop(runtime: CliRuntime, startedAt: number): Promise<string
     if (idleDone(idleSince, now)) {
       return 'no session of the team ran for 10 minutes; the next one starts the watch again';
     }
-    const { round, pending } = await probeRound(runtime, config, marks);
+    const { round, pending } = await probeRound(runtime, kit, config, marks);
     if (readDue(last, round, now)) {
       const code = await issueSync(AUTO_SYNC, runtime);
       last = { at: now, ok: code !== EXIT.failed };
@@ -209,10 +210,11 @@ async function anySessionRuns(runtime: CliRuntime, kit: Kit, config: KitConfig):
 /** Probes every repository: changed when any did (with the marks to keep once synced), else failed when one failed. */
 async function probeRound(
   runtime: CliRuntime,
+  kit: Kit,
   config: KitConfig,
   marks: ReadonlyMap<string, WatchMarks>,
 ): Promise<{ readonly round: ProbeRound; readonly pending: ReadonlyMap<string, WatchMarks> }> {
-  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
+  const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), pushedStoreOf(runtime, kit.paths, config.lock));
   const pending = new Map<string, WatchMarks>();
   let failed = false;
   for (const repo of config.github.repos) {

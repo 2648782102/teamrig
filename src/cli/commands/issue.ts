@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { ENV } from '../../core/home.ts';
+import { ENV, type TeamPaths } from '../../core/home.ts';
 import { SecretScanner } from '../../core/secrets.ts';
 import type { KitConfig } from '../../config/types.ts';
 import { CLOSE_REASONS, hostKindOf, parseIssueTarget, targetText, type CloseReason, type HostKind, type IssueHost, type IssueTarget } from '../../issues/host.ts';
@@ -10,6 +10,7 @@ import { onePositional, requiredFlag, type ParsedArgs } from '../args.ts';
 import { callerOf } from '../inputs.ts';
 import { hostOf } from '../issue-hosts.ts';
 import { sessionIdOf } from '../kit.ts';
+import { pushedStoreOf } from '../pushed-store.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
 import { openTeam } from './register-team.ts';
@@ -194,9 +195,10 @@ interface Posted {
   readonly text: string;
 }
 
-/** The team's config and the host kind of a repository the caller may write to. */
+/** The team's config and paths, and the host kind of a repository the caller may write to. */
 interface CheckedRepo {
   readonly config: KitConfig;
+  readonly paths: TeamPaths;
   readonly kind: HostKind;
 }
 
@@ -212,12 +214,12 @@ async function checkedRepo(args: ParsedArgs, runtime: CliRuntime, repo: string):
     const listed = team.config.github.repos.join(', ');
     throw new RefusedError(`${repo} is not one of the team's repositories: list it under github.repos in the team config${listed === '' ? '' : ` (now ${listed})`}`);
   }
-  return { config: team.config, kind };
+  return { config: team.config, paths: team.paths, kind };
 }
 
 /** The host of a checked repository once the text to post (if any) may be posted; undefined, after an OFF line, while GitHub is off. */
 function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | undefined): IssueHost | undefined {
-  const { config, kind } = checked;
+  const { config, paths, kind } = checked;
   const scanner = new SecretScanner(config.register.secretPatterns);
   const refused = posted === undefined ? undefined : postRefusal(posted.flag, posted.text, scanner);
   if (refused !== undefined) {
@@ -227,5 +229,5 @@ function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | u
     runtime.out.stdout(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; nothing was written`);
     return undefined;
   }
-  return hostOf(kind, runtime, scanner);
+  return hostOf(kind, runtime, scanner, pushedStoreOf(runtime, paths, config.lock));
 }

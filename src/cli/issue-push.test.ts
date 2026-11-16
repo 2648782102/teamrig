@@ -141,6 +141,24 @@ describe('teamrig issue sync --push', () => {
     assert.equal(stranger.code, EXIT.refused, stranger.stdout.join('\n'));
   });
 
+  it("holds a status label a person changed after teamrig's push, until the task matches it (T3230)", async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    await expectRun(kit, ['issue', 'sync', '--yes'], issues(), EXIT.ok);
+    await step(kit, ['set', 'T1', '--status', 'in-progress', '--note', 'on it'], AS_BRAVO);
+    await expectRun(kit, ['issue', 'sync', '--push', '--yes', '--repo', 'acme/web'], issues().hasLabels('acme/web', ['status:in progress', 'status:claimed']), EXIT.ok);
+    // A person moved #7 to waiting by hand, after teamrig's write of in progress.
+    const byHand = new FakeGh().holds('acme/web', [ghIssue('acme/web', 7, { title: 'Fix login', assignees: ['octocat'], labels: ['status:waiting'] })]);
+    const lines = await expectRun(kit, ['issue', 'sync', '--push', '--repo', 'acme/web'], byHand, EXIT.ok);
+    assert.match(lines[0] ?? '', /, 1 held for a person's change/u);
+    assert.deepEqual(lines.filter((line) => line.startsWith('HELD ')), [
+      "HELD acme/web#7 T1 in-progress: add status:in progress, take off status:waiting; a person changed it since teamrig's last write, so the push leaves it until the task's status matches it",
+    ]);
+    // Once the task is waiting too, the person's label is the task's, and the push holds nothing.
+    await step(kit, ['set', 'T1', '--status', 'waiting', '--ask', 'lead', '--text', 'Which login page?', '--note', 'asked'], AS_BRAVO);
+    const matched = await expectRun(kit, ['issue', 'sync', '--push', '--repo', 'acme/web'], byHand, EXIT.ok);
+    assert.deepEqual(matched.filter((line) => line.startsWith('HELD ')), []);
+  });
+
   it('reads nothing when the machine or the team has GitHub off', async () => {
     const off = new CliHarness(GITHUB_TEAM);
     const gh = issues();
