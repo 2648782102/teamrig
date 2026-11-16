@@ -1,5 +1,6 @@
 import { clipEnd } from "../core/clip.js";
 import { KIT_NAME } from "../core/home.js";
+import { ACTIVE_STATUSES } from "../register/model.js";
 import { formatFinding } from "../doctor/doctor.js";
 import { formatSkillFlag } from "../skills/lint.js";
 import { formatIdlePassTrouble } from "./idle-pass-log.js";
@@ -26,7 +27,12 @@ function findingWarning(finding) {
         case 'deny-missing':
             return { key: 'permissions deny-missing', source: "the secret deny check of the Claude Code settings' permissions.deny", text };
         default:
-            return { key: `context ${finding.budget}`, source: `the context check [contextFiles.${finding.budget}]`, text };
+            return {
+                key: `context ${finding.budget}`,
+                source: `the context check [contextFiles.${finding.budget}]`,
+                text,
+                names: [`contextFiles.${finding.budget}`, ...(finding.paths ?? [])],
+            };
     }
 }
 function skillWarning(flag, skillsDir) {
@@ -46,6 +52,35 @@ export function splitUnowned(findings, skills, sessions, skillsDir) {
         skills: skills.filter(owned),
         unowned: [...findings.map(findingWarning), ...skills.filter((flag) => !owned(flag)).map((flag) => skillWarning(flag, skillsDir))],
     };
+}
+/**
+ * The warnings an open task already covers, each with the first such task in `tasks`' order, and the rest, still
+ * unowned. A task covers a warning when its title or description names one of the warning's names; a done or dropped
+ * task covers nothing, so a warning that comes back after its fix is told again.
+ */
+export function coverUnowned(warnings, tasks) {
+    const open = [...tasks].filter((task) => ACTIVE_STATUSES.includes(task.status));
+    const unowned = [];
+    const covered = [];
+    for (const warning of warnings) {
+        const names = warning.names ?? [];
+        const task = open.find(({ title, description }) => names.some((name) => title.includes(name) || (description ?? '').includes(name)));
+        if (task === undefined) {
+            unowned.push(warning);
+        }
+        else {
+            covered.push({ warning, task });
+        }
+    }
+    return { unowned, covered };
+}
+/** `COVERED 1 warning(s) an open task already covers, so no new task: ...`, the heading `check` prints over them. */
+export function coveredHeading(count) {
+    return `COVERED ${count} warning(s) an open task already covers, so no new task: work them in that task`;
+}
+/** `from the context check [contextFiles.maxMemoryIndexChars]: WARN context-size ...; covered by T12 (alpha)`. */
+export function coveredRow({ warning, task }) {
+    return `${unownedRow(warning)}; covered by ${task.id} (${task.owner})`;
 }
 /** `UNOWNED 2 warning(s) no session owns, so they go to the lead (lead): ...`, the heading `check` prints over them. */
 export function unownedHeading(count, lead) {

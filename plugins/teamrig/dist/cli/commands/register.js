@@ -54,7 +54,7 @@ import { secretGuardOffWarnings } from "../secret-guard-off-check.js";
 import { secretHookWarnings } from "../secret-hook-check.js";
 import { ownerBatchOf } from "../owner-batch.js";
 import { rollUp } from "../roll-up.js";
-import { splitUnowned } from "../unowned.js";
+import { coverUnowned, splitUnowned } from "../unowned.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { loadTree, skillOwnersElsewhere } from "../tree.js";
 import { readBursts } from "../burst-reading.js";
@@ -997,7 +997,8 @@ export async function checkReport(args, runtime) {
     const late = await githubLateWarnings(runtime.files, own.paths.githubClocks, zone, now.getTime());
     const restore = await restoreLauncherWarnings(runtime.files, resolveKitHome(runtime.env, runtime.userHome));
     const lead = own.config.roles.lead;
-    return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: [...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], lead, decisions };
+    const cover = coverUnowned([...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], own.snapshot.state.tasks.values());
+    return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: cover.unowned, covered: cover.covered, lead, decisions };
 }
 /**
  * The batch of the owner's decisions a root team's lead asks next, over its register and every register under it; none

@@ -5,7 +5,7 @@ import { FLAG_KINDS, formatFlag } from "../register/check.js";
 import { planOrder } from "../register/tree.js";
 import { aheadText, formatShortTask, formatTask, formatWaitingOnYou } from "../register/views.js";
 import { formatSkillFlag } from "../skills/lint.js";
-import { unownedHeading, unownedRow } from "./unowned.js";
+import { coveredHeading, coveredRow, unownedHeading, unownedRow } from "./unowned.js";
 /**
  * What `list` and `check` print. A session's reads stay in its context and are re-read on every later call, so by
  * default both print a short form of at most SHORT_FORM_CHARS characters; `--all` prints the long form, every field
@@ -40,6 +40,7 @@ export function ownCheck(report, owner, group) {
         skills: report.skills.filter((flag) => flag.owner === owner),
         hires: report.hires.filter((flag) => flag.session === owner),
         unowned: [],
+        covered: [],
         decisions: report.decisions?.lead === owner ? report.decisions : undefined,
     };
 }
@@ -123,6 +124,10 @@ function hireLines({ hires }, indent) {
 function unownedLines({ unowned, lead }, indent, shown) {
     return unowned.length === 0 ? [] : [unownedHeading(unowned.length, lead), ...firstOf(unowned.map((warning) => `${indent}${unownedRow(warning)}`), shown)];
 }
+/** The `COVERED` heading, then the first `shown` warnings an open task covers, each naming its task; nothing while none is. */
+function coveredLines({ covered }, indent, shown) {
+    return covered.length === 0 ? [] : [coveredHeading(covered.length), ...firstOf(covered.map((one) => `${indent}${coveredRow(one)}`), shown)];
+}
 /** The lead's `DECISIONS` line while a batch of the owner's decisions is due; nothing otherwise. */
 function decisionLines({ decisions }) {
     return decisions === undefined ? [] : checkDecisionLines(decisions.batch, KIT_NAME, decisions.lead, decisions.zone);
@@ -136,6 +141,7 @@ function longCheck(report) {
         ]),
         ...hireLines(report, ''),
         ...unownedLines(report, '', report.unowned.length),
+        ...coveredLines(report, '', report.covered.length),
         ...decisionLines(report),
         skillsLine(report),
         ...report.skills.map(formatSkillFlag),
@@ -163,13 +169,14 @@ function shortCheck(report) {
         rows: flags.filter(({ flag }) => flag.kind === kind).sort((x, y) => planOrder(x.tree.placeOf(x.flag.task), y.tree.placeOf(y.flag.task))),
     })).filter(({ rows }) => rows.length > 0);
     const teams = report.sections.length > 1 ? ` in ${report.sections.length} team(s)` : '';
-    const hint = flags.length + report.skills.length + report.hires.length + report.unowned.length > 0 ? ' (short form; --all for every flag in full)' : '';
+    const hint = flags.length + report.skills.length + report.hires.length + report.unowned.length + report.covered.length > 0 ? ' (short form; --all for every flag in full)' : '';
     const head = `CHECK ${flags.length} flag(s)${teams}, ${report.scope}${hint}`;
     const linesShowing = (shown) => [
         head,
         ...kinds.flatMap(({ kind, rows }) => kindLines(kind, rows, shown)),
         ...hireLines(report, '  '),
         ...unownedLines(report, '  ', shown),
+        ...coveredLines(report, '  ', shown),
         ...decisionLines(report),
         skillsLine(report),
         ...firstOf(report.skills.map((flag) => `  ${formatSkillFlag(flag)}`), shown),

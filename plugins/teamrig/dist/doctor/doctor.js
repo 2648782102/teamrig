@@ -170,12 +170,12 @@ function count(value) {
 function tokensOf(chars) {
     return `~${count(Math.round(chars / 400) * 100)} tokens`;
 }
-function sizeFinding(what, chars, budget, key, fix) {
+function sizeFinding(what, chars, budget, key, fix, paths) {
     if (chars <= budget) {
         return [];
     }
     const detail = `${what}: ${count(chars)} characters (${tokensOf(chars)}), over its budget of ${count(budget)} [contextFiles.${key}]; every call re-reads this text, so ${fix}`;
-    return [{ kind: 'context-size', detail, budget: key }];
+    return [{ kind: 'context-size', detail, budget: key, paths }];
 }
 function contextFindings({ contextFiles: { read, budgets } }) {
     const claudeMdChars = read.claudeMd.reduce((sum, file) => sum + file.chars, 0);
@@ -183,11 +183,11 @@ function contextFindings({ contextFiles: { read, budgets } }) {
     const memory = read.memoryIndex;
     const skills = `skill listing (${read.skills.count} skills in ${read.skills.folders.join(', ')})`;
     return [
-        ...sizeFinding(`CLAUDE.md files (${claudeMd})`, claudeMdChars, budgets.maxClaudeMdChars, 'maxClaudeMdChars', 'move how-tos into skills and facts into memory files'),
+        ...sizeFinding(`CLAUDE.md files (${claudeMd})`, claudeMdChars, budgets.maxClaudeMdChars, 'maxClaudeMdChars', 'move how-tos into skills and facts into memory files', read.claudeMd.map((file) => file.path)),
         ...(memory === undefined
             ? []
-            : sizeFinding(`memory index ${memory.path}`, memory.chars, budgets.maxMemoryIndexChars, 'maxMemoryIndexChars', 'keep one short line per memory and its detail in the memory file')),
-        ...sizeFinding(skills, read.skills.chars, budgets.maxSkillListingChars, 'maxSkillListingChars', 'shorten descriptions or merge skills'),
+            : sizeFinding(`memory index ${memory.path}`, memory.chars, budgets.maxMemoryIndexChars, 'maxMemoryIndexChars', 'keep one short line per memory and its detail in the memory file', [memory.path])),
+        ...sizeFinding(skills, read.skills.chars, budgets.maxSkillListingChars, 'maxSkillListingChars', 'shorten descriptions or merge skills', read.skills.folders),
     ];
 }
 const SESSION_LIST_LABELS = {
