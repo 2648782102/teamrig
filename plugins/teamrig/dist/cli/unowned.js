@@ -1,5 +1,7 @@
 import { clipEnd } from "../core/clip.js";
+import { isAbsolute } from 'node:path';
 import { KIT_NAME } from "../core/home.js";
+import { homeRelative } from "../core/paths.js";
 import { ACTIVE_STATUSES } from "../register/model.js";
 import { formatFinding } from "../doctor/doctor.js";
 import { formatSkillFlag } from "../skills/lint.js";
@@ -55,15 +57,18 @@ export function splitUnowned(findings, skills, sessions, skillsDir) {
 }
 /**
  * The warnings an open task already covers, each with the first such task in `tasks`' order, and the rest, still
- * unowned. A task covers a warning when its title or description names one of the warning's names; a done or dropped
+ * unowned. A task covers a warning when its title or description names one of the warning's names, a file under
+ * `userHome` by its full path or as `~/...`; a done or dropped
  * task covers nothing, so a warning that comes back after its fix is told again.
  */
-export function coverUnowned(warnings, tasks) {
+export function coverUnowned(warnings, tasks, userHome) {
     const open = [...tasks].filter((task) => ACTIVE_STATUSES.includes(task.status));
+    // A task names a file under the home folder as `~/...` as often as by its full path (`homeRelative`).
+    const formsOf = (name) => (isAbsolute(name) ? [name, homeRelative(name, userHome)] : [name]);
     const unowned = [];
     const covered = [];
     for (const warning of warnings) {
-        const names = warning.names ?? [];
+        const names = (warning.names ?? []).flatMap(formsOf);
         const task = open.find(({ title, description }) => names.some((name) => title.includes(name) || (description ?? '').includes(name)));
         if (task === undefined) {
             unowned.push(warning);
