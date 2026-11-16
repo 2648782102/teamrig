@@ -1,5 +1,6 @@
 import { BranchMoves } from "./branch-moves.js";
 import { findGitInvocations } from "./invocations.js";
+import { trustedScriptMatcher } from "./interpreters.js";
 import { namedPushTarget } from "./named-push.js";
 /** `git push` long options, so an abbreviation (`--dry`, `--mirr`) reads as git reads it. */
 const PUSH_LONG_OPTIONS = [
@@ -353,7 +354,9 @@ export function evaluatePushes(command, context) {
 }
 /** How the guard's finder reads a line for `context`. */
 export function finderContextOf(context) {
-    return { cwd: context.cwd, home: context.home, dialect: context.dialect, git: context.repo };
+    const trusted = context.trustedScripts ?? [];
+    const base = { cwd: context.cwd, home: context.home, dialect: context.dialect, git: context.repo };
+    return trusted.length === 0 ? base : { ...base, trustedScript: trustedScriptMatcher(trusted, context.cwd) };
 }
 /** {@link evaluatePushes} for the git commands already found in a line, so a caller that also reads them finds them once. */
 export function judgePushes(found, context) {
@@ -387,7 +390,8 @@ export function judgePushes(found, context) {
     if (protectedPush === 'leased' || (protectedPush === 'normal' && context.pushToProtected === 'ask')) {
         return { decision: 'ask', updates, protectedPush };
     }
-    doubt ??= found.doubts.find((candidate) => !candidate.gated || found.mentionsPush)?.reason;
+    // An interpreter's text is its script: it names a push only for the doubts about shell code it may have written.
+    doubt ??= found.doubts.find((candidate) => !candidate.gated || found.mentionsPush || (candidate.shellCode === true && found.scriptMentionsPush))?.reason;
     if (doubt !== undefined) {
         return { decision: 'ask', updates, doubt };
     }

@@ -18,6 +18,10 @@ export function protectedBranchesOf(load) {
 export function pushToProtectedOf(load) {
     return load?.status === 'loaded' ? load.config.pushGuard.pushToProtected : DEFAULT_PUSH_GUARD.pushToProtected;
 }
+/** The script files the push guard trusts (`pushGuard.trustedScripts`); a broken config trusts none. */
+export function trustedScriptsOf(load) {
+    return load?.status === 'loaded' ? load.config.pushGuard.trustedScripts : DEFAULT_PUSH_GUARD.trustedScripts;
+}
 /** The small-commits rule, with the same fallback as the protected branches. */
 export function commitsOf(load) {
     return load?.status === 'loaded' ? load.config.commits : DEFAULT_COMMITS;
@@ -138,6 +142,7 @@ export async function pushGuardOutput(payload, env) {
         protectedBranches: env.protectedBranches,
         pushToProtected: env.pushToProtected,
         repo: env.repo,
+        trustedScripts: env.trustedScripts ?? [],
     };
     const readings = toolCommandReadings(tool, command, env.platform).map((text) => {
         const found = findGitInvocations(text, finderContextOf(context));

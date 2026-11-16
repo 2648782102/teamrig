@@ -86,7 +86,7 @@ export const DEFAULT_CONTEXT_FILES = {
 export const DEFAULT_LOCK = { ttlMs: 300_000, pollMs: 50, waitMs: 20_000 };
 /** No exec PATH: a privileged command names its program by absolute path until the team lists its tool folders. */
 export const DEFAULT_EXEC = { path: [] };
-export const DEFAULT_PUSH_GUARD = { protectedBranches: ['main', 'master'], pushToProtected: 'ask', reviewPaths: [] };
+export const DEFAULT_PUSH_GUARD = { protectedBranches: ['main', 'master'], pushToProtected: 'ask', reviewPaths: [], trustedScripts: [] };
 /**
  * Refused by default: a helper's `npx eslint` once fetched and ran an unvetted package (T450, 10-16), and an install
  * lands a version as unvetted unless its exact version is old enough and has no advisory (T681). Two weeks is the

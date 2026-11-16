@@ -1,4 +1,5 @@
 import { packagedStartOf } from "../package-guard/packaged.js";
+import { interpreterDoubt, interpreterOf, interpreterText, MAX_LINE_SCRIPT_BYTES, readScriptFile, scriptMayPush } from "./interpreters.js";
 import { isAssignment, launch, programName, staticWord } from "./launchers.js";
 import { bashNativeWord, Location, resolveDir } from "./location.js";
 import { splitGitAlias } from "./program-split.js";
@@ -150,6 +151,15 @@ export function configWrite(args) {
     }
     return value === undefined ? undefined : { kind: 'set', key, value };
 }
+/** A command's terminator that pipes its output to the next command, a newline or two after it. */
+const PIPE_TERMINATOR = /^\|&?\n*$/;
+/**
+ * True when what `command` prints goes on to another command: down a pipe (`|`, `|&`, also from a `( )` group the
+ * command ends), or into the command holding the substitution it sits in.
+ */
+function outputFeedsCommand(command) {
+    return command.nesting > 0 || PIPE_TERMINATOR.test(command.terminator.replace(/[()]/g, ''));
+}
 /** Quotes a word for a bash command line, so a git shell alias gets its arguments as typed. */
 function shellQuote(word) {
     return word.dynamic ? word.text : `'${word.text.replace(/'/g, `'\\''`)}'`;
@@ -188,6 +198,9 @@ class GitInvocationFinder {
     doubts = [];
     readings = [];
     mentionsPush = false;
+    scriptMentionsPush = false;
+    /** Above 0 while reading a script whose text is only known when it runs (`bash -c "$CMD"`, `eval "$X"`). */
+    dynamicScripts = 0;
     /** Aliases a `git config alias.x value` earlier in the line sets; undefined marks one only known when it runs. */
     lineAliases = new Map();
     /** True once the line sets a `GIT_DIR`-like variable in its shell, so later git commands run in a repository the guard cannot place. */
@@ -200,18 +213,27 @@ class GitInvocationFinder {
      */
     shellHooksOverride;
     context;
-    constructor(context) {
+    /** The script file bytes the line's interpreters may still read, shared with the finders of its held text. */
+    scriptBudget;
+    constructor(context, scriptBudget = { left: MAX_LINE_SCRIPT_BYTES }) {
         this.context = context;
+        this.scriptBudget = scriptBudget;
     }
     find(command) {
         this.visitScript(staticWord(command), this.context.dialect, new Location(this.context.cwd, this.context.home), 0);
-        return { invocations: this.invocations, doubts: this.doubts, mentionsPush: this.mentionsPush, readings: this.readings };
+        return { invocations: this.invocations, doubts: this.doubts, mentionsPush: this.mentionsPush, scriptMentionsPush: this.scriptMentionsPush, readings: this.readings };
     }
-    doubt(reason, gated) {
-        this.doubts.push({ reason, gated });
+    /** Records a doubt; one raised inside a script only known when it runs is about shell code the guard cannot read. */
+    doubt(reason, gated, shellCode = false) {
+        this.doubts.push(shellCode || this.dynamicScripts > 0 ? { reason, gated, shellCode: true } : { reason, gated });
     }
     mention(text) {
         this.mentionsPush ||= saysPush(text);
+    }
+    /** Reads a script file an interpreter runs, unless the team trusts it (`FinderContext.trustedScript`). */
+    readScript = (path, maxBytes) => this.context.trustedScript?.(path) === true ? undefined : (this.context.readScript ?? readScriptFile)(path, maxBytes);
+    scriptMention(text) {
+        this.scriptMentionsPush ||= saysPush(text);
     }
     /**
      * Visits each command of a script in order. A heredoc or here-string is its command's stdin, and a plain
@@ -231,7 +253,7 @@ class GitInvocationFinder {
             return;
         }
         if (unread !== undefined) {
-            this.doubt(unread, true);
+            this.doubt(unread, true, true);
             this.mention(source);
         }
         parsed.unreadBodies.forEach((body) => this.mention(body.text));
@@ -240,7 +262,6 @@ class GitInvocationFinder {
         const commands = dialect === 'bash' ? resolveLiteralVariables(parsed, depth === 0 ? location.home : undefined) : parsed.commands;
         let piped;
         for (const command of commands) {
-            command.words.forEach((word) => this.mention(word.text));
             let stdin = command.stdin;
             // A substitution's commands, read before the command that holds them, sit between a pipe's two ends.
             if (piped !== undefined && command.nesting <= piped.nesting) {
@@ -249,6 +270,12 @@ class GitInvocationFinder {
             }
             location.enter(command.subshells);
             const launched = this.visitCommand(command.words, dialect, location, depth, stdin);
+            // An interpreter's words and stdin are its script, judged by visitCommand, not shell words that name a push:
+            // a python heredoc that posts a message saying "push" arms no doubt about the line. Its output feeding another
+            // command (a pipe, a substitution) may be shell code it prints, so there its words and stdin still name a push
+            // for the gated doubts that command raises (`python3 -c 'print("git push ...")' | sh`).
+            const script = launched?.kind === 'program' && interpreterOf(launched) !== undefined && !outputFeedsCommand(command);
+            command.words.forEach((word) => (script ? this.scriptMention(word.text) : this.mention(word.text)));
             // A shell that runs a word as a script reads its substitutions as commands already.
             if (launched?.kind !== 'script') {
                 this.visitHeld(command.words, location, depth);
@@ -256,7 +283,12 @@ class GitInvocationFinder {
             if (stdin !== undefined) {
                 const use = launched === undefined ? 'read' : stdinUse(command, launched);
                 if (use !== 'stored') {
-                    this.mention(stdin.text);
+                    if (script) {
+                        this.scriptMention(stdin.text);
+                    }
+                    else {
+                        this.mention(stdin.text);
+                    }
                 }
                 piped = use === 'passed' ? { body: stdin, nesting: command.nesting } : undefined;
             }
@@ -276,9 +308,9 @@ class GitInvocationFinder {
             }
             const parsed = parseHeldText(word.held);
             const unread = parsed.skipped ? 'it holds quoted text the guard cannot read for the commands bash runs if an expansion reads it again' : undefined;
-            const held = new GitInvocationFinder(this.context);
+            const held = new GitInvocationFinder(this.context, this.scriptBudget);
             held.visitParsed(parsed, word.held, unread, 'bash', location.child(), depth + 1);
-            this.doubts.push(...held.doubts);
+            this.doubts.push(...held.doubts.map((doubt) => (this.dynamicScripts > 0 && doubt.shellCode !== true ? { ...doubt, shellCode: true } : doubt)));
             if (held.invocations.some((invocation) => invocation.subcommand === 'push')) {
                 this.doubt('it holds a quoted command substitution that pushes, which bash runs if an expansion reads it again', true);
             }
@@ -299,15 +331,22 @@ class GitInvocationFinder {
             case 'nothing':
                 break;
             case 'opaque':
-                this.doubt(launched.reason, launched.gated);
+                this.doubt(launched.reason, launched.gated, launched.stdinScript === true);
                 break;
             case 'script': {
                 const inner = location.child();
                 launched.chdirs.forEach((chdir) => inner.moveTo(chdir, dialect));
                 if (launched.script.dynamic && launched.dialect !== dialect) {
-                    this.doubt(`it hands ${DIALECT_NAMES[launched.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true);
+                    this.doubt(`it hands ${DIALECT_NAMES[launched.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true, true);
                 }
-                this.inheriting(hooksVariableOf(launched.env), launched.sameShell, () => this.visitScript(launched.script, launched.dialect, inner, depth + 1));
+                const dynamic = launched.script.dynamic ? 1 : 0;
+                this.dynamicScripts += dynamic;
+                try {
+                    this.inheriting(hooksVariableOf(launched.env), launched.sameShell, () => this.visitScript(launched.script, launched.dialect, inner, depth + 1));
+                }
+                finally {
+                    this.dynamicScripts -= dynamic;
+                }
                 if (launched.sameShell) {
                     location.adopt(inner);
                 }
@@ -318,6 +357,16 @@ class GitInvocationFinder {
                 const packaged = packagedStartOf(name, launched.args, launched.env);
                 if (packaged.length > 0) {
                     this.visitPackaged(packaged, launched, dialect, location, depth, stdin);
+                    break;
+                }
+                const language = interpreterOf(launched);
+                if (language !== undefined) {
+                    const inner = location.child();
+                    launched.chdirs.forEach((chdir) => inner.moveTo(chdir, dialect));
+                    const text = interpreterText(launched, stdin, inner.dir, this.readScript, this.scriptBudget);
+                    if (scriptMayPush(text, language)) {
+                        this.doubt(interpreterDoubt(language), false);
+                    }
                     break;
                 }
                 const subcommand = name.startsWith('git-') ? name.slice(4) : undefined;
@@ -362,7 +411,7 @@ class GitInvocationFinder {
         switch (start.kind) {
             case 'script':
                 if (start.script.dynamic && start.dialect !== dialect) {
-                    this.doubt(`it hands ${DIALECT_NAMES[start.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true);
+                    this.doubt(`it hands ${DIALECT_NAMES[start.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true, true);
                 }
                 this.inheriting(hooksVariableOf(runner.env), false, () => this.visitScript(start.script, start.dialect, inner, depth + 1));
                 return;
