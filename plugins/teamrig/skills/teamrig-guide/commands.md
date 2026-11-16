@@ -71,6 +71,22 @@ Flags:
   is `owner` (`register.ownerSource`): the lead of a team above the asked one relays the human's order, and the task
   there is sourced `owner`, its history naming the lead as the writer; from any other session it is refused, and
   any other source is refused too.
+- `--issue "<public title>"`: opens the task's GitHub issue with this title and `--issue-body`, labelled by
+  `--type` (`bug`, else `enhancement`) and `--priority` (p0 and p1 as `p1`, p2 as `p2`, lower as `p3`), and points
+  the task's ref at it, so the sync adds no second task for it. The issue is public: one-line title, no task id,
+  no secret, no private data (a home folder path, an e-mail address, an IP address, an internal host); the task
+  keeps its own title and description. It opens with the token saved for the repository's owner. When GitHub fails
+  the task stays written with no issue (`FAILED T<n>'s issue: ...`, exit 1); with GitHub off on the machine it
+  prints `OFF`. An add that posts its issue is not let through as a register command: it is judged as every
+  GitHub write is.
+- `--issue-body "<public text>"`: the issue's body; it comes with `--issue`.
+- `--issue-repo <owner/repo>`: where the issue opens, one of `github.repos`; else `[github.issueAtAdd]`, else the
+  one repository of `github.repos`.
+- `--local "<why>"`: the task gets no issue; the reason is written as its ref, `local: <why>`. Not with `--issue`
+  or `--ref`. A security hole is always added with `--local` (say `--local "security, private report"`): it is
+  reported only in private (core rule 11).
+- While `[github.issueAtAdd]` names a repository, every add gives `--issue` and `--issue-body`, or `--local`, or a
+  `--ref` to an issue it has; any other add is refused and writes nothing. None of the four flags goes with `--team`.
 
 Example:
 
@@ -1202,7 +1218,7 @@ Its old name, gh sync, is refused with this one (exit 64). Setup, tokens and eve
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md).
 
 Access, per owner (the `acme` of `acme/web`): the token saved in the system's credential store as
-`teamrig-gh-<owner>` (lowercase), handed to `gh` as `GH_TOKEN` for that run only, else the `gh auth login` account;
+`teamrig-gh-<owner>` (lowercase), handed to `gh` as `GH_TOKEN` for that run only, never the `gh auth login` account;
 the sync needs only Issues: Read-only and Pull requests: Read-only. A fine-grained token reaches one owner's repositories, so two owners need two
 tokens. An `ACCESS` line says, once per owner, which one reads it; the token itself is never printed. A missing or
 refused token gives that repository a `FAILED` line naming the fix, and the other repositories are read on. A saved
@@ -1355,7 +1371,7 @@ teamrig issue watch
 Output (when it stops, the last session closed 10 minutes before):
 
 ```text
-ACCESS acme: read with the gh login; no token saved
+ACCESS acme: read with the token saved as teamrig-gh-acme
 REPO acme/web: 1 added, 0 changed, 4 unchanged
 WROTE 1 change(s) to the task list as github; GitHub was only read
 STOP no session of the team ran for 10 minutes; the next one starts the watch again
@@ -1421,7 +1437,7 @@ PREVIEW nothing was written; teamrig issue migrate <file> --yes opens the issues
 Posts one comment on an issue or pull request of the team's repositories, named as `owner/name#number`. A security
 hole is never its subject: that goes only to private reporting ([security skill](../security/SKILL.md#a-security-hole)). GitHub is
 the only host so far: the repository must be in `github.repos`, and the comment goes through `gh api` with the
-token saved for the owner as `teamrig-gh-<owner>`, else the `gh auth login` account (an `ACCESS` line says which).
+token saved for the owner as `teamrig-gh-<owner>`, never the `gh auth login` account (an `ACCESS` line names it).
 The token needs Issues and Pull requests: Read and write. It refuses, posting nothing, a caller not on the team, a
 target that is not `owner/name#number`, a repository not in `github.repos`, and a body that is empty, past 65,536
 characters, looks like it holds a secret, holds private data (a path inside a home folder, an e-mail address, an
@@ -4148,7 +4164,7 @@ Output:
 WROTE the changes below; the old settings file is at /home/me/.teamrig/backups/claude-settings.json
   ADD /home/me/.claude/settings.json autoMode.environment: $defaults
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Protected branches: main, master. A normal push to one asks the person. A force-push, a --mirror push or deleting one is refused, and a --force-with-lease push asks. Every session edits on its own branch in its own git worktree, never in a repo's main checkout.
-  ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop; they write only under ~/.teamrig/teams/shop/.
+  ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop, but not teamrig add with --issue, --issue-body, --issue-repo, which also posts a public GitHub issue; they write only under ~/.teamrig/teams/shop/.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig queue ... -- <cmd>` and `teamrig test ... -- <cmd>` run the session's own build, test or script on this host (queue waits for the host lock, test records the result); neither grants anything, so judge the command after `--` as if it ran alone.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig worktree remove <path> [--delete-branch]` is how a session removes its finished worktree, and every session may run it: teamrig itself removes only a worktree whose t<id>- branch names a task the session owns or one of a session it leads (any for the lead, session lead), and refuses the main checkout, uncommitted work and a branch with a commit not on its base.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Every session may rebase its own branch in its own git worktree onto the fresh default branch (`git fetch`, then `git rebase origin/<branch>` or `git pull --rebase`, and `git rebase --continue` or `--abort` to settle a stopped one): it rewrites only that session's own commits not yet merged. A branch it pushed before goes back with `git push --force-with-lease` to that same branch. A protected branch (main, master) is never rebased, nor a repo's main checkout.
@@ -4181,7 +4197,7 @@ Output:
 ```text
 PREVIEW nothing written (add --yes to write)
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Protected branches: main, master. A normal push to one asks the person. A force-push, a --mirror push or deleting one is refused, and a --force-with-lease push asks. Every session edits on its own branch in its own git worktree, never in a repo's main checkout.
-  REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop; they write only under ~/.teamrig/teams/shop/.
+  REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop, but not teamrig add with --issue, --issue-body, --issue-repo, which also posts a public GitHub issue; they write only under ~/.teamrig/teams/shop/.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig queue ... -- <cmd>` and `teamrig test ... -- <cmd>` run the session's own build, test or script on this host (queue waits for the host lock, test records the result); neither grants anything, so judge the command after `--` as if it ran alone.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig worktree remove <path> [--delete-branch]` is how a session removes its finished worktree, and every session may run it: teamrig itself removes only a worktree whose t<id>- branch names a task the session owns or one of a session it leads (any for the lead, session lead), and refuses the main checkout, uncommitted work and a branch with a commit not on its base.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Every session may rebase its own branch in its own git worktree onto the fresh default branch (`git fetch`, then `git rebase origin/<branch>` or `git pull --rebase`, and `git rebase --continue` or `--abort` to settle a stopped one): it rewrites only that session's own commits not yet merged. A branch it pushed before goes back with `git push --force-with-lease` to that same branch. A protected branch (main, master) is never rebased, nor a repo's main checkout.
