@@ -124,4 +124,47 @@ describe('EnvAssignments', () => {
     assert.deepEqual(values(team, join('TOKENIZERS_CACHE=', KEY)), []);
     assert.deepEqual(values(assignments, join('STRIPE_LIVE=', KEY)), []);
   });
+
+  describe('a YAML or JSON map (T2957)', () => {
+    const HEX = '3f9a0c7e'.repeat(8);
+
+    it('finds a 64-hex value under a secret name, quoted or bare, as a secrets file or an env map writes it', () => {
+      const yaml = join('stringData:\n  DB_PASS', 'WORD: "', PASSWORD, '"\n  SIGNING_', 'KEY: "', HEX, '"\n');
+      assert.deepEqual(values(assignments, yaml), [PASSWORD, HEX]);
+      for (const text of [join('SIGNING_', "KEY: '", HEX, "'"), join('SIGNING_', 'KEY: ', HEX, ' # rotated'), join('{"SIGNING_', 'KEY": "', HEX, '"}')]) {
+        assert.deepEqual(values(assignments, text), [HEX], text);
+      }
+    });
+
+    it('gives the hits of both forms in the order found', () => {
+      assert.deepEqual(values(assignments, join('SIGNING_', 'KEY: ', HEX, '\nAPI_', 'KEY=', KEY)), [HEX, KEY]);
+    });
+
+    it('keeps a digest printable under a name that is not a secret one', () => {
+      assert.deepEqual(values(assignments, join('IMAGE_DIGEST: "', HEX, '"\nCHECKSUM: ', HEX)), []);
+    });
+
+    it('passes code, a sentence, a workflow expression, a placeholder and an empty or block value', () => {
+      const plain = [
+        'API_KEY: string;',
+        'SECRET_NAMES: readonly string[];',
+        'API_KEY: config.apiKey,',
+        'PRIVATE_KEY: fs.readFileSync(path),',
+        "INVALID_TOKEN: 'The token is invalid',",
+        'const pick = cached ? SECRET_KEY : fallback1x9;',
+        'GH_TOKEN: ${{ secrets.GH_TOKEN }}',
+        '"GH_TOKEN": "${{ secrets.GH_TOKEN }}"',
+        'API_KEY: ${API_KEY}',
+        'API_KEY: <key>',
+        'TOKEN_TTL: 3600',
+        "AUTH_TOKEN: ''",
+        'PRIVATE_KEY: |-',
+      ];
+      assert.deepEqual(plain.filter((text) => assignments.hitsIn(text).length > 0), []);
+    });
+
+    it('still finds a value glued to a placeholder, as the assignment form does', () => {
+      assert.deepEqual(values(assignments, join('API_', 'KEY: ${API_KEY}', KEY)), [join('${API_KEY}', KEY)]);
+    });
+  });
 });

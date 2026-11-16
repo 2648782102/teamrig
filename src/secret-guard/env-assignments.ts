@@ -10,6 +10,20 @@ import type { SecretNames } from './names.ts';
  */
 const ASSIGNMENT = /(?<![\w$])([A-Z][A-Z0-9_]*)=(<[^\s<>"'`;,&|()]*>[^\s"'`;,&|()<>]*|[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'`;,|()<>]+|[^\s"'`;,&|()<>]+)/g;
 /**
+ * `NAME: value` as a YAML or JSON map writes a variable (a Kubernetes secret's `stringData`, a compose file's
+ * `environment`, an env map in JSON): the same upper-case name, bare or quoted, right before a colon and a space, then
+ * a quoted or a bare value. No space before the colon, as a map writes it, so code's `x ? SECRET_KEY : y` is no key. A
+ * bare value stops where a flow map or code goes on, past a `${NAME}` or an angle placeholder it opens with.
+ */
+const MAPPING =
+  /(?<![\w$])(["']?)([A-Z][A-Z0-9_]*)\1:[ \t]+(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\$\{[^\s{}]*\}[^\s"'`#,;{}[\]()<>]*|<[^\s<>"'`]*>[^\s"'`#,;{}[\]()<>]*|[^\s"'`#,;{}[\]()<>]+))/g;
+/** A quoted value with a space in it: a message, a sentence or an expression, never a key. */
+const SPACED = /\s/;
+/** A name or a member chain in code (`config.apiKey`, `fs.readFileSync`), as code puts one after a capitalised key. */
+const CODE_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
+/** A YAML block scalar's marker (`|`, `>-`): the value opens on the lines below, so the line holds none. */
+const BLOCK_SCALAR = /^[|>][-+\d]*$/;
+/**
  * The one placeholder a whole value may be: a printf conversion (`%s`, `%-10s`), `$NAME`, `${NAME}` or an angle
  * placeholder. Exact, so anything glued on (`%sAKIA...`, `$X-secret`, `<x>sk-...`) is still a value. `${NAME:-default}`
  * is not one: a default is a value.
@@ -47,10 +61,32 @@ const CALLEE = /^(?:[a-z]+|[A-Z][a-z]+)(?:[A-Z][a-z]+)*$/;
 const CALLEE_HUMP = /[A-Z]?[a-z]+/g;
 const VOWEL = /[aeiouy]/;
 
+/** A hit with where its assignment starts in the text, so the two forms come out in the order found. */
+interface PlacedHit {
+  readonly at: number;
+  readonly hit: SecretShapeHit;
+}
+
+function secretHit(value: string): SecretShapeHit {
+  return { id: 'env-assignment', description: 'value of a secret variable', value };
+}
+
 /** True when `value`, followed in the text by `next`, is the name of a function the text calls. */
 function isCall(value: string, next: string | undefined): boolean {
-  if (next !== '(' || !CALLEE.test(value)) return false;
-  return Array.from(value.matchAll(CALLEE_HUMP), ([hump]) => hump).every((hump) => VOWEL.test(hump));
+  return next === '(' && isWordsName(value);
+}
+
+/** True when `value` is camelCase or PascalCase words, each with a vowel (`apiKey`, `SecretShapeHit`): code's name, not a token. */
+function isWordsName(value: string): boolean {
+  return CALLEE.test(value) && Array.from(value.matchAll(CALLEE_HUMP), ([hump]) => hump).every((hump) => VOWEL.test(hump));
+}
+
+/**
+ * True when a map's bare `value`, followed in the text by `next`, is code: a member chain it calls (`fs.readFileSync(`),
+ * or one of words names (`config.apiKey`, a type). A YAML or JSON value runs to its line's end, never into `(`.
+ */
+function isCodeName(value: string, next: string | undefined): boolean {
+  return CODE_CHAIN.test(value) && (next === '(' || value.split('.').every(isWordsName));
 }
 
 /**
@@ -64,23 +100,49 @@ export class EnvAssignments {
     this.names = names;
   }
 
-  /** Every secret variable's value in `text`, in the order found; a value that only names or points to one passes. */
+  /**
+   * Every secret variable's value in `text`, `NAME=value` or a map's `NAME: value`, in the order found; a value that
+   * only names or points to one passes.
+   */
   hitsIn(text: string): SecretShapeHit[] {
-    const hits: SecretShapeHit[] = [];
+    return [...this.assignedIn(text), ...this.mappedIn(text)].sort((a, b) => a.at - b.at).map(({ hit }) => hit);
+  }
+
+  /** The secret values `NAME=value` assigns in `text`, each with where its assignment starts. */
+  private assignedIn(text: string): PlacedHit[] {
+    const found: PlacedHit[] = [];
     for (const match of text.matchAll(ASSIGNMENT)) {
       const [whole, name = '', value = ''] = match;
       const end = value.indexOf(NEWLINE_ESCAPE);
       // A printf format line runs its assignments together with `\n`: the value ends at the escape, and what follows is
       // scanned again as text, so a real secret after a placeholder is still found.
       if (end >= 0 && EXACT_PLACEHOLDER.test(value.slice(0, end))) {
-        hits.push(...this.hitsIn(value.slice(end + NEWLINE_ESCAPE.length)));
+        found.push(...this.assignedIn(value.slice(end + NEWLINE_ESCAPE.length)).map(({ hit }) => ({ at: match.index, hit })));
         continue;
       }
-      if (!this.names.secret(name) || !this.holdsSecret(name, value)) continue;
-      if (isCall(value, text[match.index + whole.length])) continue;
-      hits.push({ id: 'env-assignment', description: 'value of a secret variable', value });
+      if (this.isSecretValue(name, value, text[match.index + whole.length])) found.push({ at: match.index, hit: secretHit(value) });
     }
-    return hits;
+    return found;
+  }
+
+  /** The secret values a YAML or JSON map's `NAME: value` holds in `text`, each with where its key starts. */
+  private mappedIn(text: string): PlacedHit[] {
+    const found: PlacedHit[] = [];
+    for (const match of text.matchAll(MAPPING)) {
+      const [whole, , name = '', double, single, bare] = match;
+      const quoted = double ?? single;
+      const value = quoted ?? bare ?? '';
+      const next = text[match.index + whole.length];
+      if (value === '' || BLOCK_SCALAR.test(value)) continue;
+      if (quoted === undefined ? isCodeName(value, next) : SPACED.test(quoted)) continue;
+      if (this.isSecretValue(name, value, next)) found.push({ at: match.index, hit: secretHit(value) });
+    }
+    return found;
+  }
+
+  /** True when `value`, assigned to `name` and followed in the text by `next`, is a secret variable's value. */
+  private isSecretValue(name: string, value: string, next: string | undefined): boolean {
+    return this.names.secret(name) && this.holdsSecret(name, value) && !isCall(value, next);
   }
 
   /**
