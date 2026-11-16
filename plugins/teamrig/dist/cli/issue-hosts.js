@@ -1,4 +1,5 @@
 import { GitHubIssueHost } from "../github/host.js";
+import { GitHubPullReviewHost } from "../github/pull-review.js";
 import { RepoTokens } from "../github/tokens.js";
 import { RefusedError } from "./runtime.js";
 /**
@@ -9,6 +10,13 @@ export function hostOf(kind, runtime, scanner) {
     switch (kind) {
         case 'github':
             return new GitHubIssueHost(runtime.gh, new RepoTokens(runtime.credentials, runtime.env), scanner);
+    }
+}
+/** The pull request review adapter for a host kind (issues/review.ts), as {@link hostOf} is the issue one. */
+export function pullReviewHostOf(kind, runtime, scanner) {
+    switch (kind) {
+        case 'github':
+            return new GitHubPullReviewHost(runtime.gh, new RepoTokens(runtime.credentials, runtime.env), scanner);
     }
 }
 /** The repositories to read: every one of `github.repos`, or the one `--repo` names, which must be among them. */

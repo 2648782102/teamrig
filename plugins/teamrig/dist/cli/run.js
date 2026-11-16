@@ -83,6 +83,7 @@ const issueWatchCommands = () => import("./commands/issue-watch.js");
 const issueMigrateCommands = () => import("./commands/issue-migrate.js");
 const issueCommands = () => import("./commands/issue.js");
 const prCommands = () => import("./commands/pr.js");
+const prReviewCommands = () => import("./commands/pr-review.js");
 const issueLinksCommands = () => import("./commands/issue-links.js");
 const startCommands = () => import("./commands/start.js");
 const meetingCommands = () => import("./commands/meeting.js");
@@ -211,6 +212,12 @@ const COMMANDS = {
     'issue close': { effect: 'write', flags: ['session', 'comment', 'reason', 'duplicate-of'], load: async () => (await issueCommands()).issueClose },
     'issue label': { effect: 'write', flags: ['session', 'add', 'remove'], load: async () => (await issueCommands()).issueLabel },
     'pr conflicts': { effect: 'write', flags: ['base'], load: async () => (await prCommands()).prConflicts },
+    'pr review': {
+        effect: 'write',
+        flags: ['session', 'head', 'body-file', 'verdict'],
+        switches: ['approve', 'request-changes'],
+        load: async () => (await prReviewCommands()).prReview,
+    },
     'issue links': { effect: 'write', flags: ['repo'], switches: ['yes'], load: async () => (await issueLinksCommands()).issueLinks },
     budget: { effect: 'read', flags: ['day', 'task'], switches: ['loops', 'burn', 'misses', 'all'], load: async () => (await budgetCommands()).budget },
     'budget lift': {
@@ -733,6 +740,13 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
       writes nothing to GitHub; refuses a folder whose origin is another repository
+  pr review <owner/name#n> --approve|--request-changes --head <sha> [--body-file <path>]
+      [--verdict <task>]   posts one review on a pull request of the team's repositories, bound to
+      --head, the full id of the head commit you read, with the same access and checks as issue
+      comment; refused, posting nothing, when the pull request is not open, its head moved since, or
+      it is the access's own account's; --request-changes needs --body-file; an approval of a change
+      to a security path of the merge review gate names the security reviewer's done task with
+      --verdict; the review approves no task's wait and merges nothing
   issue links [--repo <owner/name>] [--yes]   puts the task tree on the issues of github.repos: each
       task planned after or waiting on another, both mirrored in one repository, is marked blocked by
       it on GitHub, and a part of one whole becomes its sub-issue; without --yes it reads the links

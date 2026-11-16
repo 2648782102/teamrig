@@ -15,6 +15,17 @@ const JOB_LOG_READ = { noun: 'failed job logs', permission: 'Actions', command: 
 /** What each use does with an access, as its ACCESS line words it. */
 const USE_VERB = { read: 'read with', open: 'opens issues with', write: 'writes with' };
 /**
+ * How `repo` is reached for `use`: with its owner's saved token only, as the ACCESS line names it, never the gh login
+ * in its place (tokens.ts). The scope is the owner, as one token serves all its repositories.
+ */
+export async function reachWith(tokens, repo, use) {
+    const access = await tokens.accessFor(repo);
+    if (access instanceof NoAccessError) {
+        return { kind: 'unreachable', reason: access.message };
+    }
+    return { kind: 'reached', access: `${access.owner}: ${USE_VERB[use]} the token saved as ${access.credential}`, scope: access.owner };
+}
+/**
  * GitHub as an issue host (issues/host.ts): a list is pages of the two shipped issue queries, a links read pages of
  * the third, and each write one gh REST call the runner's allowlist takes (gh.ts), made with the token saved for the
  * repository's owner. An owner with no saved token, or one the store cannot read, is reached by nothing: never the
@@ -30,18 +41,8 @@ export class GitHubIssueHost {
         this.tokens = tokens;
         this.scanner = scanner;
     }
-    /** Reached with the owner's saved token only; the scope is the owner, as one token serves all its repositories. */
-    async reach(repo, use) {
-        const access = await this.tokens.accessFor(repo);
-        if (access instanceof NoAccessError) {
-            return { kind: 'unreachable', reason: access.message };
-        }
-        const verb = USE_VERB[use];
-        return {
-            kind: 'reached',
-            access: `${access.owner}: ${verb} the token saved as ${access.credential}`,
-            scope: access.owner,
-        };
+    reach(repo, use) {
+        return reachWith(this.tokens, repo, use);
     }
     /**
      * The open issues, then those closed on or after `closedSince`. When either read fails nothing of the repository
