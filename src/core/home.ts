@@ -221,6 +221,10 @@ export interface TeamPaths {
   readonly githubWatchLock: string;
   /** The issue claims the sync made, the only assignees it may ever take off (issues/claim.ts). */
   readonly githubClaims: string;
+  /** What teamrig last left on each issue the status push keeps, so a person's change is held (issues/pushed-record.ts). */
+  readonly githubPushed: string;
+  /** Held while a command moves the pushed record. */
+  readonly githubPushedLock: string;
   /** The hookless-tab check's last run and the tabs it named (restore/hookless.ts). */
   readonly hookless: string;
   /** Held while a hook runs the hookless-tab check. */
@@ -365,6 +369,8 @@ export function teamPaths(kitHome: string, team: string, claudeDir: string, over
     githubWatch: join(state, 'github-watch.json'),
     githubWatchLock: join(state, 'github-watch.lock'),
     githubClaims: join(state, 'github-claims.json'),
+    githubPushed: join(state, 'github-pushed.json'),
+    githubPushedLock: join(state, 'github-pushed.lock'),
     hookless: join(state, 'hookless.json'),
     hooklessLock: join(state, 'hookless.lock'),
     idlePass: join(state, 'idle-pass.json'),
