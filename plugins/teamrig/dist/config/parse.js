@@ -1245,6 +1245,7 @@ function parseOpen(read, raw, sessions) {
         teamWindow: read.boolean(raw, 'teamWindow', 'open', DEFAULT_OPEN.teamWindow),
         headroom: parseHeadroom(read, read.section(raw, 'headroom', 'open')),
         idle: parseIdle(read, read.section(raw, 'idle', 'open'), sessions),
+        pluginDirs: read.stringList(raw, 'pluginDirs', 'open', DEFAULT_OPEN.pluginDirs, isAbsoluteFolder, CONFIG_LIMITS.openPluginDirs.maxItems),
     };
 }
 /** `open.idle`: whether the idle pass runs, and the sessions it keeps open; one not on the team is reported and left out. */
