@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
-import { isIssueBodyEdit, isIssueClose, isIssueComment, isIssueRead, isLabelAdd, isLabelRead, isLabelRemove } from '../github/gh.ts';
+import { isIssueAssign, isIssueBodyEdit, isIssueClose, isIssueComment, isIssueRead, isLabelAdd, isLabelRead, isLabelRemove } from '../github/gh.ts';
 import { APP, CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
 import { FakeCredentials } from '../testing/fake-credentials.ts';
 import { FakeGh, ghIssue } from '../testing/fake-gh.ts';
@@ -324,5 +324,32 @@ describe('teamrig issue edit', () => {
     assert.equal(off.code, EXIT.ok);
     assert.match(off.stdout.join('\n'), /^OFF /u);
     assert.deepEqual(gh.ran, []);
+  });
+});
+
+describe('teamrig issue assign (T3169)', () => {
+  it('reads each login as the repository may assign it, as GitHub spells it, then assigns them in one call', async () => {
+    const gh = new FakeGh().spells('MonaLisa');
+    const result = await new CliHarness(GITHUB_TEAM).run(['issue', 'assign', 'acme/web#7', '--login', 'monalisa, octocat,MONALISA'], { ...AS_LEAD, gh });
+    assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
+    assert.deepEqual(result.stdout, [LOGIN, 'ASSIGNED acme/web#7: MonaLisa, octocat']);
+    const writes = gh.ran.map((request) => request.args).filter(isIssueAssign);
+    assert.equal(writes.length, 1);
+  });
+
+  it('assigns no one when the repository may not assign a login, and refuses, running no gh, no login or a bad one', async () => {
+    const gh = new FakeGh().cannotAssign('acme/web', ['ghost']);
+    const kit = new CliHarness(GITHUB_TEAM);
+    const failed = await kit.run(['issue', 'assign', 'acme/web#7', '--login', 'octocat,ghost'], { ...AS_LEAD, gh });
+    assert.equal(failed.code, EXIT.failed);
+    assert.match(failed.stdout.join('\n'), /FAILED acme\/web#7: ghost may not be assigned in acme\/web .*; nothing was changed/u);
+    assert.ok(!gh.ran.some((request) => isIssueAssign(request.args)));
+    const none = new FakeGh();
+    const missing = await kit.run(['issue', 'assign', 'acme/web#7'], { ...AS_LEAD, gh: none });
+    assert.match([...missing.stdout, ...missing.stderr].join('\n'), /--login is required/u);
+    const bad = await kit.run(['issue', 'assign', 'acme/web#7', '--login', 'two words'], { ...AS_LEAD, gh: none });
+    assert.equal(bad.code, EXIT.refused);
+    assert.match(bad.stdout.join('\n'), /--login: "two words" is no login/u);
+    assert.deepEqual(none.ran, []);
   });
 });

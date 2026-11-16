@@ -5,7 +5,7 @@ import type { KitConfig } from '../../config/types.ts';
 import { CLOSE_REASONS, hostKindOf, parseIssueTarget, targetText, type CloseReason, type HostKind, type IssueHost, type IssueTarget } from '../../issues/host.ts';
 import { checkReply, sendReply, type FollowUp, type ReplyWrite } from '../../issues/reply.ts';
 import { holderOf, sessionLogins } from '../../issues/status-push.ts';
-import { editIssueBody, labelIssue, labelRefusal, postRefusal, writeIssue, type IssueWrite } from '../../issues/write.ts';
+import { assignIssue, editIssueBody, labelIssue, labelRefusal, postRefusal, writeIssue, type IssueWrite } from '../../issues/write.ts';
 import type { Task } from '../../register/fold.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import { secretRulesOf } from '../../secret-guard/rules.ts';
@@ -36,7 +36,7 @@ import { openTeam } from './register-team.ts';
 export async function issueReply(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
   const target = targetOf(args);
   const pull = pullOf(args.flags.get('pr'));
-  const assign = labelsOf(args.flags.get('assign'), '--assign');
+  const assign = loginsOf(args.flags.get('assign'), '--assign');
   const status = args.flags.get('status');
   const passed = SET_FLAGS.filter((name) => args.flags.has(name));
   if (status === undefined && passed.length > 0) {
@@ -218,6 +218,41 @@ export async function issueLabel(args: ParsedArgs, runtime: CliRuntime): Promise
     return EXIT.ok;
   }
   return (await labelIssue(host, { target, add, remove }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+}
+
+/**
+ * `issue assign <owner/name#n> --login <login,...>` (T3169): adds people to the assignees of one issue or pull request
+ * of the team's repositories, with the same access, each login read first as one the repository may assign (the host
+ * would drop any other without a word); those already on it stay. Exit 1 when the host failed, else 0.
+ */
+export async function issueAssign(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
+  const target = targetOf(args);
+  const logins = loginsOf(requiredFlag(args.flags, 'login'), '--login');
+  if (logins.length === 0) {
+    throw new RefusedError('--login takes the logins to assign, comma-separated');
+  }
+  const host = await hostFor(args, runtime, target.repo, undefined);
+  if (host === undefined) {
+    return EXIT.ok;
+  }
+  return (await assignIssue(host, { target, logins }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+}
+
+/** The logins of a comma-separated `flag`, each trimmed and named once whatever its case; refused when one is no word. */
+function loginsOf(text: string | undefined, flag: string): string[] {
+  if (text === undefined) {
+    return [];
+  }
+  const logins: string[] = [];
+  for (const login of text.split(',').map((one) => one.trim())) {
+    if (!/^[^\s\p{Cc}]+$/u.test(login)) {
+      throw new RefusedError(`${flag}: ${JSON.stringify(login)} is no login; give each as the host spells it, such as octocat`);
+    }
+    if (!logins.some((one) => one.toLowerCase() === login.toLowerCase())) {
+      logins.push(login);
+    }
+  }
+  return logins;
 }
 
 /** The close reason `--reason` names, or undefined when it is not given; refused when it names none. */
