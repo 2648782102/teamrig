@@ -435,7 +435,7 @@
     "dist/hooks/dropped-edit.js": "272336c13786475757639f448ba4ed6f8caf8005de4a8837c22990ed9ef7a0f9",
     "dist/hooks/exec-guard.js": "4acd4bbdb052f2f6460064c2d3870577fe559d0abab65d5893f1c33fd914fbe3",
     "dist/hooks/failed-send.js": "97081b3acfabbd3cadc0542530631970d9d56134d7d87156e434279e5478a194",
-    "dist/hooks/gh-guard.js": "e6188390b17e1ce94c59f1437d230643ac80913c3fb41b8cccf78ae0ce340c8c",
+    "dist/hooks/gh-guard.js": "ce15f6e3fc54fa146ee44ffa57e430c54f636e7bd03b388901e0d3be085a41d7",
     "dist/hooks/hand-step-lint.js": "2e42cec04893ac9a127beea3a594125bd4b8bf738ce8c372b84758deaee9a859",
     "dist/hooks/helper-start.js": "30379db5d2e0f12cc3e6c3966a251619a8c268c7701ebfca64e0ae44e75ef982",
     "dist/hooks/hint-log.js": "b1f023472a3e2cda80e324e7b76742f72646619b9b22a2ca109a85584e6d1261",

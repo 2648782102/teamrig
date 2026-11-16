@@ -66,28 +66,30 @@ function wordsOf(args) {
 }
 /**
  * The value of option `long` (or `short`) in `words`: the next word after `-R x` / `--repo x`, the text after `--repo=x`
- * or `-Rx`. `undefined` for none, `null` for one known only when the line runs.
+ * or `-Rx`. Given twice, the last one, as gh takes it. `undefined` for none, `null` for one known only when the line runs.
  */
 function optionValue(words, short, long) {
+    let value;
     for (let i = 0; i < words.length; i++) {
         const word = words[i];
         if (word === undefined) {
             continue;
         }
         if (word === '--') {
-            return undefined;
+            break;
         }
         if (word === long || word === short) {
-            return words[i + 1] ?? null;
+            value = words[i + 1] ?? null;
+            i++;
         }
-        if (word.startsWith(`${long}=`)) {
-            return word.slice(long.length + 1);
+        else if (word.startsWith(`${long}=`)) {
+            value = word.slice(long.length + 1);
         }
-        if (short !== undefined && word.startsWith(short) && !word.startsWith('--') && word.length > short.length) {
-            return word.slice(short.length);
+        else if (short !== undefined && word.startsWith(short) && !word.startsWith('--') && word.length > short.length) {
+            value = word.slice(short.length);
         }
     }
-    return undefined;
+    return value;
 }
 /** Every value of option `long` (or `short`): `--add-label a --add-label b,c` gives `a`, `b,c`. */
 function optionValues(words, short, long) {
