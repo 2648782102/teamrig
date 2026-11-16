@@ -448,7 +448,7 @@
     "dist/hooks/secret-guard.js": "50ff84ca23c86ccdb6e341eccf704459e96bd5f9a0eb185d6188f3d4b2ec6a2d",
     "dist/hooks/secret-redact.js": "9d31ede03ff9142341c337b45da651ba547e4445a22486314b10c1d2f47160f3",
     "dist/hooks/service-role-allow.js": "9de1b028b5999e432619d55f39da1616b4bfde3b10a4141ae40b5684e3c72e0c",
-    "dist/hooks/service-role-guard.js": "18c2aefe6be6ba142a86aebe9d727dc0c2b081edf1a522dc7fb52705d80849c0",
+    "dist/hooks/service-role-guard.js": "733aad22dcdfb4ddfcb4c95add83733c0de41cba018cb31404d6d2a6b7b8025d",
     "dist/hooks/session-start.js": "f7f67fcb59ce9bef6d9ee0ec225702ecda68e5fa00bd26083e31d9f6c2f105d2",
     "dist/hooks/stop-model.js": "4910378fb41cabf69623b4ca27867b715d3a843b0165f1a0bf0f10e2600501e0",
     "dist/hooks/stop.js": "8bf05cb858b946af79a1786451e00cfd3191db9969700e19b343b67e49b829ec",
