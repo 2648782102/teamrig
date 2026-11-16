@@ -3,11 +3,13 @@ import { SecretScanner } from "../../core/secrets.js";
 import { closedSince } from "../../github/sync.js";
 import { targetText } from "../../issues/host.js";
 import { applyPush } from "../../issues/push-apply.js";
-import { changeLine, changeWrites, planPush, SESSION_PUSH, sessionLogins } from "../../issues/status-push.js";
+import { withEntry } from "../../issues/pushed-record.js";
+import { changeLine, changeWrites, heldLine, planPush, SESSION_PUSH, sessionLogins } from "../../issues/status-push.js";
 import { RegisterPolicy } from "../../register/policy.js";
 import { noPositionals } from "../args.js";
 import { callerOf } from "../inputs.js";
 import { hostOf, reposOf } from "../issue-hosts.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { sessionIdOf } from "../kit.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { GITHUB_OFF, githubOff } from "./issue-sync-auto.js";
@@ -45,9 +47,10 @@ export async function issuePush(args, runtime) {
         say('OFF no repository to push to: list them as "owner/name" under github.repos in the team config; nothing was read or written');
         return EXIT.ok;
     }
+    const pushed = pushedStoreOf(runtime, team.paths, config.lock);
     const totals = await pushRepos({
         // github.repos is GitHub's list, so every repository it names is GitHub's.
-        host: hostOf('github', runtime, new SecretScanner(config.register.secretPatterns)),
+        host: hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), pushed),
         repos: reposOf(config.github.repos, args.flags.get('repo')),
         since: closedSince(new Date(runtime.clock.now()), config.github.closedDays),
         tasks: async () => (await team.register.snapshot()).state.tasks.values(),
@@ -55,6 +58,8 @@ export async function issuePush(args, runtime) {
         limits: SESSION_PUSH,
         logins: sessionLogins(config.github.owners),
         told: new Set(),
+        pushed,
+        at: runtime.clock.now(),
     }, say);
     say(pushEndLine(send, totals, SESSION_PUSH.writesPerRun));
     return totals.failures.length > 0 ? EXIT.failed : EXIT.ok;
@@ -87,13 +92,18 @@ export async function pushRepos(run, say) {
             continue;
         }
         read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
-        const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.logins);
+        const record = { state: await run.pushed.read(), at: run.at };
+        const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.logins, record);
         planLines(plan).forEach(say);
         const planned = plan.changes.reduce((sum, change) => sum + changeWrites(change), 0);
         left -= planned;
         if (!run.send) {
             writes += planned;
             continue;
+        }
+        // Before any write, so the host's record of each write moves the entry this plan started.
+        if (plan.recorded.length > 0) {
+            await run.pushed.update((state) => plan.recorded.reduce(withEntry, state));
         }
         const outcome = await applyPush(run.host, plan, say);
         writes += outcome.writes;
@@ -117,6 +127,7 @@ export function planLines(plan) {
         `${plan.unchanged} unchanged`,
         ...(plan.deferred.length === 0 ? [] : [`${plan.deferred.length} left for the next run`]),
         ...(plan.heldCloses.length === 0 ? [] : [`${plan.heldCloses.length} close(s) held for a session's push`]),
+        ...(plan.held.length === 0 ? [] : [`${plan.held.length} held for a person's change`]),
         ...(plan.closedActive.length === 0 ? [] : [`${plan.closedActive.length} closed on the host while the task is active`]),
         ...(plan.unlisted.length === 0 ? [] : [`${plan.unlisted.length} not listed`]),
     ];
@@ -126,6 +137,7 @@ export function planLines(plan) {
         `PUSH ${plan.repo}: ${counts.join(', ')}`,
         ...(more > 0 ? [...changes.slice(0, SHOWN_CHANGES), `... and ${more} more`] : changes),
         ...plan.heldCloses.map((held) => `${changeLine(held).replace(/^CLOSE/u, 'HELD')}; the automatic push never closes: a session's teamrig issue sync --push --yes sends the close`),
+        ...plan.held.map(heldLine),
         ...plan.closedActive.map((closed) => `KEPT ${targetText(closed.target)} ${closed.task} ${closed.status}: closed on the host${closed.stateReason === '' ? '' : ` (${closed.stateReason.toLowerCase()})`} while the task is active; the push never reopens an issue, so set the task to match or reopen the issue`),
         ...plan.unlisted.map((held) => `UNLISTED ${targetText(held.target)} ${held.task} ${held.status}: not open on the host (closed before github.closedDays, or gone) while the task is active; the push never reopens an issue`),
     ];

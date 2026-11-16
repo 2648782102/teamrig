@@ -8,6 +8,7 @@ import { noPositionals } from "../args.js";
 import { fileLockOf } from "../file-locks.js";
 import { hostOf } from "../issue-hosts.js";
 import { openTeamKit, requireConfig } from "../kit.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { EXIT } from "../runtime.js";
 import { GITHUB_OFF, githubOff } from "./issue-sync-auto.js";
 import { issueSync } from "./issue-sync.js";
@@ -144,7 +145,7 @@ async function watchLoop(runtime, startedAt) {
         if (idleDone(idleSince, now)) {
             return 'no session of the team ran for 10 minutes; the next one starts the watch again';
         }
-        const { round, pending } = await probeRound(runtime, config, marks);
+        const { round, pending } = await probeRound(runtime, kit, config, marks);
         if (readDue(last, round, now)) {
             const code = await issueSync(AUTO_SYNC, runtime);
             last = { at: now, ok: code !== EXIT.failed };
@@ -180,8 +181,8 @@ async function anySessionRuns(runtime, kit, config) {
     return false;
 }
 /** Probes every repository: changed when any did (with the marks to keep once synced), else failed when one failed. */
-async function probeRound(runtime, config, marks) {
-    const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
+async function probeRound(runtime, kit, config, marks) {
+    const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), pushedStoreOf(runtime, kit.paths, config.lock));
     const pending = new Map();
     let failed = false;
     for (const repo of config.github.repos) {

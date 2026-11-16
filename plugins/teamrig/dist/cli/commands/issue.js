@@ -9,6 +9,7 @@ import { onePositional, requiredFlag } from "../args.js";
 import { callerOf } from "../inputs.js";
 import { hostOf } from "../issue-hosts.js";
 import { sessionIdOf } from "../kit.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { GITHUB_OFF, githubOff } from "./issue-sync-auto.js";
 import { openTeam } from "./register-team.js";
@@ -186,11 +187,11 @@ async function checkedRepo(args, runtime, repo) {
         const listed = team.config.github.repos.join(', ');
         throw new RefusedError(`${repo} is not one of the team's repositories: list it under github.repos in the team config${listed === '' ? '' : ` (now ${listed})`}`);
     }
-    return { config: team.config, kind };
+    return { config: team.config, paths: team.paths, kind };
 }
 /** The host of a checked repository once the text to post (if any) may be posted; undefined, after an OFF line, while GitHub is off. */
 function hostAfter(checked, runtime, posted) {
-    const { config, kind } = checked;
+    const { config, paths, kind } = checked;
     const scanner = new SecretScanner(config.register.secretPatterns);
     const refused = posted === undefined ? undefined : postRefusal(posted.flag, posted.text, scanner);
     if (refused !== undefined) {
@@ -200,5 +201,5 @@ function hostAfter(checked, runtime, posted) {
         runtime.out.stdout(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; nothing was written`);
         return undefined;
     }
-    return hostOf(kind, runtime, scanner);
+    return hostOf(kind, runtime, scanner, pushedStoreOf(runtime, paths, config.lock));
 }

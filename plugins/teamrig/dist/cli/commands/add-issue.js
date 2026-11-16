@@ -1,6 +1,7 @@
 import { ENV, KIT_NAME } from "../../core/home.js";
 import { issueRef } from "../../github/map.js";
 import { hostOf } from "../issue-hosts.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { EXIT } from "../runtime.js";
 import { GITHUB_OFF, githubOff } from "./issue-sync-auto.js";
 import { reportRotation } from "./register.js";
@@ -31,7 +32,7 @@ export async function openAddedIssue(runtime, team, by, id, draft, scanner) {
         say(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; ${later}`);
         return EXIT.ok;
     }
-    const host = hostOf('github', runtime, scanner);
+    const host = hostOf('github', runtime, scanner, pushedStoreOf(runtime, team.paths, team.config.lock));
     const reach = await host.reach(draft.repo, 'open');
     if (reach.kind === 'unreachable') {
         say(`FAILED ${id}'s issue: ${reach.reason}; ${later}`);

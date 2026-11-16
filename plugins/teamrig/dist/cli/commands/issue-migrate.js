@@ -7,6 +7,7 @@ import { RegisterPolicy } from "../../register/policy.js";
 import { onePositional } from "../args.js";
 import { callerOf } from "../inputs.js";
 import { hostOf } from "../issue-hosts.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { sessionIdOf } from "../kit.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { GITHUB_OFF, githubOff } from "./issue-sync-auto.js";
@@ -92,7 +93,7 @@ function planLines(plan) {
 async function openIssues(runtime, team, by, creates, scanner) {
     const say = (line) => runtime.out.stdout(line);
     // planMigration plans issues only for github.repos, GitHub's list, so every one is GitHub's.
-    const host = hostOf('github', runtime, scanner);
+    const host = hostOf('github', runtime, scanner, pushedStoreOf(runtime, team.paths, team.config.lock));
     const told = new Set();
     let opened = 0;
     const stopped = (id) => `STOPPED at ${id} after opening ${opened} issue(s); fix the cause and rerun: tasks holding their issue are skipped`;

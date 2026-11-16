@@ -15,6 +15,7 @@ import { GITHUB_ACTOR } from "../../register/policy.js";
 import { noPositionals } from "../args.js";
 import { hostOf, reposOf } from "../issue-hosts.js";
 import { openTeamKit, requireConfig } from "../kit.js";
+import { pushedStoreOf } from "../pushed-store.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { teamRegister } from "../team-register.js";
 import { claimBudget, recordClaims } from "./issue-claim.js";
@@ -71,7 +72,8 @@ export async function issueSync(args, runtime) {
     /** The issues of each repository read, for the claim pass, which writes to GitHub only when the run pushes. */
     const claimRead = new Map();
     // github.repos is GitHub's list, so every repository it names is GitHub's.
-    const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
+    const record = pushedStoreOf(runtime, kit.paths, config.lock);
+    const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns), record);
     const told = new Set();
     const ends = [];
     const added = [];
@@ -201,6 +203,8 @@ export async function issueSync(args, runtime) {
             limits: { writesPerRun: Math.max(0, writesPerRun - claimed.writes), closes: false },
             logins: sessionLogins(config.github.owners),
             told,
+            pushed: record,
+            at: runtime.clock.now(),
         }, say);
         say(pushEndLine(true, pushed, writesPerRun));
         for (const failure of pushed.failures) {
