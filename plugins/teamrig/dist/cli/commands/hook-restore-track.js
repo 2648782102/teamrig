@@ -17,7 +17,7 @@ import { noPositionals } from "../args.js";
 import { fileLockOf } from "../file-locks.js";
 import { loginPageLogLine, loginPageOf, sendLoginPage } from "../login-page.js";
 import { EXIT } from "../runtime.js";
-import { parseJson } from "./hook-input.js";
+import { hookScopeOf, parseJson } from "./hook-input.js";
 /**
  * The event a hook payload reports; undefined for one the tracker skips. A compaction's SessionStart
  * (`source: compact`) is skipped: it comes mid-turn in the same process, and must not mark a working
@@ -53,6 +53,21 @@ function present(value) {
 function envId(runtime, name) {
     const value = present(runtime.env[name]);
     return value !== undefined && ID_PATTERN.test(value) ? value : undefined;
+}
+/**
+ * The tab's team and session: `$TEAMRIG_TEAM` and `$TEAMRIG_SESSION`, which `teamrig launch` sets; else, for a tab a
+ * person opened by hand, the team and session the tab title hook finds for it (its project's team, and the session
+ * that read its inbox from this tab), so its entry names it and its login failure tells its team (#820). Neither is
+ * set unless both are found.
+ */
+async function teamSessionOf(runtime, payload) {
+    const team = envId(runtime, ENV.team);
+    const session = envId(runtime, ENV.session);
+    if (team !== undefined) {
+        return { team, session };
+    }
+    const scope = await hookScopeOf(runtime, payload).catch(() => undefined);
+    return scope === undefined ? { team: undefined, session: undefined } : { team: scope.kit.paths.team, session: scope.id };
 }
 /**
  * Writes the event into its session's restore entry, or removes the entry at an end the person chose. A turn that
@@ -202,8 +217,7 @@ export async function trackRestore(payload, runtime) {
         sessionKind: present(runtime.env[ENV.claudeSessionKind]),
         // Claude Code starts its hooks itself (exec form, no shell), so the hook's parent is the session's Claude Code.
         pid: runtime.sessionProcesses.parentPid,
-        team: envId(runtime, ENV.team),
-        session: envId(runtime, ENV.session),
+        ...(await teamSessionOf(runtime, payload)),
     };
     const kitHome = resolveKitHome(runtime.env, runtime.userHome);
     const event = await codedEvent(payload, reported, facts, runtime);
