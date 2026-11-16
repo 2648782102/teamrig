@@ -46,7 +46,7 @@ export const OWNER_GATED_KEYS: readonly (readonly string[])[] = [
   ['packageGuard'],
   ['dbWriteGuard'],
   ['commitGuard'],
-  ['open', 'pluginDirs'],
+  ['pluginDirs'],
 ];
 
 /** The `teamrig roles` commands that change who holds a role. */

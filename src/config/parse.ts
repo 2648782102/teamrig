@@ -40,6 +40,7 @@ import {
   DEFAULT_IDLE,
   DEFAULT_OPEN,
   DEFAULT_OWNER_GATES,
+  DEFAULT_PLUGIN_DIRS,
   DEFAULT_SECURITY_GATES,
   DEFAULT_COMMIT_GUARD,
   DEFAULT_DB_WRITE_GUARD,
@@ -535,6 +536,7 @@ export function parseConfig(raw: JsonRecord, above?: AccountBudget): ConfigParse
     },
     leads,
     ownerGates,
+    pluginDirs: read.stringList(raw, 'pluginDirs', '', DEFAULT_PLUGIN_DIRS, isAbsoluteFolder, CONFIG_LIMITS.pluginDirs.maxItems),
     securityGates: readSecurityGates(read, raw, ownerGates),
     ruleConflicts: read.list(
       raw,
@@ -1607,7 +1609,6 @@ function parseOpen(read: ConfigReader, raw: JsonRecord, sessions: readonly strin
     teamWindow: read.boolean(raw, 'teamWindow', 'open', DEFAULT_OPEN.teamWindow),
     headroom: parseHeadroom(read, read.section(raw, 'headroom', 'open')),
     idle: parseIdle(read, read.section(raw, 'idle', 'open'), sessions),
-    pluginDirs: read.stringList(raw, 'pluginDirs', 'open', DEFAULT_OPEN.pluginDirs, isAbsoluteFolder, CONFIG_LIMITS.openPluginDirs.maxItems),
   };
 }
 
