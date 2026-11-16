@@ -32,6 +32,7 @@ const CHILD_TAKES = {
     paths: 'own',
     timeZone: 'copy',
     ownerGates: 'copy',
+    pluginDirs: 'copy',
     securityGates: 'copy',
     ruleConflicts: 'copy',
     messages: 'copy',

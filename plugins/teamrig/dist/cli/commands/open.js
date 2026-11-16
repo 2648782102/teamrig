@@ -156,7 +156,7 @@ export async function openSession(runtime, kit, config, roster, request) {
     const closedIn = closed?.claudeSession === undefined || fresh ? undefined : handover === undefined ? await reopenOf(runtime, config, closed, project, request.projectGiven === true) : { verdict: READY_FRESH, folder: project };
     const reopen = closedIn?.verdict;
     // A closed session opened fresh still logs its reopen below, so the idle pass knows it runs again.
-    const resume = fresh ? undefined : await resumeOf(runtime, kit.paths, config, { id, project, from, reopen, asked });
+    const resume = fresh ? undefined : await resumeOf(runtime, kit.paths, config, { id, project, from, reopen, asked, projectGiven: request.projectGiven === true });
     // Claude Code finds a session to resume only in the folder it ran in (T1408); a new one starts in the project.
     const folder = resume === undefined ? project : (closedIn?.folder ?? project);
     const own = request.prompt ?? (handover === undefined ? firstPromptOf(team, id, from, resume, reopen) : refreshPrompt(team, id, handover));
@@ -223,13 +223,15 @@ async function refuseLiveRun(runtime, kit, roster, id, name) {
  * neither closed nor rehired, and only the internal `launch` could bring them back in their own Claude Code session).
  */
 async function resumeOf(runtime, paths, config, facts) {
-    const { id, project, from, reopen, asked } = facts;
+    const { id, project, from, reopen, asked, projectGiven } = facts;
     if (reopen !== undefined) {
         if (reopen.kind === 'resume') {
             return reopen.claudeSession;
         }
         if (asked) {
-            throw new RefusedError(`not resumed: ${reopen.detail}; ${KIT_NAME} open ${id} opens it fresh`);
+            // A bare `open` would resume in the folder it ran in, so the fresh open named keeps a given --project (GeneralA6/teamrig#819).
+            const again = projectGiven ? `${KIT_NAME} open ${id} --project ${project}` : `${KIT_NAME} open ${id}`;
+            throw new RefusedError(`not resumed: ${reopen.detail}; ${again} opens it fresh`);
         }
         return undefined;
     }
@@ -365,14 +367,14 @@ export function claudeExit(runtime, command, result) {
     }
 }
 /**
- * `--plugin-dir <dir>` for each folder `open.pluginDirs` names, refusing a folder that holds no plugin: Claude Code
+ * `--plugin-dir <dir>` for each folder the team config's `pluginDirs` names, refusing a folder that holds no plugin: Claude Code
  * would start without the hooks the team expects, and say nothing.
  */
 export async function pluginDirArgs(config, runtime) {
     const args = [];
-    for (const dir of config.open.pluginDirs) {
+    for (const dir of config.pluginDirs) {
         if ((await runtime.probe.kind(`${dir}/.claude-plugin/plugin.json`)) !== 'file') {
-            throw new RefusedError(`open.pluginDirs names ${dir}, which holds no .claude-plugin/plugin.json`);
+            throw new RefusedError(`pluginDirs names ${dir}, which holds no .claude-plugin/plugin.json`);
         }
         args.push('--plugin-dir', dir);
     }

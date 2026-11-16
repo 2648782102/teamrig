@@ -274,7 +274,9 @@ export const DEFAULT_HEADROOM = { sessionMb: 1200, commitMaxPct: 92, closeIdleMi
  * on any team (owner order, T1409); it keeps open only the sessions its roles name.
  */
 export const DEFAULT_IDLE = { mode: 'on', keepOpen: [] };
-export const DEFAULT_OPEN = { terminal: 'auto', teamWindow: false, headroom: DEFAULT_HEADROOM, idle: DEFAULT_IDLE, pluginDirs: [] };
+export const DEFAULT_OPEN = { terminal: 'auto', teamWindow: false, headroom: DEFAULT_HEADROOM, idle: DEFAULT_IDLE };
+/** No plugin folder beyond the installed plugins. */
+export const DEFAULT_PLUGIN_DIRS = [];
 /** The status line shows the session's folder, its branch and the team's pace line, unless the team turns them off. */
 export const DEFAULT_STATUS_LINE = { folder: true, branch: true, pace: true };
 /**

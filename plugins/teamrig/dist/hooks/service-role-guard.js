@@ -41,7 +41,7 @@ export const OWNER_GATED_KEYS = [
     ['packageGuard'],
     ['dbWriteGuard'],
     ['commitGuard'],
-    ['open', 'pluginDirs'],
+    ['pluginDirs'],
 ];
 /** The `teamrig roles` commands that change who holds a role. */
 export const ROLE_CHANGES = new Set(['grant', 'revoke']);

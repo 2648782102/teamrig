@@ -727,7 +727,10 @@ last writing `teamrig issue sync` kept; it is raised once a wait, and from
 the restore's record (`<kit home>/bin/launchers.json`, written by [restore install](#teamrig-restore-install),
 `uninstall` and a newer version's first session start) RESTORE-DEAD: a logon entry or shortcut teamrig set up that
 starts a Node or launcher that is gone, such as one left on a Node an upgrade removed, and RESTORE-STRAY: a `Restore
-Claude Sessions` shortcut or logon entry that starts something else; `teamrig restore install --yes` repoints both.
+Claude Sessions` shortcut or logon entry that starts something else; `teamrig restore install --yes` repoints both,
+and PROMPT-HELD: a tab of the team has waited 10 minutes or more on a permission prompt nobody answered, so its
+session and every session waiting on it stand still; the [idle pass](hooks.md#the-idle-pass) pages the owner once a
+hold, and only a person at that tab can answer it.
 Each row names the check it came from; the
 lead fixes it, hands it on (`teamrig add --owner <session>`) or settles the check. The lead's `start` shows them
 too, and any session's `start` posts the lead one inbox line per warning it was not told of yet, at most 5 per
@@ -5617,8 +5620,9 @@ so they all learn one W per percent and their parts of the week add up to the ac
 change: in a period with an account line, the keeping team's own lines (`"team"`, from 0.246.0) logged before the
 period's first account line count too, as its outside use then held every other team's tabs; a team line logged
 after it comes from a tab still on an older teamrig and is dropped, as other teams' lines are, and a line naming
-neither counts only in a period with no line naming one. A fit of W per percent through 0 sets the rate: over the newest period whose readings
-span 10 points, so a limit that moved at a reset stops counting once the new period's readings do, else over the last
+neither counts only in a period with no line naming one. A fit of W per percent through the period's start sets the
+rate (0% for a whole week; for a period a reset inside the week opened, its lowest reading, since such a reset can
+leave the use at any percent): over the newest period whose readings span 10 points, so a limit that moved at a reset stops counting once the new period's readings do, else over the last
 8 weeks' readings once they span 10 points. A newer period's own readings set the rate sooner, from 2%, once their
 rate is at least 1.5 times that fit or at most half of it: a limit moved at a reset, or by a plan changed inside the
 week, shows by then. Only readings whose W rose from the one before count, and a newer period's own rate needs two of
