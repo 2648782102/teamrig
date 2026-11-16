@@ -1121,7 +1121,7 @@ export async function checkReport(args: ParsedArgs, runtime: CliRuntime): Promis
   const late = await githubLateWarnings(runtime.files, own.paths.githubClocks, zone, now.getTime());
   const restore = await restoreLauncherWarnings(runtime.files, resolveKitHome(runtime.env, runtime.userHome));
   const lead = own.config.roles.lead;
-  const cover = coverUnowned([...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], own.snapshot.state.tasks.values());
+  const cover = coverUnowned([...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], own.snapshot.state.tasks.values(), runtime.userHome);
   return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: cover.unowned, covered: cover.covered, lead, decisions };
 }
 
