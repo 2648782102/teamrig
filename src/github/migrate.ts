@@ -185,6 +185,18 @@ function issueRow(raw: JsonRecord, id: string, scanner: SecretScanner): Verdict<
   return { ok: true, value: { decision: 'issue', id, repo: repo.trim().toLowerCase(), type, priority: label, ...text.value } };
 }
 
+/**
+ * The issue row of one task named on the command line (`issue migrate --task`), so a single issue needs no row file:
+ * its kind of work and priority are the task's own, its wording passes the checks a row's does.
+ */
+export function taskIssueRow(task: Pick<Task, 'id' | 'type' | 'priority'>, repo: string, title: string, body: string, scanner: SecretScanner): Verdict<IssueRow> {
+  const text = publicIssueText(task.id, title, body, scanner);
+  if (!text.ok) {
+    return text;
+  }
+  return { ok: true, value: { decision: 'issue', id: task.id, repo, type: task.type === 'bug' ? 'bug' : 'task', priority: priorityLabelOf(task.priority), ...text.value } };
+}
+
 /** An issue's public wording, trimmed: what a migrate row and `add --issue` both open. */
 export interface PublicIssueText {
   readonly title: string;

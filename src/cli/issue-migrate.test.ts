@@ -71,6 +71,48 @@ describe('teamrig issue migrate', () => {
     assert.doesNotMatch(preview, /Private/u);
   });
 
+  it('previews one task\'s issue with no row file, naming no other task (T3349)', async () => {
+    const kit = await migratingTeam();
+    const log = kit.files.get(EVENTS_PATH);
+    const gh = new FakeGh();
+    assert.deepEqual(await expectRun(kit, ['issue', 'migrate', '--task', 'T2', '--issue', 'Login fails on retry', '--issue-body', 'Retries stop at three.', '--issue-repo', 'acme/api'], gh, EXIT.ok), [
+      '1 issue(s) to open, 0 kept local, 0 skipped, 0 live task(s) with no row',
+      "PREVIEW nothing was written; the same command with --yes opens the issue and sets T2's ref",
+    ]);
+    assert.deepEqual(gh.ran, []);
+    assert.equal(kit.files.get(EVENTS_PATH), log);
+  });
+
+  it('opens one task\'s issue with its own kind of work and priority, and sets its ref (T3349)', async () => {
+    const kit = new CliHarness({ ...GITHUB_TEAM, github: { repos: ['acme/web', 'acme/api'], issueAtAdd: 'acme/api' } });
+    const added = await kit.run(['add', '--title', 'Private retry fix', '--description', 'private what and why', '--priority', 'p0', '--owner', 'alpha', '--type', 'bug', '--local', 'its issue opens later'], AS_LEAD);
+    assert.equal(added.code, EXIT.ok, [...added.stdout, ...added.stderr].join('\n'));
+    const gh = new FakeGh();
+    const lines = await expectRun(kit, ['issue', 'migrate', '--task', 'T1', '--issue', 'Login fails on retry', '--issue-body', 'Retries stop at three.', '--yes'], gh, EXIT.ok);
+    assert.deepEqual(lines.slice(-2), ['OPENED T1 gh:acme/api#1', "DONE opened 1 issue(s) and set each task's ref"]);
+    assert.deepEqual(createsOf(gh), [
+      ['api', 'repos/acme/api/issues', '-X', 'POST', '-f', 'title=Login fails on retry', '-f', `body=${withStampFooter('Retries stop at three.')}`, '-f', 'labels[]=bug', '-f', 'labels[]=p0', ...OPEN_LABEL],
+    ]);
+    assert.equal(tasksOf(kit).get('T1')?.ref, 'gh:acme/api#1');
+  });
+
+  it('refuses a one-task run without its wording, with a file, or for no such task, opening nothing (T3349)', async () => {
+    const kit = await migratingTeam();
+    const gh = new FakeGh();
+    const refusal = async (argv: readonly string[], code: number): Promise<string> => {
+      const result = await kit.run(argv, { ...AS_LEAD, gh });
+      assert.equal(result.code, code, [...result.stdout, ...result.stderr].join('\n'));
+      return [...result.stdout, ...result.stderr].join('\n');
+    };
+    assert.match(await refusal(['issue', 'migrate', '--task', 'T2', '--issue', 'Login fails on retry', '--yes'], EXIT.usage), /--task takes --issue <title> and --issue-body <text>/u);
+    assert.match(await refusal([...['issue', 'migrate', '--task', 'T2', '--issue', 'Login fails on retry', '--issue-body', 'Retries stop at three.', '--issue-repo', 'acme/api'], 'rows.jsonl'], EXIT.usage), /unexpected "rows\.jsonl"/u);
+    assert.match(await refusal(['issue', 'migrate', 'rows.jsonl', '--issue', 'Login fails on retry'], EXIT.usage), /go with --task <id>/u);
+    assert.match(await refusal(['issue', 'migrate', '--task', 'T9', '--issue', 'Gone', '--issue-body', 'Why.'], EXIT.refused), /no task T9 in the working set/u);
+    assert.match(await refusal(['issue', 'migrate', '--task', 'T2', '--issue', 'Gone', '--issue-body', 'Why.'], EXIT.refused), /--issue-repo names the repository/u);
+    assert.match(await refusal(['issue', 'migrate', '--task', 'T2', '--issue', 'Gone', '--issue-body', 'Follows T1.', '--issue-repo', 'acme/api'], EXIT.refused), /T1/u);
+    assert.deepEqual(gh.ran, []);
+  });
+
   it('names the live tasks no row covers and the rows it skips', async () => {
     const kit = await migratingTeam();
     await kit.files.write(ROWS, [issueRow('T1', 'acme/other', 'Add a health check'), issueRow('T9', 'acme/web', 'Gone')].join('\n'));

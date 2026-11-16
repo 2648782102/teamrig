@@ -237,7 +237,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   compact: { effect: 'write', flags: [], switches: ['dry-run', 'from-history'], load: async () => (await compactCommands()).compact },
   'issue sync': { effect: 'write', flags: ['repo'], switches: ['yes', 'auto', 'push'], load: async () => (await issueSyncCommands()).issueSync },
   'issue watch': { effect: 'internal', flags: [], load: async () => (await issueWatchCommands()).issueWatch },
-  'issue migrate': { effect: 'write', flags: ['session', 'out'], switches: ['yes'], load: async () => (await issueMigrateCommands()).issueMigrate },
+  'issue migrate': { effect: 'write', flags: ['session', 'out', 'task', 'issue', 'issue-body', 'issue-repo'], switches: ['yes'], load: async () => (await issueMigrateCommands()).issueMigrate },
   'issue comment': { effect: 'write', flags: ['session', 'body'], load: async () => (await issueCommands()).issueComment },
   'issue edit': { effect: 'write', flags: ['session', 'body-file'], load: async () => (await issueCommands()).issueEdit },
   'issue close': { effect: 'write', flags: ['session', 'comment', 'reason', 'duplicate-of'], load: async () => (await issueCommands()).issueClose },
@@ -773,11 +773,16 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       lacks is made first (MADE); after the labels, each held open issue's github.fields (priority,
       start and target day, score) and type are set where they differ, on a repository that has them
   issue migrate <file> [--out <preview.md>] [--yes]   moves the team's tasks to issues of github.repos
-      from a JSON-lines file: per task {id, decision "issue", repo, type bug|task, priority p1-p3,
+      from a JSON-lines file: per task {id, decision "issue", repo, type bug|task, priority p0-p3,
       title, body} with its public wording, or {id, decision "local", reason}; without --yes writes
       nothing but the --out preview of every issue in full; --yes opens each issue through gh and
       sets the task's ref to it, so issue sync adds no second task; stops at the first failure, and a
-      rerun skips each task already holding its issue
+      rerun skips each task already holding its issue; the issue opens with its type (task Task, bug
+      Bug, goal Feature), status and area labels and a started task's assignee, each one the
+      repository has (TYPE-SKIPPED, LABEL-SKIPPED, ASSIGNEE-SKIPPED say why one is left out)
+  issue migrate --task <id> --issue <title> --issue-body <text> [--issue-repo <owner/name>] [--out <preview.md>] [--yes]
+      the same for one task with no file: its kind of work and priority are the task's own, the
+      repository --issue-repo, else github.issueAtAdd, else the only one of github.repos
   issue comment <owner/name#n> --body <text>   posts one comment on an issue or pull request of the
       team's repositories (github.repos; GitHub is the only host so far), with the token saved for the
       owner, never the gh login; refuses an empty body, a secret shape, private data (a home folder

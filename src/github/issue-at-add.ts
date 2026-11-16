@@ -76,7 +76,7 @@ function openPlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueA
   if (ask.ref !== undefined) {
     return { ok: false, error: '--issue points the task\'s ref at its new issue; give --issue or --ref, not both' };
   }
-  const repo = repoOf(ask.repo, github);
+  const repo = issueRepoOf(ask.repo, github);
   if (!repo.ok) {
     return repo;
   }
@@ -88,8 +88,8 @@ function openPlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueA
   return { ok: true, value: { kind: 'open', draft: { repo: repo.value, ...text.value, labels, type: null, assignees: [] } } };
 }
 
-/** `--issue-repo`, else `github.issueAtAdd`, else the one repository of `github.repos`. */
-function repoOf(asked: string | undefined, { repos, issueAtAdd }: Pick<GithubConfig, 'repos' | 'issueAtAdd'>): Verdict<string> {
+/** The repository a task's issue opens in: `--issue-repo`, else `github.issueAtAdd`, else the one repository of `github.repos`. */
+export function issueRepoOf(asked: string | undefined, { repos, issueAtAdd }: Pick<GithubConfig, 'repos' | 'issueAtAdd'>): Verdict<string> {
   if (repos.length === 0) {
     return { ok: false, error: 'github.repos names no repository to open the issue in' };
   }

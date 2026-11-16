@@ -5,7 +5,7 @@ import type { Task } from '../register/fold.ts';
 import { testTask } from '../testing/task.ts';
 import { DEFAULT_ISSUE_FIELDS } from '../config/defaults.ts';
 import type { IssueRules } from '../issues/issue-fields.ts';
-import { MAX_TITLE, countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, priorityLabelOf, rowLabels, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
+import { MAX_TITLE, countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, priorityLabelOf, rowLabels, taskIssueRow, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
 
 const REPO = 'acme/tool';
 
@@ -131,6 +131,25 @@ describe('rowLabels', () => {
     assert.deepEqual(rowLabels(issueRow()), ['enhancement', 'p2']);
     assert.deepEqual(rowLabels(issueRow({ type: 'bug', priority: 'p1' })), ['bug', 'p1']);
     assert.deepEqual(rowLabels(issueRow({ priority: 'p0' })), ['enhancement', 'p0']);
+  });
+});
+
+describe('taskIssueRow', () => {
+  it("makes one task's issue row from its own kind of work and priority, the wording trimmed", () => {
+    assert.deepEqual(taskIssueRow(testTask({ type: 'bug', priority: 0 }), REPO, ' Retry fails ', ' Why. ', new SecretScanner()), {
+      ok: true,
+      value: { decision: 'issue', id: 'T1', repo: REPO, type: 'bug', priority: 'p0', title: 'Retry fails', body: 'Why.' },
+    });
+    for (const type of [null, 'task'] as const) {
+      const row = taskIssueRow(testTask({ type, priority: 3 }), REPO, 'A', 'B', new SecretScanner());
+      assert.ok(row.ok && row.value.type === 'task' && row.value.priority === 'p3', type ?? 'null');
+    }
+  });
+
+  it('refuses wording a row would be refused for: empty, naming a task id', () => {
+    assert.equal(taskIssueRow(testTask(), REPO, ' ', 'Why.', new SecretScanner()).ok, false);
+    const named = taskIssueRow(testTask(), REPO, 'Retry fails', 'Follows T12.', new SecretScanner());
+    assert.ok(!named.ok && /T12/u.test(named.error), JSON.stringify(named));
   });
 });
 
