@@ -14,14 +14,14 @@ export function runGit(dir, args, timeout = QUERY_TIMEOUT_MS) {
     const result = spawnSync('git', args, { cwd: dir, env: gitEnvironment(process.env), encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024 });
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
-/** A query's stdout when git exits 0, else undefined. */
-export function query(dir, args) {
-    const run = runGit(dir, args);
+/** A query's stdout when git exits 0, else undefined (a query that outlasts `timeout` too). */
+export function query(dir, args, timeout = QUERY_TIMEOUT_MS) {
+    const run = runGit(dir, args, timeout);
     return run.status === 0 ? run.stdout : undefined;
 }
 /** A one-line query, trimmed; an empty answer reads as unknown too. */
-export function queryLine(dir, args) {
-    const value = query(dir, args)?.trim();
+export function queryLine(dir, args, timeout = QUERY_TIMEOUT_MS) {
+    const value = query(dir, args, timeout)?.trim();
     return value === '' ? undefined : value;
 }
 /** A changing step's outcome: done on exit 0, else git's stderr, or the exit code when git said nothing. */
