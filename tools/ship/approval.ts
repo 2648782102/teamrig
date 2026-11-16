@@ -192,7 +192,15 @@ const DIFF_OPTIONS = ['--no-renames', '--no-color', '--no-ext-diff', '--text', '
  * of the head its approver named.
  */
 export function changePatch(git: GitText, rev: string, mainRef: string, writes: ShipWrites): string {
-  const from = git(['merge-base', rev, mainRef]).trim();
+  return changePatchFrom(git, git(['merge-base', rev, mainRef]).trim(), rev, writes);
+}
+
+/**
+ * The same fingerprint of what `rev` changes over `from`, an ancestor: for a branch stacked on a parent that merged
+ * first, the parent's last commit inside it, so the parent's work, which main holds under new shas, is no part of it
+ * (T3343).
+ */
+export function changePatchFrom(git: GitText, from: string, rev: string, writes: ShipWrites): string {
   return diffHash(git(['diff', '--unified=0', ...DIFF_OPTIONS, from, rev, '--', '.', ...excludedOf(writes.generated)]), writes, shipsInAt(git, from, rev));
 }
 
@@ -349,7 +357,20 @@ export function workCommitsOf(git: GitText, rev: string, mainRef: string, writes
   });
 }
 
-const named = (commit: WorkCommit): string => `${commit.sha.slice(0, 9)} "${commit.subject}"`;
+export const named = (commit: WorkCommit): string => `${commit.sha.slice(0, 9)} "${commit.subject}"`;
+
+/**
+ * The leading run of `approved`'s work commits whose patch one of `main`'s work commits carries (T3343): a branch
+ * stacked on a parent branch that rebase-merged first carries the parent's work under its old shas, which main holds
+ * under new ones. Its approval covers only the commits after the run. Empty when no commit leads with a landed patch,
+ * and when every one is landed, which leaves no work of the branch's own to approve. A landed commit after the
+ * branch's own work stays its own, so a head that drops it differs from the approved one.
+ */
+export function landedRun(approved: readonly WorkCommit[], main: readonly WorkCommit[]): readonly WorkCommit[] {
+  const onMain = new Set(main.filter((commit) => !commit.merge).map((commit) => commit.patch));
+  const own = approved.findIndex((commit) => commit.merge || !onMain.has(commit.patch));
+  return own === -1 ? [] : approved.slice(0, own);
+}
 
 /**
  * How `head`'s work commits differ from `approved`'s, each change named (changed, dropped, added, reordered); empty
@@ -383,30 +404,42 @@ export function workChanges(approved: readonly WorkCommit[], head: readonly Work
 }
 
 /**
- * Whether a head is a rebase of the approved one (`approvedRebase`): `rebased`, with the approved head's full sha and
- * its count of work commits; `unknown`, when the approved sha names no commit here; `differs`, naming each change.
+ * Whether a head is a rebase of the approved one (`approvedRebase`): `rebased`, with the approved head's full sha, its
+ * count of work commits of its own and its leading ones main holds already (`landed`, a parent that merged first);
+ * `unknown`, when the approved sha names no commit here; `differs`, naming each change.
  */
 export type ApprovedRebase =
-  | { readonly kind: 'rebased'; readonly approved: string; readonly work: number }
+  | { readonly kind: 'rebased'; readonly approved: string; readonly work: number; readonly landed: readonly WorkCommit[] }
   | { readonly kind: 'unknown'; readonly reason: string }
   | { readonly kind: 'differs'; readonly reason: string };
 
+/** What `approvedRebase` reads of a head against main. */
+export interface RebaseReads {
+  /** The work commits `rev` carries over main, with their patch ids (`workCommitsOf`). */
+  readonly workOf: (rev: string) => readonly WorkCommit[];
+  /** `rev`'s leading work commits whose patch main carries under another sha: a parent that merged first (`landedRun`). */
+  readonly landedOf: (rev: string) => readonly WorkCommit[];
+}
+
 /**
  * Whether `head` is a rebase of the head `approved` names: the same work commits, patch for patch, in the same order
- * (T2913), read by `workOf` (`workCommitsOf`). Main moving under an approved branch then needs no new approval, as the
- * ship sets the version files and the dist again; a changed, dropped, added or reordered work commit differs.
+ * (T2913), read by `reads`. Main moving under an approved branch then needs no new approval, as the ship sets the
+ * version files and the dist again; a changed, dropped, added or reordered work commit differs. The approved head's
+ * leading commits main holds under other shas, a parent that merged first, are no part of the compare (T3343): a ship
+ * or catch-up replays only the branch's own commits onto main.
  */
-export function approvedRebase(git: GitText, workOf: (rev: string) => readonly WorkCommit[], approved: string, head: string): ApprovedRebase {
+export function approvedRebase(git: GitText, reads: RebaseReads, approved: string, head: string): ApprovedRebase {
   let full: string;
   try {
     full = git(['rev-parse', '--verify', '--quiet', `${approved}^{commit}`]).trim();
   } catch {
     return { kind: 'unknown', reason: `--approved ${approved} is not the branch head ${head.slice(0, 9)}, nor a commit here to compare its work with` };
   }
-  const work = workOf(full);
-  const changes = workChanges(work, workOf(head));
+  const landed = reads.landedOf(full);
+  const work = reads.workOf(full).filter((commit) => !landed.some((one) => one.sha === commit.sha));
+  const changes = workChanges(work, reads.workOf(head));
   if (changes.length > 0) {
     return { kind: 'differs', reason: `the head ${head.slice(0, 9)} is not the approved ${full.slice(0, 9)} rebased: ${changes.join('; ')}` };
   }
-  return { kind: 'rebased', approved: full, work: work.length };
+  return { kind: 'rebased', approved: full, work: work.length, landed };
 }
