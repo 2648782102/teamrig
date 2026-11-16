@@ -677,7 +677,12 @@ export interface GithubConfig {
   readonly repos: readonly string[];
   /** The session each GitHub login (lowercase) owns imported issues as; an issue with no listed assignee goes to its repository's session. */
   readonly owners: Readonly<Record<string, string>>;
-  /** The session each repository's (lowercase) issues go to when none of their assignees is in `owners`; else the lead. */
+  /**
+   * The session that owns an issue carrying each label (lowercase), such as `area:cli` for the session of that area:
+   * read after the assignees and before `sessions`, the first label in this list the issue carries winning.
+   */
+  readonly areaOwners: Readonly<Record<string, string>>;
+  /** The session each repository's (lowercase) issues go to when none of their assignees is in `owners` and none of their labels in `areaOwners`; else the lead. */
   readonly sessions: Readonly<Record<string, string>>;
   /** How many days back closed issues are read, to finish the tasks they were imported as. */
   readonly closedDays: number;
@@ -704,6 +709,18 @@ export interface GithubConfig {
    * their TF-IDF word vectors (src/issues/similar.ts). Higher lists fewer, closer candidates.
    */
   readonly similarThreshold: number;
+  /**
+   * The session that hears the pull request news no task owner takes: a pull request from a fork or by an author
+   * outside the repository, or from a branch that names no task. Unset, the lead.
+   */
+  readonly watcher?: string;
+  /**
+   * The repository of `repos` a new task's issue opens in: while set, `teamrig add` opens the task's issue there with
+   * the public wording given (`--issue`, `--issue-body`), or records why the task stays local (`--local`), and adds no
+   * task with neither, so every task has its issue from the start. Unset, the default: an add opens an issue only when
+   * asked.
+   */
+  readonly issueAtAdd?: string;
 }
 
 /**
@@ -1070,6 +1087,13 @@ export interface DeliveryRepoConfig {
    * as `-`. A relative path is in the main checkout; unset: `.claude/worktrees` there.
    */
   readonly worktreeFolder?: string;
+  /**
+   * The ship tool a service role may run through `teamrig queue --kind ship|merge` with no permission check (T2984):
+   * its script, in a checkout of this repository kept clean at main's current code, checked at every allow, as a queued
+   * step that runs it is queued and again when it starts (T3223). A relative path is in the main checkout; unset: no
+   * role runs a ship.
+   */
+  readonly shipTool?: string;
   /**
    * What `teamrig worktree add` runs in a new worktree, such as a link to the main checkout's node_modules: a program
    * and its arguments, run without a shell, with the main checkout's folder in `TEAMRIG_MAIN_CHECKOUT`. Anything but

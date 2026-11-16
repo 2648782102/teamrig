@@ -10,7 +10,8 @@ writes are all run by hand: `teamrig issue migrate` moves tasks you choose to ne
 `teamrig issue edit` and `teamrig issue close` answer, label, rewrite the description of or close one issue or pull
 request ([Commenting on, labelling and closing](#commenting-on-labelling-and-closing)), and `teamrig issue links` puts the
 task tree on the issues ([Linking issues as the task tree](#linking-issues-as-the-task-tree)). GitHub is the
-only host teamrig writes to so far.
+only host teamrig writes to so far. Each run also reads the repositories' pull requests and tells each session what
+happened to its own ([Pull request news](#pull-request-news)).
 
 Setting it up takes three steps: list the repositories, give teamrig read access to their issues, then preview and
 write. After that it runs on its own within a minute of a change on GitHub while your sessions work, and reminds you of an issue waiting
@@ -35,12 +36,14 @@ Add a `github` block to the team config (`~/.teamrig/teams/<team>/config.json`):
 | `repos` | The repositories to read, as `owner/name` (at most 20). Empty turns the sync off. |
 | `sessions` | Optional. The session that owns each repository's issues, so each session sees the issues of its own repositories. One session can own several. |
 | `owners` | Optional. A GitHub login to a session: an issue assigned to that login goes to that session, whatever its repository. |
+| `areaOwners` | Optional. A label to a session, such as `"area:cli": "cli"`: an issue with that label goes to the session of its area, whatever its repository. Matched without case; when an issue carries several, the first listed here wins. |
 | `closedDays` | How many days back closed issues are read, to finish their tasks. Default 14. |
 | `probeSeconds` | How often it asks GitHub whether a repository changed, in seconds: 0, or 30 to 3600. Default 60; 0 leaves the sync to `teamrig issue sync --yes`. |
 | `acceptLabel` | Optional. The label that lets an issue by someone outside the repository become a task ([below](#whose-issues-become-tasks)). Default `teamrig`. |
 
-Who owns a new issue's task: the session of its first assignee listed in `owners`; else its repository's session in
-`sessions`; else the lead. After the import the owner is the team's: reassigning the task in teamrig sticks. So is
+Who owns a new issue's task: the session of its first assignee listed in `owners`; else the session of its first
+label listed in `areaOwners`, so a person's pick beats the area; else its repository's session in `sessions`; else
+the lead. After the import the owner is the team's: reassigning the task in teamrig sticks. So is
 closing it: a task the team sets done or dropped while its issue is open stays closed until the issue changes on
 GitHub after that (reopened, edited or commented on).
 
@@ -63,17 +66,11 @@ and open or closed state still follow GitHub, its title and description stay as 
 
 ## 2. Give teamrig read access
 
-teamrig reads issues through the GitHub CLI, [`gh`](https://cli.github.com). For each owner (the `acme` in
-`acme/web`) it uses:
-
-- **a token saved for that owner**, when there is one: recommended, and needed when your repositories belong to
-  more than one owner;
-- **else the `gh` login** (`gh auth login`), which works when that account can read the issues of every listed
-  repository.
-
-A token is saved, but the credential store cannot read it (a locked keyring, for one): the command stops for that
-owner with a `FAILED` line naming the store and the fix, and never falls back to the `gh` login, which may reach
-more than the token was given. `teamrig issue sync` reads the other owners on.
+teamrig reads and writes issues through the GitHub CLI, [`gh`](https://cli.github.com), with **a token saved for
+each owner** (the `acme` in `acme/web`), handed to `gh` for that run only. It never uses the `gh` login
+(`gh auth login`) in its place, which may reach more than the token was given: an owner with no saved token, or
+one the credential store cannot read (a locked keyring, for one), stops with a `FAILED` line naming the store and
+the fix, and nothing runs for it. `teamrig issue sync` reads the other owners on.
 
 ### What each command needs
 
@@ -81,7 +78,7 @@ Give the token only what the commands you run need:
 
 | Command | Repository permissions |
 | --- | --- |
-| `teamrig issue sync` | **Issues: Read-only** |
+| `teamrig issue sync` | **Issues: Read-only** and **Pull requests: Read-only** |
 | `teamrig issue migrate` | **Issues: Read and write** |
 | `teamrig issue comment`, `teamrig issue label`, `teamrig issue edit`, `teamrig issue close` | **Issues: Read and write** and **Pull requests: Read and write** (a pull request's comments, labels, description and state are written through its issue) |
 | `teamrig issue links` | **Issues: Read-only** for the preview, **Issues: Read and write** with `--yes` |
@@ -136,7 +133,7 @@ ADD new gh:acme/web#7 p1 web: "Fix the login redirect"
 ADD new gh:acme/web#9 p2 web: "Add search to the docs"
 LEFT OUT acme/web: 1 open issue(s) by people outside the repository wait for someone to add the "teamrig" label: #12
 REPO acme/api: 0 to add, 0 to change, 3 unchanged
-ACCESS globex: read with the gh login; no token saved as teamrig-gh-globex
+ACCESS globex: read with the token saved as teamrig-gh-globex
 REPO globex/site: 1 to add, 0 to change, 0 unchanged
 ADD new gh:globex/site#4 p2 web: "Broken footer link"
 PREVIEW nothing was written; teamrig issue sync --yes writes the above as github
@@ -172,6 +169,46 @@ reaches its owner within about a minute while an idle repository costs nothing.
 - An outsider's issue left out for the first time is told to the lead's inbox once, by ref only, for example
   `github: GitHub sync left out 1 new open issue(s) by people outside the repository: gh:acme/web#12; add the
   "teamrig" label to one on GitHub to make it a task at the next sync`.
+
+### Pull request news
+
+Each run also reads every open pull request of each repository, and those changed since the last automatic run, and
+compares them with what that run kept. The news is a pull request opened, merged or closed unmerged, or one that
+starts to conflict with its base, to fail its checks, or gets approved or changes requested. Each is told once, never
+again while it lasts; the first run on a repository only notes what is there.
+
+- It goes to the owner of the task the pull request's branch names (`t42-login` names T42) when one of the team's
+  own authors pushed that branch to the repository itself: the repository's owner, or a login in `owners`. A
+  collaborator or member the team never listed counts as an outsider, since write access lets anyone push a
+  `t<id>-` branch. A fork's or an outsider's pull request, or a branch that names no task, goes to
+  `github.watcher` in the team config, else the lead.
+- Each session gets one inbox line, for example
+  `github: GitHub pull requests: gh:acme/web#20 "Fix the login redirect": conflicts with its base`. A conflict or
+  failing checks on the session's own pull request (a `t<id>-` branch of one of the team's authors, not a fork), and an
+  outsider's new pull request, also wake the session (when `wake.enabled`); a merge, a close, an approval, changes
+  requested, or an outsider's conflict or red checks wait for its next turn.
+- When the checks of a session's own pull request start failing, the run reads the end of each failed job's log
+  (`gh run view --job <id> --log-failed`, at most 5 jobs a run) and writes it to
+  `~/.teamrig/teams/<team>/state/github-ci/<owner>-<name>-<number>.md`, one file per pull request, the newest
+  failure replacing the last: per job its name, its failed step and the last 20 lines, secrets redacted, fenced as
+  data. The inbox line names each job, its step and that file, for example
+  `checks failing ("test" at "Run tests"; log end in .../acme-web-20.md)`. An outsider's or a fork's red checks get no
+  log read. Reading the logs needs **Actions: Read-only** on the token; without it the file says why.
+- A run by hand prints the news as `PULL NEWS <session>` lines and keeps nothing, so the automatic run still tells it.
+- A repository whose pull requests cannot be read gets a `FAILED <repo> pull requests:` line; its issues still sync,
+  and what was last read of its pull requests is kept, so nothing is missed once it reads again.
+
+### Security issues
+
+An open issue labelled `security` (any case, set by the issue form or by a maintainer) goes to its task's owner,
+else where the import would route it, an outsider's left-out report too. The automatic run wakes that session with a
+line naming only the issue's ref and URL, never its title, which may describe the hole, and pages the owner through
+the page webhook the team's `alerts` name (`teamrig page test` checks it). Each issue pages once ever: the sync
+state keeps every number paged for good, so a label set after the issue was imported pages too, and one that stays
+open, is closed and reopened, or loses the label and gets it again never pages again. A run pages and wakes for at
+most 3 such issues; anyone can open issues with the form, so the rest of a burst go to the lead in one line and one
+page that count them and name their refs (ten at most), and their sessions are not told. When no page goes, the lead
+is woken with why.
 
 ## Answer times
 
@@ -415,19 +452,20 @@ again.
 | `the token saved as teamrig-gh-acme may not read the issues of acme/web` | The token sees the repository but has no Issues permission. | On GitHub, edit the token: what [each command needs](#what-each-command-needs). |
 | `acme/web is not visible to the token saved as teamrig-gh-acme` | The repository is not one the token was given, or the name is wrong. | Check `github.repos`; on GitHub, add the repository to the token. |
 | `GitHub refused the token saved as teamrig-gh-acme (expired or revoked?)` | Expired, revoked or not yet approved by the organisation. | Regenerate it and save it again, or ask an organisation owner to approve it. |
-| `... is not visible to the gh login` / `the gh login may not read the issues` | No token is saved for that owner, and the `gh` account cannot read it. | Save a token for the owner (step 2). |
-| `gh is not logged in to GitHub` | No token for that owner and no `gh` login. | Save a token, or run `gh auth login`. |
+| `no token for acme is saved as teamrig-gh-acme` | No token is saved for that owner. teamrig never reads or writes through the `gh` login in its place. | Save a token for the owner (step 2). |
 | `gh, the GitHub CLI, is not installed` | `gh` is missing. | Install it from [cli.github.com](https://cli.github.com). |
 | `could not read teamrig-gh-acme from ...` | The token is saved, but the credential store could not be read (a locked keyring, for one). Nothing ran for that owner: teamrig never uses the `gh` login in a saved token's place. | Unlock the store and rerun, or save the token again. |
 
 ## Safety
 
-- **Read-only sync.** The sync runs only the issue queries teamrig ships, word for word, through `gh api graphql`, so
-  a token with **Issues: Read-only** is all it needs. Of an issue's newest 20 comments it reads only when each was
-  posted, its author's login, tie to the repository and whether that author is a bot: never their text. Only with
-  the push on, a claim reads the text of an issue's comments posted since the last run (`.../issues/<number>/comments
-  -X GET` with `since` and `per_page=30` only, one page), for at most ten issues a run, to find a claim line, and
-  keeps no text. Any other `gh` command or query is refused in code, except
+- **Read-only sync.** The sync runs only the issue queries and the pull request queries teamrig ships, word for word,
+  through `gh api graphql`, and the read of one failed CI job's log
+  (`gh run view --job <id> --log-failed --repo <owner>/<name>`, exactly those arguments), so a token with
+  **Issues: Read-only**, **Pull requests: Read-only** and **Actions: Read-only** is all it needs. Of an issue's newest
+  20 comments it reads only when each was posted, its author's login, tie to the repository and whether that author is
+  a bot: never their text. Only with the push on, a claim reads the text of an issue's comments posted since the last
+  run (`.../issues/<number>/comments -X GET` with `since` and `per_page=30` only, one page), for at most ten issues a
+  run, to find a claim line, and keeps no text. Any other `gh` command or query is refused in code, except
   the writes, each run by hand on a repository in `github.repos`: `teamrig issue migrate`'s create of one issue
   (`gh api repos/<owner>/<name>/issues -X POST` with its title, body and labels only), `teamrig issue comment`'s
   one comment (`.../issues/<number>/comments -X POST` with its body only), `teamrig issue label`'s read of one label

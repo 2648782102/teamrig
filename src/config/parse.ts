@@ -741,16 +741,30 @@ function parseGithub(read: ConfigReader, raw: JsonRecord, sessions: readonly str
     }
     repos.push(key);
   }
+  const issueAtAdd = readIssueAtAdd(read, raw, repos);
   return {
     repos,
     owners: readGithubOwners(read, read.section(raw, 'owners', 'github'), sessions),
+    areaOwners: readGithubAreaOwners(read, read.section(raw, 'areaOwners', 'github'), sessions),
     sessions: readGithubSessions(read, read.section(raw, 'sessions', 'github'), repos, sessions),
     closedDays: read.integer(raw, 'closedDays', 'github', DEFAULT_GITHUB.closedDays, CONFIG_LIMITS.closedDays),
     probeSeconds: readProbeSeconds(read, raw),
     statusPush: read.boolean(raw, 'statusPush', 'github', DEFAULT_GITHUB.statusPush),
     acceptLabel: read.string(raw, 'acceptLabel', 'github', DEFAULT_GITHUB.acceptLabel, shortLine(GITHUB_LABEL_MAX_LENGTH)),
     similarThreshold: read.number(raw, 'similarThreshold', 'github', DEFAULT_GITHUB.similarThreshold, CONFIG_LIMITS.similarThreshold),
+    ...readGithubWatcher(read, raw, sessions),
+    ...(issueAtAdd === undefined ? {} : { issueAtAdd }),
   };
+}
+
+/** `github.issueAtAdd`: unset, or one of `repos` in lowercase; any other repository is reported and reads as unset. */
+function readIssueAtAdd(read: ConfigReader, raw: JsonRecord, repos: readonly string[]): string | undefined {
+  const repo = read.optionalString(raw, 'issueAtAdd', 'github')?.trim().toLowerCase();
+  if (repo !== undefined && !repos.includes(repo)) {
+    read.report('github.issueAtAdd', `${describe(repo)} is not one of github.repos`);
+    return undefined;
+  }
+  return repo;
 }
 
 /** Below this, a probe every few seconds would spend gh starts for nothing GitHub shows that fast. */
@@ -771,6 +785,19 @@ function readProbeSeconds(read: ConfigReader, raw: JsonRecord): number {
     return DEFAULT_GITHUB.probeSeconds;
   }
   return seconds;
+}
+
+/** `github.watcher`: one of the sessions, else left unset (the lead) with the wrong one reported. */
+function readGithubWatcher(read: ConfigReader, raw: JsonRecord, sessions: readonly string[]): { watcher?: string } {
+  const watcher = read.optionalString(raw, 'watcher', 'github', isSessionName);
+  if (watcher === undefined) {
+    return {};
+  }
+  if (!sessions.includes(watcher)) {
+    read.report('github.watcher', `${describe(watcher)} is not one of the sessions`);
+    return {};
+  }
+  return { watcher };
 }
 
 /**
@@ -905,6 +932,38 @@ function readGithubOwners(read: ConfigReader, raw: JsonRecord, sessions: readonl
     }
     const session = read.optionalString(raw, login, 'github.owners', isSessionName);
     const key = login.toLowerCase();
+    if (session === undefined) {
+      continue;
+    }
+    if (!sessions.includes(session)) {
+      read.report(path, `${describe(session)} is not one of the sessions`);
+    } else if (owners[key] !== undefined) {
+      read.report(path, 'is listed twice');
+    } else {
+      owners[key] = session;
+    }
+  }
+  return owners;
+}
+
+/**
+ * `github.areaOwners`: a session for each label, kept in lowercase as GitHub matches labels, in the config's order; a
+ * label past GitHub's length, one on more than one line, one listed twice or a session not on the team is reported
+ * and left out.
+ */
+const AREA_LABEL = shortLine(GITHUB_LABEL_MAX_LENGTH);
+
+function readGithubAreaOwners(read: ConfigReader, raw: JsonRecord, sessions: readonly string[]): Record<string, string> {
+  const owners: Record<string, string> = {};
+  for (const label of Object.keys(raw)) {
+    const path = `github.areaOwners.${label}`;
+    const wrong = label.trim() === '' ? 'expected a label, not blank' : AREA_LABEL(label);
+    if (wrong !== undefined) {
+      read.report(path, wrong);
+      continue;
+    }
+    const session = read.optionalString(raw, label, 'github.areaOwners', isSessionName);
+    const key = label.toLowerCase();
     if (session === undefined) {
       continue;
     }
@@ -1086,6 +1145,7 @@ function parseDeliveryRepos(read: ConfigReader, raw: JsonRecord): Record<string,
     const docsFolder = read.optionalString(entry, 'docsFolder', path, isPathText);
     reportRenamedKey(read, entry, path, 'followMainCheckout', 'updateMainCheckout');
     const worktreeFolder = read.optionalString(entry, 'worktreeFolder', path, isPathText);
+    const shipTool = read.optionalString(entry, 'shipTool', path, isPathText);
     const worktreeSetup = entry['worktreeSetup'] === undefined ? undefined : read.stringListItem(entry['worktreeSetup'], `${path}.worktreeSetup`, HOOK_ARGV_MAX_ITEMS);
     repos[name] = {
       mainCheckout,
@@ -1098,6 +1158,7 @@ function parseDeliveryRepos(read: ConfigReader, raw: JsonRecord): Record<string,
       decisionRecordGate: read.boolean(entry, 'decisionRecordGate', path, false),
       updateMainCheckout: read.boolean(entry, 'updateMainCheckout', path, false),
       ...(worktreeFolder === undefined ? {} : { worktreeFolder }),
+      ...(shipTool === undefined ? {} : { shipTool }),
       ...(worktreeSetup === undefined ? {} : { worktreeSetup }),
       ...(merge === undefined ? {} : { merge }),
       ...(deploy === undefined ? {} : { deploy }),

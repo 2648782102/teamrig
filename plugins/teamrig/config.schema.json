@@ -703,6 +703,11 @@
                 "minLength": 1,
                 "default": ".claude/worktrees"
               },
+              "shipTool": {
+                "description": "The ship tool a service role may run through teamrig queue --kind ship or merge with no permission check: its script, in a checkout of this repository kept clean at main's current code, checked at every allow, as a queued step that runs it is queued and again when it starts. A relative path is in the main checkout. Unset: no role runs a ship.",
+                "type": "string",
+                "minLength": 1
+              },
               "worktreeSetup": {
                 "description": "What teamrig worktree add runs in a new worktree, such as a link to the main checkout node_modules: a program and its arguments, run without a shell, with the main checkout folder in TEAMRIG_MAIN_CHECKOUT. Anything but exit 0 leaves the worktree in place and fails the add. Unset: nothing runs.",
                 "type": "array",
@@ -1335,7 +1340,7 @@
       }
     },
     "github": {
-      "description": "The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment, teamrig issue label, teamrig issue edit and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-<owner> in the system's credential store, else the gh login; a saved token that cannot be read stops a write, never the gh login in its place (docs/github-sync.md).",
+      "description": "The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment, teamrig issue label, teamrig issue edit and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-<owner> in the system's credential store, never the gh login; no saved token, or one that cannot be read, stops the read or write for that owner (docs/github-sync.md).",
       "type": "object",
       "properties": {
         "repos": {
@@ -1350,7 +1355,7 @@
           "default": []
         },
         "owners": {
-          "description": "The session that owns an issue assigned to each GitHub login; matched without case. An issue with no listed assignee goes to its repository's session in sessions, else the lead.",
+          "description": "The session that owns an issue assigned to each GitHub login; matched without case. An issue with no listed assignee goes to its repository's session in sessions, else the lead. These logins, with the repository's owner, are the team's own authors: only their t<id>- branches route pull request news to that task's owner.",
           "type": "object",
           "propertyNames": {
             "type": "string",
@@ -1359,8 +1364,20 @@
           "additionalProperties": { "$ref": "#/$defs/sessionName" },
           "default": {}
         },
+        "areaOwners": {
+          "description": "The session that owns an issue carrying each label, such as area:cli for the session of that area; matched without case. Read after the assignees in owners and before sessions; when an issue carries several, the first label listed here wins.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "additionalProperties": { "$ref": "#/$defs/sessionName" },
+          "default": {}
+        },
         "sessions": {
-          "description": "The session that owns the issues of each repository (owner/name, one of repos; matched without case) when none of their assignees is in owners. Without one, they go to the lead.",
+          "description": "The session that owns the issues of each repository (owner/name, one of repos; matched without case) when none of their assignees is in owners and none of their labels in areaOwners. Without one, they go to the lead.",
           "type": "object",
           "propertyNames": {
             "type": "string",
@@ -1395,6 +1412,15 @@
           "maximum": 1,
           "default": 0.35
         },
+        "watcher": {
+          "description": "The session that hears the pull request news no task owner takes: a pull request from a fork or by an author outside the repository, or from a branch that names no task. Unset, the lead.",
+          "$ref": "#/$defs/sessionName"
+        },
+        "issueAtAdd": {
+          "description": "The repository, one of repos, a new task's issue opens in. While set, teamrig add opens the task's issue there with the public wording given (--issue and --issue-body), or records why the task stays local (--local), and adds no task with neither, so every task has its issue from the start. Unset, the default: an add opens an issue only when asked.",
+          "type": "string",
+          "minLength": 1
+        },
         "acceptLabel": {
           "description": "The label that lets an issue by an author outside the repository (not its owner, an organization member or a collaborator) become a task: it counts when someone other than the author added it last and the title and body were not edited after that. Matched without case.",
           "type": "string",
@@ -1423,9 +1449,9 @@
             ]
           },
           "commands": {
-            "description": "The commands the role holds: issue close (teamrig issue close on a repository of github.repos), issue comment (teamrig issue comment on one).",
+            "description": "The commands the role holds: issue close (teamrig issue close on a repository of github.repos), issue comment (teamrig issue comment on one), queue ship and queue merge (teamrig queue --kind ship or merge running the shipTool of a delivery repository on a worktree whose task branch the holding session owns, so a role of holders team gives each session its own ships only). The daily cap counts closes and comments.",
             "type": "array",
-            "items": { "enum": ["issue close", "issue comment"] },
+            "items": { "enum": ["issue close", "issue comment", "queue ship", "queue merge"] },
             "minItems": 1,
             "uniqueItems": true
           }

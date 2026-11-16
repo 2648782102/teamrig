@@ -1,3 +1,4 @@
+import type { GithubConfig } from '../config/types.ts';
 import type { HostIssue, LabelEvent } from '../issues/issue.ts';
 
 /**
@@ -14,6 +15,28 @@ export type IssueTrust = 'trusted' | 'accepted' | 'untrusted';
  */
 const TRUSTED_ASSOCIATIONS: ReadonlySet<string> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
+/** Whether an author tie, as GitHub names it, is one inside the repository: its owner, a member or a collaborator. */
+export function isInsideAuthor(association: string): boolean {
+  return TRUSTED_ASSOCIATIONS.has(association.toUpperCase());
+}
+
+/** The logins a team counts as its own, in lowercase: the keys of `github.owners`, each a person the team named. */
+export type OurLogins = ReadonlySet<string>;
+
+/** The team's own logins (`OurLogins`); the config keeps `github.owners`' keys in lowercase already. */
+export function ourLogins(github: Pick<GithubConfig, 'owners'>): OurLogins {
+  return new Set(Object.keys(github.owners).map((login) => login.toLowerCase()));
+}
+
+/**
+ * Whether a pull request's author is one of the team's own: the repository's owner, or a login in `ours`. An inside
+ * tie alone is not enough (security pass T3030 C9): a collaborator or a member the team never named can push a
+ * `t<id>-...` branch, and its news would then reach that task's session as the session's own.
+ */
+export function isOurAuthor(association: string, author: string, ours: OurLogins): boolean {
+  return association.toUpperCase() === 'OWNER' || (author !== '' && ours.has(author.toLowerCase()));
+}
+
 /** The account kind of a person on GitHub; a `Bot` (an app or a workflow) or an `Organization` never accepts. */
 const PERSON = 'User';
 
@@ -29,7 +52,7 @@ export function isInsider(association: string): boolean {
  * (the person who accepted read the older text), until someone adds the label again.
  */
 export function issueTrust(issue: HostIssue, acceptLabel: string): IssueTrust {
-  if (isInsider(issue.authorAssociation)) {
+  if (isInsideAuthor(issue.authorAssociation)) {
     return 'trusted';
   }
   if (!issue.labels.some((label) => sameLabel(label, acceptLabel))) {
