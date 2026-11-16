@@ -1470,7 +1470,7 @@ STOP no session of the team ran for 10 minutes; the next one starts the watch ag
 
 Its old name, gh migrate, is refused with this one (exit 64).
 Moves the team's tasks to GitHub issues once, from a row file you write: JSON lines, one row per task. An issue row
-is `{"id", "decision": "issue", "repo", "type": "bug"|"task", "priority": "p1"-"p3", "title", "body"}`, with the
+is `{"id", "decision": "issue", "repo", "type": "bug"|"task", "priority": "p0"-"p3", "title", "body"}`, with the
 task's public wording, since an issue is open to anyone who can read the repository: a task about a security hole
 stays local until its fix is released ([security skill](../security/SKILL.md#a-security-hole)); a local row is `{"id",
 "decision": "local", "reason"}` and keeps the task off GitHub. A bad line, one that looks like it holds a secret,
@@ -1495,6 +1495,17 @@ failure stops the run: `FAILED` when gh failed (a stopped gh or one that printed
 the issue: look before a rerun), `REFUSED` when the register refused the ref (the issue is open: the line gives the
 `teamrig update` that sets it), then `STOPPED`. A rerun skips each task already holding its issue.
 
+Each issue opens with what the task calls for, as far as the repository has it: its issue type (a task Task, a bug
+Bug, a goal Feature; only a repository an organisation owns has types), its `status:` label and its owner's
+`area:` label (`github.areaOwners`), and, for a started task, its owner's login as assignee (`github.owners`). A
+missing `status:` label is made; a field the repository lacks is left out with a `TYPE-SKIPPED`, `LABEL-SKIPPED` or
+`ASSIGNEE-SKIPPED` line saying why, and the issue still opens. The preview's `Opens with` line names them.
+
+One task needs no row file: `--task <id> --issue <title> --issue-body <text>` opens that task's issue, its kind of
+work and priority the task's own, in `--issue-repo`, else `github.issueAtAdd`, else the only repository of
+`github.repos`, with the same checks, preview and `--yes`. It refuses a file named beside it, a missing title or
+body (exit 64), and a task not in the working set (exit 2); the issue flags without `--task` are refused too.
+
 `TEAMRIG_GITHUB=off` makes `--yes` print an `OFF` line and open nothing. Exit 1 when gh failed, 2 when the register
 refused a ref, else 0.
 
@@ -1502,6 +1513,10 @@ Flags:
 
 - `--session <id|name>`: the caller, a session of the team; each ref is set as its update.
 - `--out <preview.md>`: writes the Markdown preview there.
+- `--task <id>`: opens that one task's issue, with no row file.
+- `--issue <title>`: the issue's public title, with `--task`.
+- `--issue-body <text>`: the issue's public body, with `--task`.
+- `--issue-repo <owner/name>`: the repository of `github.repos` it opens in, with `--task`.
 - `--yes`: opens the issues and sets each task's ref. Without it nothing is written but the preview.
 
 Example:
