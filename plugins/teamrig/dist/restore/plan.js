@@ -73,6 +73,11 @@ export function judgeEntry(entry, facts) {
     if (kind?.continuedIn !== undefined) {
         return { verdict: 'discard', reason: `continued in ${kind.continuedIn.slice(0, 8)}` };
     }
+    // Ended on purpose, whatever end its SessionEnd hook recorded after the close: work or an answer reopens it, with a
+    // reopen record that takes it off this set (#767).
+    if (facts.closedByTeamrig.has(entry.claudeSession)) {
+        return { verdict: 'discard', reason: 'closed by teamrig' };
+    }
     if (entry.endedAt === undefined) {
         return { verdict: 'restore', reason: 'killed without exiting' };
     }

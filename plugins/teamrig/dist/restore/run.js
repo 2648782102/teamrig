@@ -54,7 +54,8 @@ async function factsOf(deps, entries, since) {
             }
         }
     }
-    return { now, since, shutdown: await deps.shutdowns.lastShutdown(), running, stalled, transcripts, kinds };
+    const closedByTeamrig = new Set(deps.teams.flatMap((team) => [...team.closed]));
+    return { now, since, shutdown: await deps.shutdowns.lastShutdown(), running, stalled, transcripts, kinds, closedByTeamrig };
 }
 /** Whether the transcript was last written HUNG_AFTER_MS ago or more: a live turn writes it at each step. */
 async function stalledSince(deps, transcript, now) {

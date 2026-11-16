@@ -7,6 +7,7 @@ import { ENV, resolveKitHome } from "../../core/home.js";
 import { PlainLogFile } from "../../core/log-file.js";
 import { indexMarks } from "../../inbox/marks.js";
 import { JsonlMarkLog } from "../../inbox/store.js";
+import { closedOf, SessionLog } from "../../sessions/log.js";
 import { launchWords, openTab } from "../../open/open-tab.js";
 import { teamWindowOf } from "../../open/terminals.js";
 import { encodePrompt } from "../../open/prompt.js";
@@ -51,6 +52,7 @@ async function restoreTeamsOf(runtime, teams) {
     const found = [];
     for (const [team, { kit, config, roster }] of teams) {
         const { marks } = await new JsonlMarkLog(new PlainLogFile(runtime.files, kit.paths.inboxMarks)).read();
+        const { records } = await new SessionLog(runtime.files, kit.paths.sessionLog).read();
         found.push({
             team,
             lead: config.roles.lead,
@@ -58,6 +60,7 @@ async function restoreTeamsOf(runtime, teams) {
             terminal: config.open.terminal,
             teamWindow: config.open.teamWindow,
             areaBySession: indexMarks(marks).areaBySession,
+            closed: new Set(roster.ids.flatMap((id) => closedOf(records, id)?.claudeSession ?? [])),
             efforts: new Map(roster.ids.flatMap((id) => {
                 const { effort } = ownLaunchOf(config, id);
                 return effort === undefined ? [] : [[id, effort]];
