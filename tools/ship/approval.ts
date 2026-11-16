@@ -342,6 +342,28 @@ export function landedRun(approved: readonly WorkCommit[], main: readonly WorkCo
   return own === -1 ? [] : approved.slice(0, own);
 }
 
+/** What a --merge run reads of a head against main to hold it to its approval (ship-commits.ts). */
+export interface ApprovalReads {
+  /** The fingerprint of what `rev` changes, regenerated paths apart: over main (`changePatch`), or over `from`, one of its commits (`changePatchFrom`). */
+  readonly patchOf: (rev: string, from: string | null) => string;
+  /** The work commits `rev` carries over main, with their patch ids (`workCommitsOf`). */
+  readonly workOf: (rev: string) => readonly WorkCommit[];
+  /** `rev`'s leading work commits whose patch main carries under another sha: a parent that merged first (`landedRun`). */
+  readonly landedOf: (rev: string) => readonly WorkCommit[];
+}
+
+/**
+ * The approval reads of a repo against `mainRef`. `writesOf` is called at each read, never here: a profile whose
+ * regenerated paths no approval can skip (`shipWritesOf` throws) then refuses only a --merge, not every ship.
+ */
+export function approvalReads(git: GitText, mainRef: string, writesOf: () => ShipWrites): ApprovalReads {
+  return {
+    patchOf: (rev, from) => (from === null ? changePatch(git, rev, mainRef, writesOf()) : changePatchFrom(git, from, rev, writesOf())),
+    workOf: (rev) => workCommitsOf(git, rev, mainRef, writesOf()),
+    landedOf: (rev) => landedRun(workCommitsOf(git, rev, mainRef, writesOf()), workCommitsOf(git, mainRef, rev, writesOf())),
+  };
+}
+
 /**
  * How `head`'s work commits differ from `approved`'s, each change named (changed, dropped, added, reordered); empty
  * when they are the same patches in the same order, all a rebase leaves that `git range-diff` marks `=` throughout.

@@ -5,7 +5,7 @@ import { EXIT, RefusedError } from '../../src/cli/runtime.ts';
 import { mergeStandingOf, type MergeStanding } from '../../src/cli/ship-approval.ts';
 import { CLAUDE_SESSION, CliHarness, TEAM_HOME } from '../../src/testing/cli-harness.ts';
 import { TempRepo } from '../lib/temp-repo.ts';
-import { changePatch, changePatchFrom, clearMerge, clearMergeFrom, landedRun, mergeClearance, type MergeReads, shipWritesOf, type StandingOf, type TabCallerOf, taskOfBranch, type WorkCommit, workChanges, workCommitsOf } from './approval.ts';
+import { approvalReads, changePatch, changePatchFrom, clearMerge, clearMergeFrom, landedRun, mergeClearance, type MergeReads, shipWritesOf, type StandingOf, type TabCallerOf, taskOfBranch, type WorkCommit, workChanges, workCommitsOf } from './approval.ts';
 import { TEAMRIG_RELEASE_STAMPS, TEAMRIG_VERSION_FILES } from './version-bump.ts';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
@@ -500,6 +500,20 @@ describe('a branch stacked on a parent that merged first keeps its approval once
   it("reads the approved change from the parent's last commit inside it, the fingerprint the rebased head has", () => {
     assert.notEqual(changePatch(git, approved, 'main', WRITES), changePatch(git, 'HEAD', 'main', WRITES), "from the merge base it holds the parent's work");
     assert.equal(changePatchFrom(git, parentWork, approved, WRITES), changePatch(git, 'HEAD', 'main', WRITES));
+  });
+
+  it('reads the same through approvalReads, the reads a --merge run is wired with', () => {
+    const reads = approvalReads(git, 'main', () => WRITES);
+    assert.deepEqual(reads.landedOf(approved).map((commit) => commit.sha), [parentWork]);
+    assert.deepEqual(reads.workOf(approved), workCommitsOf(git, approved, 'main', WRITES));
+    assert.equal(reads.patchOf(approved, parentWork), reads.patchOf('HEAD', null));
+  });
+
+  it('builds the approval reads without reading the writes, which only a read needs', () => {
+    const reads = approvalReads(git, 'main', () => {
+      throw new Error('regenerated path x is no folder the build rebuilds');
+    });
+    assert.throws(() => reads.workOf('HEAD'), /regenerated path x/);
   });
 
   it('still tells an edited own commit apart', () => {
