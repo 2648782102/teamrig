@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { gatedPathsIn, namesHead, reviewPull, type ReviewDraft, type ReviewGate } from './review.ts';
+import { gatedPathsIn, passesHead, reviewPull, type ReviewDraft, type ReviewGate } from './review.ts';
 import { FAKE_HEAD, FakeReviewHost } from '../testing/fake-review-host.ts';
 import type { IssueTarget } from './host.ts';
 import type { ReviewPath } from '../config/types.ts';
@@ -103,28 +103,34 @@ describe('reviewPull', () => {
     assert.equal(lines.at(-1), `REVIEWED acme/web#12: approved at ${FAKE_HEAD.slice(0, 9)}, its gated paths passed by T9 (done by security)`);
   });
 
-  it('refuses a gated change whose named pass records another head, a short one, the head inside a longer id, or none (T3261 D1)', async () => {
-    for (const record of [`PASS at head ${'b'.repeat(40)}`, `PASS at ${FAKE_HEAD.slice(0, 9)}`, `digest ${FAKE_HEAD}0123`, 'Rotated the push key']) {
+  it('refuses a gated change whose named pass records another head, a short one, the head inside a longer id, the head with no pass, or none (T3261 D1, T3274 D2)', async () => {
+    const records = [`PASS at head ${'b'.repeat(40)}`, `PASS at ${FAKE_HEAD.slice(0, 9)}`, `PASS at ${FAKE_HEAD}0123`, `CHANGES at ${FAKE_HEAD}: D1`, `old head ${FAKE_HEAD} superseded`, `FAIL at head ${FAKE_HEAD}`, `bypass at ${FAKE_HEAD}`, 'Rotated the push key'];
+    for (const record of records) {
       const host = new FakeReviewHost().holds(PULL, {}, ['tools/ship/ship.ts']);
       const { posted, lines } = await run(host, APPROVE, { ...GUARDED, verdict: { shown: 'T9 (done by security)', record } });
       assert.equal(posted, false, record);
       assert.deepEqual(host.reviews, [], record);
       assert.equal(
         lines.at(-1),
-        `FAILED acme/web#12: it changes tools/ship/ship.ts, under the review gate's security paths, and T9 (done by security) names no pass of its head ${FAKE_HEAD}: the pass's done note or evidence names the full head it passed, so pass this head first; no review was posted`,
+        `FAILED acme/web#12: it changes tools/ship/ship.ts, under the review gate's security paths, and T9 (done by security) records no pass of its head ${FAKE_HEAD}: the pass's done note or evidence says PASS at the full head it passed, so pass this head first; no review was posted`,
         record,
       );
     }
   });
 
-  it('reads a head in a record as a whole word, in any case', () => {
+  it('reads a pass of a head as PASS at the head, a whole word, in any case (T3274 D2)', () => {
     const head = 'c'.repeat(40);
-    assert.equal(namesHead(`verdict at ${head.toUpperCase()}.`, head), true);
-    assert.equal(namesHead(`(${head})`, head), true);
-    assert.equal(namesHead(`x${head}`, head), true, 'x is no hex digit');
-    assert.equal(namesHead(`a${head}`, head), false);
-    assert.equal(namesHead(`${head}9`, head), false);
-    assert.equal(namesHead('', head), false);
+    assert.equal(passesHead(`PASS at ${head}`, head), true);
+    assert.equal(passesHead(`Pass at head ${head.toUpperCase()}.`, head), true);
+    assert.equal(passesHead(`notes
+**PASS at head ${head}** (branch x)`, head), true);
+    assert.equal(passesHead(`PASS at ${head}x`, head), true, 'x is no hex digit');
+    assert.equal(passesHead(`PASS at ${head}9`, head), false);
+    assert.equal(passesHead(`PASS at a${head}`, head), false);
+    assert.equal(passesHead(`CHANGES at ${head}`, head), false);
+    assert.equal(passesHead(`old head ${head} superseded`, head), false);
+    assert.equal(passesHead(`${head}`, head), false);
+    assert.equal(passesHead('', head), false);
   });
 
   it('approves with security entries set when the change touches none of them, with no pass named', async () => {

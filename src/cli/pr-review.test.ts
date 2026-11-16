@@ -127,13 +127,13 @@ describe('teamrig pr review', () => {
     assert.equal(posted(passed), 1);
   });
 
-  it("posts nothing when the named pass is the security reviewer's done task for another head or another change (T3261 D1)", async () => {
-    for (const evidence of [`PASS at head ${'b'.repeat(40)}`, 'Rotated the push key']) {
+  it("posts nothing when the named pass is the security reviewer's done task for another head or another change (T3261 D1, T3274 D2)", async () => {
+    for (const evidence of [`PASS at head ${'b'.repeat(40)}`, `CHANGES at ${HEAD}: D1`, 'Rotated the push key']) {
       const kit = await teamWithTask('bravo', 'done', GITHUB_TEAM, evidence);
       const gh = github(['.github/workflows/ci.yml']);
       const result = await kit.run(['pr', 'review', 'acme/web#7', '--approve', '--head', HEAD, '--verdict', 'T1'], { ...AS_LEAD, gh });
       assert.equal(result.code, EXIT.failed, evidence);
-      assert.match(printed(result), new RegExp(`T1 \\(done by bravo\\) names no pass of its head ${HEAD}: the pass's done note or evidence names the full head it passed`, 'u'), evidence);
+      assert.match(printed(result), new RegExp(`T1 \\(done by bravo\\) records no pass of its head ${HEAD}: the pass's done note or evidence says PASS at the full head it passed`, 'u'), evidence);
       assert.equal(posted(gh), 0, evidence);
     }
   });

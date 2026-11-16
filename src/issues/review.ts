@@ -58,11 +58,13 @@ export interface ReviewGate {
 }
 
 /**
- * Whether `record` names `head` (a full lowercase commit id) as a word of its own, so a pass recorded for another
- * head, or another change altogether, passes nothing: the merge review gate also binds its pass to one base..head.
+ * Whether `record` passes `head` (a full lowercase commit id): it says `PASS at <head>` or `PASS at head <head>`, in
+ * any case, the head a word of its own. A done security task is done whatever it found, so a record naming the head
+ * otherwise (`CHANGES at <head>`, `old head <head> superseded`), a pass of another head or of another change
+ * altogether, passes nothing: the merge review gate also binds its pass to one base..head.
  */
-export function namesHead(record: string, head: string): boolean {
-  return new RegExp(`(?<![0-9a-f])${head}(?![0-9a-f])`, 'u').test(record.toLowerCase());
+export function passesHead(record: string, head: string): boolean {
+  return new RegExp(`(?<![a-z0-9])pass\\s+at\\s+(?:head\\s+)?${head}(?![0-9a-f])`, 'u').test(record.toLowerCase());
 }
 
 /**
@@ -155,10 +157,10 @@ async function gatedChange(host: PullReviewHost, draft: ReviewDraft, gate: Revie
   if (gate.verdict === undefined) {
     return { kind: 'refused', reason: `${what}: approve it only with --verdict naming the security reviewer's done task` };
   }
-  if (!namesHead(gate.verdict.record, draft.head)) {
+  if (!passesHead(gate.verdict.record, draft.head)) {
     return {
       kind: 'refused',
-      reason: `${what}, and ${gate.verdict.shown} names no pass of its head ${draft.head}: the pass's done note or evidence names the full head it passed, so pass this head first`,
+      reason: `${what}, and ${gate.verdict.shown} records no pass of its head ${draft.head}: the pass's done note or evidence says PASS at the full head it passed, so pass this head first`,
     };
   }
   return { kind: 'passed', verdict: gate.verdict.shown };
