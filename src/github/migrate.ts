@@ -243,7 +243,8 @@ export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<st
       local.push(row);
     } else if (task !== undefined) {
       const draft = { repo: row.repo, title: row.title, body: row.body, labels: rowLabels(row), type: null, assignees: [] };
-      creates.push({ id: row.id, draft, wanted: wantedFields(task, draft, rules), replaces: task.ref });
+      // The row's kind of work is the public one the team chose, so the issue's type follows it as its label does.
+      creates.push({ id: row.id, draft, wanted: wantedFields({ ...task, type: row.type }, draft, rules), replaces: task.ref });
     }
   }
   const named = new Set(rows.map((row) => row.id));

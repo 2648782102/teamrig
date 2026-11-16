@@ -203,7 +203,7 @@ describe('planMigration', () => {
   it("gives a started task's issue its type, status and area labels and its owner's login, a goal the types of github.fields.types.goal", () => {
     const rules: IssueRules = { logins: new Map([['alpha', 'octocat']]), areaOwners: new Map([['area:cli', 'beta'], ['area:sync', 'alpha']]), fields: DEFAULT_ISSUE_FIELDS };
     const tasks = tasksOf(testTask({ status: 'in-progress' }), testTask({ id: 'T2', type: 'bug', due: '2030-01-02' }), testTask({ id: 'T3', after: ['T1'] }));
-    const plan = planMigration([issueRow(), issueRow({ id: 'T2' }), issueRow({ id: 'T3' })], tasks, [REPO], allow, rules);
+    const plan = planMigration([issueRow(), issueRow({ id: 'T2', type: 'bug' }), issueRow({ id: 'T3' })], tasks, [REPO], allow, rules);
     assert.deepEqual(
       plan.creates.map((create) => create.wanted),
       [
@@ -212,6 +212,11 @@ describe('planMigration', () => {
         { types: ['Feature', 'Goal'], labels: ['area:sync'], assignees: [] },
       ],
     );
+  });
+
+  it("types the issue by the row's kind of work, as its label is", () => {
+    const plan = planMigration([issueRow({ type: 'bug' }), issueRow({ id: 'T2', type: 'task' })], tasksOf(testTask(), testTask({ id: 'T2', type: 'bug' })), [REPO], allow, RULES);
+    assert.deepEqual(plan.creates.map((create) => create.wanted.types), [['Bug'], ['Task']]);
   });
 
   it('lists each live task no row names, and leaves out finished ones', () => {
@@ -252,7 +257,7 @@ describe('previewMarkdown', () => {
         '',
         `### T1 → ${REPO} [bug, p1]`,
         '',
-        'Opens with type Task, labels status:open, unassigned, each one the repository has.',
+        'Opens with type Bug, labels status:open, unassigned, each one the repository has.',
         '',
         "Replaces the task's ref notes/plan.md (kept in the task's history, not posted).",
         '',
