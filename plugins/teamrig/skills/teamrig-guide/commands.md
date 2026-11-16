@@ -763,7 +763,8 @@ file, GH-LATE: a GitHub issue or pull request has waited past its answer target
 (security 4 h, bug, pull request or a comment on an issue a task tracks 24 h, else 72 h) for an answer of ours, by the clocks the
 last writing `teamrig issue sync` kept; one GH-LATE names every late thread, with their count and the oldest three,
 and is raised once, and again only when a newer wait goes late, GH-DRIFT: an open GitHub issue that an open pull
-request closes does not show `status:in review`, by what the last writing `teamrig issue sync` read; it is raised once
+request closes does not show `status:in review`, or an open outside pull request carries no label, by what the last
+writing `teamrig issue sync` read; it is raised once
 while it stands, and from
 the restore's record (`<kit home>/bin/launchers.json`, written by [restore install](#teamrig-restore-install),
 `uninstall` and a newer version's first session start) RESTORE-DEAD: a logon entry or shortcut teamrig set up that
@@ -1341,7 +1342,8 @@ A run that writes also times each open issue's and pull request's wait for an an
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md#answer-times)): at 75% of its target
 the session that answers it gets one unwoken inbox line from `github` (a `REMINDED` line), and past it `teamrig check`
 shows the lead GH-LATE. It also keeps each open issue an open pull request closes that does not show `status:in review`,
-and `teamrig check` shows the lead GH-DRIFT for it until it does. A preview times and keeps nothing.
+and `teamrig check` shows the lead GH-DRIFT for it until it does, and the same for each open outside pull request with
+no label. A preview times and keeps nothing.
 Pull requests: each run also reads every open pull request of each repository, and those changed since the last
 `--auto` read, and compares them with what that read kept. The news is a pull request opened, merged or closed
 unmerged, or one that starts to conflict with its base, to fail its checks, or gets approved or changes requested,

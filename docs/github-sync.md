@@ -319,10 +319,15 @@ the issue another, `teamrig check` shows the lead a GH-DRIFT line, once while it
   request) but that does not show `status:in review`, for example `GH-DRIFT gh:acme/web#9: an open pull request closes
   it, yet it shows status:open and no assignee, not status:in review`. Set its task verifying, and the status push
   labels it; if the pull request does not fix it, its author takes the closing reference out.
+- An open pull request by a person outside the repository and the team (not its owner, a member, a collaborator or a
+  login in `github.owners`) that carries no label, so no maintainer took it in, a draft too: `GH-DRIFT gh:acme/web#12:
+  an outside pull request no one labelled`. Label it as you take it in, or close it saying why. One an app opens, such
+  as a dependency update, is left out.
 
-A sync that writes keeps these rows in `state/github-drift.json` in the team's folder, read from the same issue list
-as the rest of the sync, so it costs no GitHub call. The line goes once the issue shows `status:in review`, closes, or
-loses its pull request. A repository that cannot be read keeps its rows until it can, and a preview keeps nothing.
+A sync that writes keeps these rows in `state/github-drift.json` in the team's folder, read from the same issue and
+pull request lists as the rest of the sync (a pull request's labels only as a count), so it costs no GitHub call of its
+own. The line goes once the issue shows `status:in review`, the pull request carries a label, or the thread closes. A
+repository whose issues or pull requests cannot be read keeps those rows until they can, and a preview keeps nothing.
 
 ## Moving your tasks to issues
 
