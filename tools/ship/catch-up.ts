@@ -1,6 +1,7 @@
 import { freeBranch } from './branch-names.ts';
 import { pushOwnBranch } from './push.ts';
 import { type Regeneration, type ReplayPlan, planReplay, regenerate, regenerationFor, workPathspec } from './regenerate.ts';
+import { stackedOn } from './stacked.ts';
 
 /**
  * Brings a pushed change branch that main moved past up to main, for `ship.ts merge` (T2809). A merge queued
@@ -15,6 +16,9 @@ import { type Regeneration, type ReplayPlan, planReplay, regenerate, regeneratio
  * (regenerate.ts, T2988): every merge raises the version, so a rebase of a raise always conflicts. Its work diff is
  * held equal the same way. Elsewhere a change that raises the version conflicts with main's own raise: it ships
  * again with its plan (`ship.ts <dir> <plan.json> --merge`), which sets the raise again on main's version (sync.ts).
+ *
+ * A head stacked on a parent branch that merged first is caught up from the parent's tip inside it (stacked.ts,
+ * T3343): only its own commits are rebased or replayed, and its own diff is read from there.
  */
 
 export interface CatchUpDeps {
@@ -75,12 +79,18 @@ export function catchUp(deps: CatchUpDeps, request: CatchUpRequest): CatchUp {
   }
   if (git('status', '--porcelain') !== '') return refuse('the repo dir has uncommitted changes: commit them or set them aside, then merge again');
 
-  const base = git('merge-base', sha, tip);
+  const merged = git('merge-base', sha, tip);
+  const stacked = stackedOn(git, request.regenerated, merged, sha, tip);
+  if (stacked.kind === 'refused') return refuse(stacked.why);
+  const base = stacked.kind === 'parent' ? stacked.tip : merged;
+  if (stacked.kind === 'parent') {
+    log(`${head} is stacked on a parent main holds already (${stacked.landed.map((commit) => commit.slice(0, 9)).join(', ')}): its own commits after ${base.slice(0, 9)} are caught up`);
+  }
   const regeneration = regenerationFor(request.regenerated);
   const plan = regeneration === null ? null : planReplay(git, regeneration, base, sha, tip);
   if (typeof plan === 'string') return refuse(`${plan}: ${WITH_PLAN}`);
   const next = freeBranch(git, stem);
-  const caught = regeneration === null || plan === null ? rebase(deps, request, base, sha, next) : replay(deps, regeneration, plan, { head, base, sha, tip, next });
+  const caught = regeneration === null || plan === null ? rebase(deps, request, base, sha, next, stacked.kind === 'parent') : replay(deps, regeneration, plan, { head, base, sha, tip, next });
   if (caught.kind === 'refused') return refuse(caught.why);
   const rebased = git('rev-parse', 'HEAD');
   try {
@@ -98,8 +108,11 @@ const WITH_PLAN = "ship it again with its plan (ship.ts <dir> <plan.json> --merg
 /** The head brought onto the tip as `next` (checked out), what was made again on it (null: a plain rebase), and how to drop it; or why not. */
 type Caught = { readonly kind: 'caught'; readonly done: string | null; readonly undo: () => void } | { readonly kind: 'refused'; readonly why: string };
 
-/** The whole head rebased onto the tip, as before regeneration (a repo with no version files and dist to make again). */
-function rebase(deps: CatchUpDeps, request: CatchUpRequest, base: string, sha: string, next: string): Caught {
+/**
+ * The whole head rebased onto the tip, as before regeneration (a repo with no version files and dist to make again);
+ * a stacked head (`fromParent`) only from its parent's tip, `base`.
+ */
+function rebase(deps: CatchUpDeps, request: CatchUpRequest, base: string, sha: string, next: string, fromParent: boolean): Caught {
   const { git } = deps;
   const own = ownDiff(git, base, sha);
   git('switch', '--quiet', '--create', next);
@@ -112,7 +125,7 @@ function rebase(deps: CatchUpDeps, request: CatchUpRequest, base: string, sha: s
     return { kind: 'refused', why };
   };
   try {
-    git('rebase', '--quiet', request.tip);
+    git('rebase', '--quiet', ...(fromParent ? ['--onto', request.tip, base] : [request.tip]));
   } catch {
     git('rebase', '--abort');
     return giveUp(
