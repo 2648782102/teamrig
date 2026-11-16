@@ -15,6 +15,7 @@ const CHUNKS: readonly Chunk[] = [
 const PASS: GateVerdict = { passed: true, tree: 'tree000', record: 'C:/records/tree000.json', reused: false };
 const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
 const TSC = 'node node_modules/typescript/bin/tsc -p tsconfig.json';
+const TSC_MOD = 'node node_modules/typescript/bin/tsc -p tsconfig.mod.json';
 
 interface FakeOptions {
   readonly sync?: SyncResult;
@@ -126,6 +127,7 @@ test('takes back an earlier run first, then syncs, typechecks, runs the coverage
     'git status --porcelain -- src/a.ts',
     'git status --porcelain -- src/b.ts src/b.test.ts',
     TSC,
+    TSC_MOD,
     'node tools/ci/coverage-cli.ts',
     'git add -- src/a.ts',
     committed('core: a', 'why a'),
@@ -198,7 +200,7 @@ test('any other chunk with nothing to commit is refused before the typecheck too
 });
 
 test('a failed typecheck or coverage gate stops before any commit', async () => {
-  for (const failOn of [TSC, 'node tools/ci/coverage-cli.ts']) {
+  for (const failOn of [TSC, TSC_MOD, 'node tools/ci/coverage-cli.ts']) {
     const { deps, events } = fake({ failOn });
     await assert.rejects(shipCommits(ARGS, CHUNKS, deps), new RegExp(`^Error: ${failOn} failed$`));
     assert.ok(!events.some((event) => event.startsWith('git add') || event.startsWith('git commit')), failOn);

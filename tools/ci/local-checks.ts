@@ -21,6 +21,7 @@ export function localChecks(base: string): readonly LocalCheck[] {
     { name: 'size rule', argv: ['node', 'tools/ci/size-rule-cli.ts', '--base', base] },
     { name: 'plugin version gate', argv: ['node', 'tools/ci/plugin-version-cli.ts', '--base', base] },
     { name: 'typecheck', argv: ['node', TSC, '-p', 'tsconfig.json'] },
+    { name: 'typecheck: mod', argv: ['node', TSC, '-p', 'tsconfig.mod.json'] },
     { name: 'coverage gate', argv: ['node', 'tools/ci/coverage-cli.ts'] },
     { name: 'build: clean', argv: ['node', 'tools/build/clean.ts'] },
     { name: 'build: compile', argv: ['node', TSC, '-p', 'tsconfig.build.json'] },

@@ -207,6 +207,7 @@ async function shipOnce(args: ShipArgs, written: readonly Chunk[], deps: ShipDep
   refuseEmptyChunks(deps, chunks, versionPaths);
 
   deps.node(['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json']);
+  deps.node(['node_modules/typescript/bin/tsc', '-p', 'tsconfig.mod.json']);
   deps.node(['tools/ci/coverage-cli.ts']);
   for (const chunk of chunks) commit(deps, chunk.files, chunk.subject, chunk.body);
 
