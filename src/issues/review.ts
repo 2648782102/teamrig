@@ -19,7 +19,7 @@ export interface PullFacts {
   readonly head: string;
 }
 
-export type HostPull = { readonly kind: 'found'; readonly pull: PullFacts } | { readonly kind: 'missing' } | { readonly kind: 'failed'; readonly reason: string };
+export type HostPullFacts = { readonly kind: 'found'; readonly pull: PullFacts } | { readonly kind: 'missing' } | { readonly kind: 'failed'; readonly reason: string };
 
 /** Every path a pull request changes, a renamed file's old path too, or why they could not be read in full. */
 export type HostPaths = { readonly kind: 'read'; readonly paths: readonly string[] } | { readonly kind: 'failed'; readonly reason: string };
@@ -30,7 +30,7 @@ export type HostViewer = { readonly kind: 'read'; readonly login: string } | { r
 /** A host a pull request review is posted to: GitHub (github/pull-review.ts), or a test's fake. */
 export interface PullReviewHost {
   reach(repo: string, use: HostUse): Promise<HostReach>;
-  pull(target: IssueTarget): Promise<HostPull>;
+  pull(target: IssueTarget): Promise<HostPullFacts>;
   changedPaths(target: IssueTarget): Promise<HostPaths>;
   viewer(repo: string): Promise<HostViewer>;
   review(draft: ReviewDraft): Promise<HostEnd>;

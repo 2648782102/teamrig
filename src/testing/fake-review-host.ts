@@ -1,5 +1,5 @@
 import type { HostEnd, HostReach, HostUse, IssueTarget } from '../issues/host.ts';
-import type { HostPaths, HostPull, HostViewer, PullFacts, PullReviewHost, ReviewDraft } from '../issues/review.ts';
+import type { HostPaths, HostPullFacts, HostViewer, PullFacts, PullReviewHost, ReviewDraft } from '../issues/review.ts';
 
 /** The head every pull request of the fake has unless a test gave it another. */
 export const FAKE_HEAD = 'c'.repeat(40);
@@ -68,7 +68,7 @@ export class FakeReviewHost implements PullReviewHost {
     return Promise.resolve(this.unreachableFor === undefined ? { kind: 'reached', access: `${owner}: writes as the test`, scope: owner } : { kind: 'unreachable', reason: this.unreachableFor });
   }
 
-  pull(target: IssueTarget): Promise<HostPull> {
+  pull(target: IssueTarget): Promise<HostPullFacts> {
     if (this.pullFailure !== undefined) {
       return Promise.resolve({ kind: 'failed', reason: this.pullFailure });
     }
