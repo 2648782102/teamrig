@@ -6,7 +6,7 @@ becomes a task (source `github`, ref `gh:<owner>/<name>#<number>`), and its titl
 priority and open or closed state follow GitHub on every run. The sync never goes the other way: it never creates,
 edits, comments on or closes anything on GitHub, and a task added with `teamrig add` stays on your machine. The
 writes are all run by hand: `teamrig issue migrate` moves tasks you choose to new issues, once
-([Moving your tasks to issues](#moving-your-tasks-to-issues)), `teamrig issue comment`, `teamrig issue label`,
+([Moving your tasks to issues](#moving-your-tasks-to-issues)), `teamrig issue reply`, `teamrig issue label`,
 `teamrig issue edit` and `teamrig issue close` answer, label, rewrite the description of or close one issue or pull
 request ([Commenting on, labelling and closing](#commenting-on-labelling-and-closing)), and `teamrig issue links` puts the
 task tree on the issues ([Linking issues as the task tree](#linking-issues-as-the-task-tree)). GitHub is the
@@ -80,7 +80,7 @@ Give the token only what the commands you run need:
 | --- | --- |
 | `teamrig issue sync` | **Issues: Read-only** and **Pull requests: Read-only** |
 | `teamrig issue migrate` | **Issues: Read and write** |
-| `teamrig issue comment`, `teamrig issue label`, `teamrig issue edit`, `teamrig issue close` | **Issues: Read and write** and **Pull requests: Read and write** (a pull request's comments, labels, description and state are written through its issue) |
+| `teamrig issue reply`, `teamrig issue label`, `teamrig issue edit`, `teamrig issue close` | **Issues: Read and write** and **Pull requests: Read and write** (a pull request's comments, labels, description and state are written through its issue) |
 | `teamrig issue links` | **Issues: Read-only** for the preview, **Issues: Read and write** with `--yes` |
 
 ### Why one token per owner
@@ -277,7 +277,8 @@ teamrig issue migrate rows.jsonl --yes               # opens the issues
 
 ## Commenting on, labelling and closing
 
-`teamrig issue comment` posts one comment on an issue or pull request, `teamrig issue label` adds and takes off its
+`teamrig issue reply` posts a maintainer's reply with the state it names (see [Replying](#replying)), `teamrig issue
+assign` adds assignees, `teamrig issue label` adds and takes off its
 labels (it makes the `design` label first where the repository lacks it, with a `MADE` line; any other label must
 already be there), and `teamrig issue close` closes one, first posting its `--comment` when given; a pull request closes
 unmerged. `--reason completed`, `not-planned` or `duplicate` says why it closed (GitHub keeps it on an issue only);
@@ -287,7 +288,8 @@ keeps its shape; the title, state and labels stay, and GitHub keeps the old body
 target as `owner/name#number`:
 
 ```sh
-teamrig issue comment acme/web#7 --body "Fixed in #9, thank you."
+teamrig issue reply acme/web#7 --body-file reply.md --status 'in review' --followups none --pr 9
+teamrig issue assign acme/web#7 --login octocat
 teamrig issue label acme/web#7 --add "type: bug,p1" --remove "needs triage"
 teamrig issue edit acme/web#7 --body-file spec.md
 teamrig issue close acme/web#12 --comment "Merged as #14 with your commits credited. Thank you!"
@@ -314,6 +316,18 @@ CLOSED acme/web#12
 - **Access.** The same token or `gh` login as the sync, which needs the [write permissions](#what-each-command-needs);
   a `FAILED` line names the permission a token lacks. `TEAMRIG_GITHUB=off` writes nothing.
 
+### Replying
+
+A reply must never say more than the thread shows: "Picking this up" on an issue still labelled `status:open`, with
+no one assigned and its pull request unlinked, tells a contributor the issue is free when it is not. So
+`teamrig issue reply` is the only way a session comments, and it takes the state with the words. It reads the issue,
+the `--pr` and each `--assign` login first, and a refusal writes nothing. Then `--status` sets the task holding the
+issue (through `teamrig set` and its gates), and the reply sends, in turn: the issue's status label and assignee as
+the register holds them, the `--assign` logins, a `Closes #<n>` line in the pull request's body when it has none and
+the issue's labels on it, the `--followup` issue (named in the comment), and the comment last. The first failure
+stops it, saying what it already did, and the comment is not posted. An issue no task holds is refused; a pull
+request takes no `--status` or `--pr`, and needs labels before a reply.
+
 ## A pull request in conflict
 
 When GitHub marks a pull request as conflicting, `teamrig pr conflicts` names the files to resolve. Run it in a
@@ -332,7 +346,7 @@ CONFLICTS acme/web#7 (head d00d5ee) against origin/main (b4e2a91): 2 files
 To land it: rebase its branch onto origin/main and resolve these files.
 ```
 
-For an outside pull request, post those files and the rebase in a comment (`teamrig issue comment`). A team pull
+For an outside pull request, post those files and the rebase in a comment (`teamrig issue reply`). A team pull
 request is re-shipped by its owner on the newest base under a new branch name, never force-pushed. `--base` names
 the branch the pull request targets when it is not `origin`'s default; the fetch uses git's own access to `origin`,
 not a token.
@@ -467,7 +481,7 @@ again.
   run (`.../issues/<number>/comments -X GET` with `since` and `per_page=30` only, one page), for at most ten issues a
   run, to find a claim line, and keeps no text. Any other `gh` command or query is refused in code, except
   the writes, each run by hand on a repository in `github.repos`: `teamrig issue migrate`'s create of one issue
-  (`gh api repos/<owner>/<name>/issues -X POST` with its title, body and labels only), `teamrig issue comment`'s
+  (`gh api repos/<owner>/<name>/issues -X POST` with its title, body and labels only), `teamrig issue reply`'s
   one comment (`.../issues/<number>/comments -X POST` with its body only), `teamrig issue label`'s read of one label
   (`repos/<owner>/<name>/labels/<label>`), add (`.../issues/<number>/labels -X POST` with its labels only) and take
   off (`.../issues/<number>/labels/<label> -X DELETE`), `teamrig issue close`'s close

@@ -671,7 +671,7 @@ export interface TestsConfig {
   readonly maxFailureChars: number;
 }
 
-/** The team's GitHub repositories: `teamrig issue sync` reads their issues into the register, never writing to GitHub; `issue migrate` and `issue comment`/`issue close`, run by hand, write only to them. */
+/** The team's GitHub repositories: `teamrig issue sync` reads their issues into the register, never writing to GitHub; `issue migrate` and `issue reply`/`issue close`, run by hand, write only to them. */
 export interface GithubConfig {
   /** The repositories it reads, as `owner/name` in lowercase; empty turns the import off. */
   readonly repos: readonly string[];
