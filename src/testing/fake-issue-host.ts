@@ -1,4 +1,4 @@
-import { targetText, type CloseReason, type HostAssignee, type HostComments, type HostEnd, type HostIssueId, type HostIssueLabels, type HostJobLog, type HostLabel, type HostLabelFile, type HostLinks, type HostList, type HostOpen, type HostPulls, type HostReach, type HostUse, type HostViewer, type HostWatch, type IssueDraft, type IssueHost, type IssueTarget, type LabelSpec, type WatchMarks } from '../issues/host.ts';
+import { targetText, type CloseReason, type HostAssignee, type HostComments, type HostEnd, type HostIssueId, type HostIssueLabels, type HostJobLog, type HostLabel, type HostLabelFile, type HostLinks, type HostList, type HostOpen, type HostPullFiles, type HostPulls, type HostReach, type HostUse, type HostViewer, type HostWatch, type IssueDraft, type IssueHost, type IssueTarget, type LabelSpec, type WatchMarks } from '../issues/host.ts';
 import type { FieldValue, HostField, HostFieldRead, IssueFields } from '../issues/fields.ts';
 import type { LinkedIssue } from '../issues/issue.ts';
 import type { HostPost, HostPosts } from '../issues/post.ts';
@@ -86,6 +86,20 @@ export class FakeIssueHost implements IssueHost {
         return Promise.resolve(end);
       },
     };
+    return this;
+  }
+
+  private readonly files = new Map<string, HostPullFiles>();
+
+  /** From now on, a read of the pull request `<repo>#<number>`'s changed files gives these paths (as many left out). */
+  changes(pull: string, paths: readonly string[], leftOut = 0): this {
+    this.files.set(pull, { kind: 'read', paths, leftOut });
+    return this;
+  }
+
+  /** From now on, a read of the pull request `<repo>#<number>`'s changed files fails for `reason`. */
+  failsFiles(pull: string, reason: string): this {
+    this.files.set(pull, { kind: 'failed', reason });
     return this;
   }
 
@@ -424,5 +438,11 @@ export class FakeIssueHost implements IssueHost {
   /** Its issues have no comments, as its list holds none. */
   newComments(_target: IssueTarget, _since: number): Promise<HostComments> {
     return Promise.resolve({ kind: 'read', comments: [] });
+  }
+
+  /** The files `changes` gave the pull request, else a failed read, as GitHub shows no such pull request. */
+  pullFiles(target: IssueTarget): Promise<HostPullFiles> {
+    const key = `${target.repo}#${String(target.number)}`;
+    return Promise.resolve(this.files.get(key) ?? { kind: 'failed', reason: `GitHub shows no pull request ${key}` });
   }
 }

@@ -35,6 +35,7 @@ import {
   isLabelRemove,
   isLinkAdd,
   isMentionRead,
+  isPullFilesRead,
   isReviewRead,
   isWatchProbe,
   issueAssignArgs,
@@ -57,6 +58,8 @@ import {
   MENTION_PAGES_MAX,
   mentionListArgs,
   nodeGhRunner,
+  PULL_FILES_PAGE,
+  pullFilesArgs,
   reviewListArgs,
   type GhResult,
   subIssueAddArgs,
@@ -777,6 +780,42 @@ describe('the issue field and type writes (T3406)', () => {
   });
 });
 
+describe('isPullFilesRead (T3187)', () => {
+  it("reads one bounded page of a pull request's changed files, and nothing more", () => {
+    const read = pullFilesArgs(ISSUE);
+    assert.deepEqual(read, ['api', 'repos/acme/web/pulls/7/files', '-X', 'GET', '-f', `per_page=${String(PULL_FILES_PAGE)}`]);
+    assert.equal(isPullFilesRead(read), true);
+    assert.equal(isAllowedGh(read), true);
+    const path = 'repos/acme/web/pulls/7/files';
+    for (const args of [
+      ['api', path, '-X', 'GET'],
+      ['api', path, '-X', 'GET', '-f', 'per_page=30'],
+      ['api', path, '-X', 'POST', '-f', 'per_page=100'],
+      ['api', path, '-X', 'GET', '-F', 'per_page=100'],
+      [...read, '-f', 'page=2'],
+      [...read, '--paginate'],
+      ['api', path, '-f', 'per_page=100', '-X', 'GET'],
+      ['api', 'repos/acme/web/pulls/7', '-X', 'GET', '-f', 'per_page=100'],
+      ['api', 'repos/acme/web/pulls/07/files', '-X', 'GET', '-f', 'per_page=100'],
+      ['api', 'repos/acme/web/pulls/7/merge', '-X', 'GET', '-f', 'per_page=100'],
+      ['api', 'repos/acme/../pulls/7/files', '-X', 'GET', '-f', 'per_page=100'],
+      ['api', 'repos/acme/web/x/pulls/7/files', '-X', 'GET', '-f', 'per_page=100'],
+      ['pr', 'diff', '7', '--repo', 'acme/web', '--name-only'],
+    ]) {
+      assert.equal(isPullFilesRead(args), false, args.slice(1).join(' '));
+      assert.equal(isAllowedGh(args), false, args.slice(1).join(' '));
+    }
+  });
+
+  it('is never taken for a query, a probe or a write, nor they for the files read', () => {
+    const read = pullFilesArgs(ISSUE);
+    assert.ok(!isIssueQuery(read) && !isIssueRead(read) && !isCommentsRead(read) && !isWatchProbe(read) && !isIssueComment(read) && !isLabelRead(read));
+    for (const args of [READ, issueReadArgs(ISSUE), commentsReadArgs(ISSUE, '2030-01-01T09:00:00.000Z'), issueCommentArgs(ISSUE, 'b'), labelReadArgs('acme/web', 'p1')]) {
+      assert.equal(isPullFilesRead(args), false, args[1]);
+    }
+  });
+});
+
 describe('isWatchProbe', () => {
   const TAG = 'W/"50b22ce0798d5266d68ab18f566208f054bace28abff5bdb55246daea34bb6d5"';
 
@@ -947,7 +986,7 @@ describe('nodeGhRunner', () => {
     }
     await assert.rejects(
       nodeGhRunner(process.execPath, [gh]).run({ args: ['issue', 'close', '7'], env: ENV }),
-      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close, link, type or set a field of an issue, to read a failed job's log, and to read the posts that may mention a user: it refuses gh issue close with these arguments/,
+      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close, link, type or set a field of an issue, to read a failed job's log, to read the posts that may mention a user, and to read a pull request's changed files: it refuses gh issue close with these arguments/,
     );
     assert.equal(existsSync(marker), false);
   });
