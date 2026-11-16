@@ -3,11 +3,17 @@ import assert from 'node:assert/strict';
 import { gatedPathsIn, reviewPull, type ReviewDraft, type ReviewGate } from './review.ts';
 import { FAKE_HEAD, FakeReviewHost } from '../testing/fake-review-host.ts';
 import type { IssueTarget } from './host.ts';
+import type { ReviewPath } from '../config/types.ts';
+import { GENERIC_REVIEW_PATHS } from '../push-guard/review-paths.ts';
 
 const PULL: IssueTarget = { repo: 'acme/web', number: 12 };
 const APPROVE: ReviewDraft = { target: PULL, verdict: 'approve', head: FAKE_HEAD };
-const OPEN_GATE: ReviewGate = { gatedPaths: [] };
-const GUARDED: ReviewGate = { gatedPaths: ['src/guard/', 'tools/ship'] };
+const OPEN_GATE: ReviewGate = { entries: [] };
+const GUARD_ENTRIES: readonly ReviewPath[] = [
+  { glob: 'src/guard/**', mode: 'always', class: 'security' },
+  { glob: 'tools/ship/**', mode: 'check', class: 'security' },
+];
+const GUARDED: ReviewGate = { entries: GUARD_ENTRIES };
 
 async function run(host: FakeReviewHost, draft: ReviewDraft, gate: ReviewGate): Promise<{ readonly posted: boolean; readonly lines: string[] }> {
   const lines: string[] = [];
@@ -16,14 +22,16 @@ async function run(host: FakeReviewHost, draft: ReviewDraft, gate: ReviewGate): 
 }
 
 describe('gatedPathsIn', () => {
-  it('takes a path equal to a prefix or inside it, never one that only starts with its letters', () => {
-    const paths = ['src/guard/a.ts', 'src/guards.ts', 'tools/ship', 'tools/ship/ship.ts', 'tools/shipping.ts', 'README.md'];
-    assert.deepEqual(gatedPathsIn(paths, ['src/guard/', 'tools/ship']), ['src/guard/a.ts', 'tools/ship', 'tools/ship/ship.ts']);
+  it('takes each path a security entry covers once, a check entry too, never a folder whose name only starts the same', () => {
+    const paths = ['src/guard/a.ts', 'src/guards.ts', 'tools/ship/ship.ts', 'tools/shipping.ts', 'README.md'];
+    const twice: readonly ReviewPath[] = [...GUARD_ENTRIES, { glob: '**/*.ts', mode: 'always', class: 'security' }];
+    assert.deepEqual(gatedPathsIn(paths, GUARD_ENTRIES), ['src/guard/a.ts', 'tools/ship/ship.ts']);
+    assert.deepEqual(gatedPathsIn(['src/guard/a.ts'], twice), ['src/guard/a.ts']);
   });
 
-  it('covers nothing with no prefix, or an empty or slash-only one', () => {
-    assert.deepEqual(gatedPathsIn(['a/b.ts'], []), []);
-    assert.deepEqual(gatedPathsIn(['a/b.ts'], ['', '/']), []);
+  it('leaves a leader entry to the merge gate, and holds the generic paths in every repository', () => {
+    assert.deepEqual(gatedPathsIn(['docs/plan.md'], [{ glob: 'docs/**', mode: 'always', class: 'leader' }]), []);
+    assert.deepEqual(gatedPathsIn(['README.md', '.github/workflows/ci.yml', 'web/package-lock.json'], GENERIC_REVIEW_PATHS), ['.github/workflows/ci.yml', 'web/package-lock.json']);
   });
 });
 
@@ -83,7 +91,7 @@ describe('reviewPull', () => {
     assert.deepEqual(host.reviews, []);
     assert.equal(
       lines.at(-1),
-      "FAILED acme/web#12: it changes src/guard/a.ts, src/guard/b.ts, tools/ship/ship.ts and 1 more, under github.reviewGatedPaths: approve it only with --verdict naming the security reviewer's done task; no review was posted",
+      "FAILED acme/web#12: it changes src/guard/a.ts, src/guard/b.ts, tools/ship/ship.ts and 1 more, under the review gate's security paths: approve it only with --verdict naming the security reviewer's done task; no review was posted",
     );
   });
 
@@ -94,7 +102,7 @@ describe('reviewPull', () => {
     assert.equal(lines.at(-1), `REVIEWED acme/web#12: approved at ${FAKE_HEAD.slice(0, 9)}, its gated paths passed by T9 (done by security)`);
   });
 
-  it('approves with gated prefixes set when the change touches none of them, with no pass named', async () => {
+  it('approves with security entries set when the change touches none of them, with no pass named', async () => {
     const host = new FakeReviewHost().holds(PULL, {}, ['docs/a.md']);
     const { posted } = await run(host, APPROVE, GUARDED);
     assert.equal(posted, true);
@@ -121,5 +129,14 @@ describe('reviewPull', () => {
     const { posted, lines } = await run(host, APPROVE, OPEN_GATE);
     assert.equal(posted, false);
     assert.equal(lines.at(-1), 'FAILED acme/web#12: Unprocessable Entity; no review was posted');
+  });
+});
+
+describe('reviewPull with only a leader entry', () => {
+  it('reads no files, as no security entry could hold the approval', async () => {
+    const host = new FakeReviewHost().holds(PULL, {}, ['docs/plan.md']);
+    const { posted } = await run(host, APPROVE, { entries: [{ glob: 'docs/**', mode: 'always', class: 'leader' }] });
+    assert.equal(posted, true);
+    assert.deepEqual(host.pathReads, []);
   });
 });

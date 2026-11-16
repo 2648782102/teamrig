@@ -1,5 +1,7 @@
 import { targetText, type HostEnd, type HostReach, type HostUse, type IssueTarget } from './host.ts';
 import type { PullState } from './pull.ts';
+import type { ReviewPath } from '../config/types.ts';
+import { reviewHits } from '../push-guard/review-paths.ts';
 
 /** A review's verdict: it approves the pull request, or asks for changes before it may land. */
 export type ReviewVerdict = 'approve' | 'request-changes';
@@ -37,18 +39,22 @@ export interface PullReviewHost {
 }
 
 /**
- * What an approval must clear: the path prefixes whose change needs the security reviewer's pass first
- * (github.reviewGatedPaths), and that pass when one is named: the done task the caller checked, as a line shows it.
+ * What an approval must clear: the merge review gate's entries (teamrig's generic ones and `pushGuard.reviewPaths`,
+ * push-guard/review-paths.ts), so GitHub's approval holds the same paths a merge does, and the security pass when
+ * one is named: the done task the caller checked, as a line shows it.
  */
 export interface ReviewGate {
-  readonly gatedPaths: readonly string[];
+  readonly entries: readonly ReviewPath[];
   readonly verdict?: string;
 }
 
-/** The changed paths a gated prefix covers: the prefix itself, or a path inside it, so `src/a` covers `src/a/b` and never `src/ab`. */
-export function gatedPathsIn(paths: readonly string[], gated: readonly string[]): string[] {
-  const prefixes = gated.map((prefix) => prefix.replace(/\/+$/u, '')).filter((prefix) => prefix !== '');
-  return paths.filter((path) => prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)));
+/**
+ * The changed paths a security entry covers, each once, in their order. A `check` entry counts too, as no review
+ * check runs before a GitHub approval; a leader entry does not, as the merge gate still holds it for the leader.
+ */
+export function gatedPathsIn(paths: readonly string[], entries: readonly ReviewPath[]): string[] {
+  const security = entries.filter((entry) => entry.class === 'security');
+  return [...new Set(reviewHits(paths, security).map((hit) => hit.path))];
 }
 
 /** The gated paths a refusal names at most, so a large change stays one line. */
@@ -61,7 +67,7 @@ const DONE_WORD: Readonly<Record<ReviewVerdict, string>> = { approve: 'approved'
  * Posts one review through `host`, one line said for each step: ACCESS, then REVIEWED, or FAILED with the reason and
  * nothing posted. Before the post it reads the pull request: it must be open, its head still the commit the reviewer
  * read (GitHub keeps a review bound to an older commit without a word, so a push after the read is caught here),
- * not opened by the access's own account, and an approval of a change to a gated path must name the security pass.
+ * not opened by the access's own account, and an approval of a change to a security path of the merge review gate must name the security pass.
  * A review is a reviewer's word on GitHub only: it approves no task's wait and merges nothing. True when posted.
  */
 export async function reviewPull(host: PullReviewHost, draft: ReviewDraft, gate: ReviewGate, say: (line: string) => void): Promise<boolean> {
@@ -113,14 +119,14 @@ type GateEnd = { readonly kind: 'clear' } | { readonly kind: 'passed'; readonly 
 
 /** Whether an approval of the pull request clears the gate: it changes no gated path, or the security pass is named. */
 async function gatedChange(host: PullReviewHost, target: IssueTarget, gate: ReviewGate): Promise<GateEnd> {
-  if (gate.gatedPaths.length === 0) {
+  if (!gate.entries.some((entry) => entry.class === 'security')) {
     return { kind: 'clear' };
   }
   const changed = await host.changedPaths(target);
   if (changed.kind === 'failed') {
     return { kind: 'refused', reason: changed.reason };
   }
-  const touched = gatedPathsIn(changed.paths, gate.gatedPaths);
+  const touched = gatedPathsIn(changed.paths, gate.entries);
   if (touched.length === 0) {
     return { kind: 'clear' };
   }
@@ -130,6 +136,6 @@ async function gatedChange(host: PullReviewHost, target: IssueTarget, gate: Revi
   const more = touched.length > SHOWN_PATHS ? ` and ${touched.length - SHOWN_PATHS} more` : '';
   return {
     kind: 'refused',
-    reason: `it changes ${touched.slice(0, SHOWN_PATHS).join(', ')}${more}, under github.reviewGatedPaths: approve it only with --verdict naming the security reviewer's done task`,
+    reason: `it changes ${touched.slice(0, SHOWN_PATHS).join(', ')}${more}, under the review gate's security paths: approve it only with --verdict naming the security reviewer's done task`,
   };
 }
