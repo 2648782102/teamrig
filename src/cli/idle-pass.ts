@@ -1,3 +1,4 @@
+import { awaitedAnswers } from '../budget/work.ts';
 import type { Roster } from '../config/roster.ts';
 import type { KitConfig } from '../config/types.ts';
 import { KIT_NAME } from '../core/home.ts';
@@ -20,7 +21,7 @@ import { installStateOf, settleWaitText } from './settled-install.ts';
 /** A session the budget neither holds nor puts in quiet hours. */
 const AWAKE: WakeRest = { held: false, quiet: false };
 
-/** Why a closed session reopens: urgent lines posted to it, work handed to it since its close, or the day's start. */
+/** Why a closed session reopens: urgent lines posted to it, answers other sessions wait on, work handed to it since its close, or the day's start. */
 type Reopening = Exclude<ReopenVerdict, { readonly kind: 'stay' }>;
 
 /** What a pass does with one session of the team; a close or a reopen in the folder the pass read it in (`project`). */
@@ -99,12 +100,25 @@ function hasWorkARestCuts(tasks: ReadonlyMap<string, Task>, id: string, configur
 }
 
 /**
- * The least urgent priority up to `configured` whose work keeps the running session `id` open, weighed as `hook
- * wake-check` weighs it ({@link wakeWeightOf}). Its budget takes thousands of file reads, so it counts as awake
- * unless its rest can change the verdict: when it has work a rest cuts ({@link hasWorkARestCuts}).
+ * The session's own tasks another session waits on, as the budget reads them (`awaitedAnswers`): a wait on one
+ * blocks that session, so neither a rest nor `wake.priority`, which weigh work no one waits on, holds it back (#1292).
+ */
+function awaitedTasksOf(tasks: ReadonlyMap<string, Task>, id: string): readonly Task[] {
+  return (awaitedAnswers([...tasks.values()]).get(id) ?? []).flatMap((taskId) => {
+    const task = tasks.get(taskId);
+    return task?.owner === id ? [task] : [];
+  });
+}
+
+/**
+ * The least urgent priority whose work keeps the running session `id` open: up to `configured`, weighed as `hook
+ * wake-check` weighs it ({@link wakeWeightOf}), and at least that of each of its tasks another session waits on
+ * ({@link awaitedTasksOf}). Its budget takes thousands of file reads, so it counts as awake unless its rest can
+ * change the verdict: when it has work a rest cuts ({@link hasWorkARestCuts}).
  */
 export async function restCappedPriority(runtime: CliRuntime, kit: Kit, config: KitConfig, roster: Roster, tasks: ReadonlyMap<string, Task>, id: string, configured: number): Promise<number> {
-  return hasWorkARestCuts(tasks, id, configured) ? (await wakeWeightOf(runtime, kit, config, roster, id, configured)).maxPriority : configured;
+  const capped = hasWorkARestCuts(tasks, id, configured) ? (await wakeWeightOf(runtime, kit, config, roster, id, configured)).maxPriority : configured;
+  return Math.max(capped, ...awaitedTasksOf(tasks, id).map((task) => task.priority));
 }
 
 /** Whether the running session `id` closes, its work weighed as `hook wake-check` weighs it: work that would wake it keeps it open. */
@@ -115,7 +129,8 @@ export async function runningVerdictOf(runtime: CliRuntime, kit: Kit, config: Ki
 
 /**
  * One session's step, or its wish to reopen: a running one by {@link runningVerdictOf}, a closed one counted awake
- * unless it would reopen awake for work (a rest only holds such a reopen back, never one for urgent lines), since its
+ * unless it would reopen awake for work (a rest only holds such a reopen back, never one for urgent lines or an
+ * answer another session waits on), since its
  * budget takes thousands of file reads. One whose folder is refused stays as it is, its refusal the why: kept open, or
  * its reopen left for later.
  */
@@ -135,7 +150,8 @@ export async function judgeSession(runtime: CliRuntime, kit: Kit, config: KitCon
     return { kind: 'away', id };
   }
   const asks = facts.asks.get(id) ?? [];
-  const input: ReopenInput = { tasks, elsewhere, session: id, asks, closedAt: Date.parse(closed.at), ...awake, parking: parkRulesOf(config), dayStart: (await dayStartFor(runtime, { kit, config }, id, now)).at, now, zone };
+  const awaited = new Set(awaitedTasksOf(tasks, id).map((task) => task.id));
+  const input: ReopenInput = { tasks, elsewhere, session: id, asks, closedAt: Date.parse(closed.at), ...awake, parking: parkRulesOf(config), dayStart: (await dayStartFor(runtime, { kit, config }, id, now)).at, awaited, now, zone };
   const asAwake = reopenVerdict(input);
   if (asAwake.kind === 'asked') {
     return wishOf(folderOf, id, asAwake, undefined);
@@ -208,6 +224,8 @@ export function reopeningText(reopening: Reopening, zone: TimeZone): string {
   switch (reopening.kind) {
     case 'asked':
       return urgentLinesText(reopening.asks);
+    case 'awaited':
+      return `answers other sessions wait on: ${idsText(reopening.tasks)}`;
     case 'handed':
       return `work handed to it since its close: ${idsText(reopening.tasks)}`;
     case 'day-start':

@@ -11,6 +11,7 @@ import { lineHash } from '../inbox/line-hash.ts';
 import { decodePrompt, defaultPrompt, refreshPrompt, reopenPrompt } from '../open/prompt.ts';
 import { RefreshStore } from '../refresh/store.ts';
 import { homeCloseOf, SessionLog, type CloseRecord } from '../sessions/log.ts';
+import { HOLDING_BUDGET, holdAlpha } from '../testing/budget-hold.ts';
 import { APP, CLAUDE_SESSION, CliHarness, EVENTS_PATH, TEAM, TEAM_HOME, USER_HOME, type CliResult, type RunOptions } from '../testing/cli-harness.ts';
 import { FakeHostMemory } from '../testing/fake-host-memory.ts';
 import { FaultyFiles, systemError } from '../testing/faulty-files.ts';
@@ -300,6 +301,22 @@ describe('teamrig idle-open', () => {
     const away = await idleOpen(reopened);
     assert.deepEqual(away.result.stdout, ['KEPT app-alpha (session alpha): not running, and teamrig did not close it']);
     assert.deepEqual(away.argv, []);
+  });
+
+  it('reopens a session its budget holds for a p2 task another session waits on, and keeps it closed for one no one waits on (#1292)', async () => {
+    const alpha = await closedAlpha(40_000, { ...TEAM, budget: HOLDING_BUDGET });
+    await holdAlpha(alpha.kit, CLAUDE_SESSION, '0123abcd-0000-4000-8000-0000000000d4');
+    ok(await alpha.kit.run(['add', '--title', 'Answer the schema question', '--description', 'what and why', '--priority', 'p2', '--owner', 'alpha', '--session', 'lead']));
+    const kept = await idleOpen(alpha);
+    assert.match(kept.result.stdout[0] ?? '', /^KEPT app-alpha \(session alpha\): still closed/, [...kept.result.stdout, ...kept.result.stderr].join('\n'));
+    assert.deepEqual(kept.argv, []);
+    ok(await alpha.kit.run(['add', '--title', 'Ship the migration', '--description', 'what and why', '--priority', 'p2', '--owner', 'bravo', '--session', 'lead']));
+    ok(await alpha.kit.run(['set', 'T2', '--status', 'in-progress', '--session', 'bravo']));
+    ok(await alpha.kit.run(['set', 'T2', '--status', 'waiting', '--waits', 'task:T1', '--note', 'needs the answer', '--session', 'bravo']));
+    const { result, argv } = await idleOpen(alpha);
+    assert.equal(result.code, 0, [...result.stdout, ...result.stderr].join('\n'));
+    assert.match(result.stdout[0] ?? '', /^REOPENED app-alpha \(session alpha\) for answers other sessions wait on: T1: OPENED app-alpha \(session alpha\) in a new Windows Terminal tab in /);
+    assert.equal(resumedOf(argv), CLAUDE_SESSION);
   });
 
   it('keeps it closed when the host has no room, and fails, logged, when it cannot weigh it or no terminal opens', async () => {
