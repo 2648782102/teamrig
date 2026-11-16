@@ -6,7 +6,8 @@ import { Roster } from "../../config/roster.js";
 import { recordConfigDir } from "../../budget/config-dir.js";
 import { errorMessage, isRecord, stringField } from "../../core/guards.js";
 import { claudeConfigDir, claudeTempDir, KIT_NAME, resolveKitHome } from "../../core/home.js";
-import { sessionIdOf } from "../../inbox/inbox.js";
+import { clipEnd } from "../../core/clip.js";
+import { lineOnClock, readSinceOf, sessionIdOf } from "../../inbox/inbox.js";
 import { routeReminderOf } from "../../inbox/route.js";
 import { boundPromptNote, boundStartNote, tabTitleFor } from "../../hooks/bind.js";
 import { modelCheckLine, payloadEffortOf } from "../../hooks/model-check.js";
@@ -42,6 +43,7 @@ import { openKit, renameDepsOf, rosterOf, rulesClockOf, teamZone } from "../kit.
 import { EXIT } from "../runtime.js";
 import { keptRulesAboveOf, readTeamRules } from "../team-rules.js";
 import { loadTree } from "../tree.js";
+import { inboxDepsOf } from "./inbox.js";
 import { bindAfterClear, bindHintOnce, bindNamedTab, bindTab, inboxLinesFor, readTitle } from "./hook-bind.js";
 import { helperGateOutput, promptBudgetLine, stopBudgetLines } from "./hook-budget.js";
 import { ensureWatch } from "./issue-watch.js";
@@ -585,6 +587,36 @@ async function carryRecordAt(runtime, store, id, payload) {
         return carryRecordFailed(error);
     }
 }
+/** The most inbox lines a fresh start lists again, newest kept, and the most characters it gives each. */
+const READ_SINCE_CAPS = { maxLines: 10, maxChars: 500 };
+/**
+ * The inbox lines the session marked read after its handover was written (the file's time, else when it was marked
+ * ready), which the handover may not hold, for the fresh start after a refresh (#835); none when it read none. Says,
+ * never throws, when it cannot read them.
+ */
+async function readSinceNoteOf(runtime, kit, store, id, readyAt, zone) {
+    const deps = inboxDepsOf(runtime, kit.paths);
+    try {
+        const since = (await runtime.files.modifiedAt(store.handoverPath(id))) ?? (readyAt === undefined ? undefined : Date.parse(readyAt));
+        if (since === undefined || Number.isNaN(since)) {
+            return [];
+        }
+        const lines = await readSinceOf(deps, id, new Date(since));
+        if (lines.length === 0) {
+            return [];
+        }
+        const kept = lines.slice(-READ_SINCE_CAPS.maxLines);
+        const older = lines.length - kept.length;
+        return [
+            `Your old session read ${lines.length} inbox line(s) after your handover was written, so it may not hold them; act on them as on new ones:`,
+            ...kept.map((line) => clipEnd(lineOnClock(line, zone), READ_SINCE_CAPS.maxChars)),
+            ...(older === 0 ? [] : [`(${older} older one(s) left out: read them in ${deps.inboxes.pathOf(id)})`]),
+        ];
+    }
+    catch (error) {
+        return [`${KIT_NAME} could not list the inbox lines your old session read (${errorMessage(error)}): check the end of ${deps.inboxes.pathOf(id)} against your handover.`];
+    }
+}
 const NO_REFRESH = { note: undefined, refreshed: false };
 /**
  * A fresh start (`/clear`, a new process) after the session's handover was marked ready: the note
@@ -615,7 +647,8 @@ async function refreshStartOf(runtime, kit, config, roster, payload) {
         const carried = state?.phase === 'ready' && state.transcript !== null
             ? await carriedLinesOf(runtime, store, id, state.transcript, payload, teamZone(config, runtime))
             : [await carryRecordAt(runtime, store, id, payload)].filter((line) => line !== undefined);
-        return { note: [decision.note, ...carried].join('\n'), refreshed: true };
+        const read = await readSinceNoteOf(runtime, kit, store, id, state?.phase === 'ready' ? state.at : undefined, teamZone(config, runtime));
+        return { note: [decision.note, ...carried, ...read].join('\n'), refreshed: true };
     }
     catch (error) {
         return { note: `${KIT_NAME} could not check for a refresh handover (${errorMessage(error)}); if you wrote one before a /clear, read it first.`, refreshed: false };

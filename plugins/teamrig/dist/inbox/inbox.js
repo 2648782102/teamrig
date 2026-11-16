@@ -129,6 +129,20 @@ export async function seenLinesOf(deps, area) {
     const unseen = await unseenLinesOf(deps, area);
     return new Set(lines.map(lineHash).filter((hash) => !unseen.has(hash)));
 }
+/**
+ * The area's lines its session marked read after `since`, oldest first. A handover written at `since` may not hold
+ * them, so the fresh start after a context refresh shows them again (#835); lines only shown at a prompt need not
+ * be: the prompt hook shows them again to the new Claude Code session, as it follows each one apart.
+ */
+export async function readSinceOf(deps, area, since) {
+    const lines = (await deps.inboxes.lines(area)) ?? [];
+    const marks = (await deps.marks.read()).marks.filter((mark) => mark.area === area);
+    const readBy = (at) => {
+        const mark = marks.findLast((each) => Date.parse(each.at) <= at) ?? null;
+        return lines.length - unreadOf(area, lines, mark, lineHash).lines.length;
+    };
+    return lines.slice(readBy(since.getTime()), readBy(Number.POSITIVE_INFINITY));
+}
 /** Appends one dated line, `- YYYY-MM-DD HH:MM <from>: <text>`, to an area's inbox. */
 export async function postLine(inboxes, secrets, input) {
     return postLines([{ inboxes, to: input.to, from: input.from }], secrets, input);
