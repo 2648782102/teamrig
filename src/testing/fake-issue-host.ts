@@ -1,6 +1,9 @@
-import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
-import type { LinkedIssue } from '../issues/issue.ts';
+import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostThread, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
+import type { IssueThread, LinkedIssue } from '../issues/issue.ts';
 import type { HostPull } from '../issues/pull.ts';
+
+/** An issue as the fake reads one a test did not give: open, with no labels, assignees or body. */
+const BLANK_THREAD: IssueThread = { state: 'open', labels: [], assignees: [], pull: false, body: '' };
 
 /** What each use does, as the fake's access line words it. */
 const USE_VERB: Readonly<Record<HostUse, string>> = { read: 'reads', open: 'opens issues', write: 'writes' };
@@ -47,6 +50,8 @@ export class FakeIssueHost implements IssueHost {
   private assigneeRead: HostAssignee | undefined;
   private assignEnd: HostEnd = { kind: 'done' };
   private unassignEnd: HostEnd = { kind: 'done' };
+  private readonly threads = new Map<number, IssueThread>();
+  private threadRead: HostThread | undefined;
 
   /** From now on, taking an assignee off fails for `reason`. */
   failsUnassign(reason: string): this {
@@ -230,6 +235,23 @@ export class FakeIssueHost implements IssueHost {
 
   issueId(target: IssueTarget): Promise<HostIssueId> {
     return Promise.resolve(this.idRead ?? { kind: 'found', id: 1000 + target.number });
+  }
+
+  /** From now on, a read of `number` in any repository gives `thread`. */
+  holdsThread(number: number, thread: Partial<IssueThread>): this {
+    this.threads.set(number, { ...BLANK_THREAD, ...thread });
+    return this;
+  }
+
+  /** From now on, every read of an issue or pull request ends as `end`. */
+  readsThread(end: HostThread): this {
+    this.threadRead = end;
+    return this;
+  }
+
+  /** The thread a test gave the number, else an open issue with no labels, assignees or body. */
+  thread(target: IssueTarget): Promise<HostThread> {
+    return Promise.resolve(this.threadRead ?? { kind: 'read', thread: this.threads.get(target.number) ?? BLANK_THREAD });
   }
 
   labelExists(_repo: string, label: string): Promise<HostLabel> {

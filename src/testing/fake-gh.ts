@@ -1,4 +1,4 @@
-import { recordField, stringField, type JsonRecord } from '../core/guards.ts';
+import { isRecord, recordField, stringField, type JsonRecord } from '../core/guards.ts';
 import {
   isAssigneeRead,
   isCommentsRead,
@@ -101,6 +101,20 @@ export function ghIssue(repo: string, number: number, spec: IssueSpec = {}): Jso
     comments: { nodes: spec.comments ?? [] },
     closedByPullRequestsReferences: { totalCount: spec.linkedPulls ?? 0 },
   };
+}
+
+/**
+ * A held issue (ghIssue's GraphQL shape) as GitHub's REST issue read prints it: its id 1000 + the number, the state
+ * in lowercase, labels and assignees as lists of records, and a null body for an empty one.
+ */
+function restIssue(issue: JsonRecord, number: number): JsonRecord {
+  const nodesOf = (key: string): unknown[] => {
+    const field = issue[key];
+    const nodes = isRecord(field) ? field['nodes'] : undefined;
+    return Array.isArray(nodes) ? nodes : [];
+  };
+  const body = stringField(issue, 'body') ?? '';
+  return { id: 1000 + number, number, state: (stringField(issue, 'state') ?? 'OPEN').toLowerCase(), labels: nodesOf('labels'), assignees: nodesOf('assignees'), body: body === '' ? null : body };
 }
 
 /** A timeline item: `actor`, an account of `kind`, put `label` on the issue at `at`. */
@@ -513,10 +527,10 @@ export class FakeGh implements GhRunner {
     if (canned !== undefined) {
       return canned;
     }
-    const held = (this.issues.get(`${owner}/${name}`) ?? []).some((issue) => String(issue['number']) === number);
-    return held
-      ? { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ id: 1000 + Number(number), number: Number(number) }), stderr: '' }
-      : { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' };
+    const held = (this.issues.get(`${owner}/${name}`) ?? []).find((issue) => String(issue['number']) === number);
+    return held === undefined
+      ? { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' }
+      : { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify(restIssue(held, Number(number))), stderr: '' };
   }
 
   /**
