@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SecretScanner } from '../core/secrets.ts';
-import { FakeCredentials } from '../testing/fake-credentials.ts';
+import { FakeCredentials, TEST_OWNERS } from '../testing/fake-credentials.ts';
 import type { JsonRecord } from '../core/guards.ts';
 import type { IssueDraft } from '../issues/host.ts';
 import { STATUS_LABEL_SPECS } from '../issues/status-push.ts';
-import { commentNode, FakeGh, ghIssue } from '../testing/fake-gh.ts';
+import { commentNode, FakeGh, ghIssue, ghPull } from '../testing/fake-gh.ts';
+import type { HostPull } from '../issues/pull.ts';
 import {
   assigneeReadArgs,
   isAssigneeRead,
@@ -32,14 +33,15 @@ import {
 } from './gh.ts';
 import { GitHubIssueHost, issueIdIn, loginIn } from './host.ts';
 import { ISSUE_LIMIT, issuePageArgs } from './issues.ts';
-import { CLOSED_ISSUES_QUERY } from './queries.ts';
+import { CLOSED_ISSUES_QUERY, PULL_PAGE_SIZE } from './queries.ts';
+import { PULL_LIMIT } from './pulls.ts';
 import { RepoTokens } from './tokens.ts';
 
 const ENV = { HOME: '/u' };
 const TARGET = { repo: 'acme/web', number: 7 };
 const DRAFT: IssueDraft = { repo: 'acme/web', title: 'Fix login', body: 'Steps', labels: ['bug'] };
 
-function hostWith(gh: GhRunner, credentials: FakeCredentials = new FakeCredentials()): GitHubIssueHost {
+function hostWith(gh: GhRunner, credentials: FakeCredentials = new FakeCredentials().savesTokensFor(TEST_OWNERS)): GitHubIssueHost {
   return new GitHubIssueHost(gh, new RepoTokens(credentials, ENV), new SecretScanner(['tok_[a-z0-9]{8}']));
 }
 
@@ -100,7 +102,7 @@ describe('GitHubIssueHost.list', () => {
   it('gives nothing of the repository when either read fails', async () => {
     assert.deepEqual(await hostWith(new FakeGh()).list('acme/nope', '2029-12-25'), {
       kind: 'failed',
-      reason: 'acme/nope is not visible to the gh login: check github.repos, or save a read-only token for acme with: save teamrig-gh-acme',
+      reason: 'acme/nope is not visible to the token saved as teamrig-gh-acme: check github.repos, and on GitHub give that token this repository',
     });
     const gh = new ClosedFails([ghIssue('acme/web', 7)]);
     assert.deepEqual(await hostWith(gh).list('acme/web', '2029-12-25'), {
@@ -108,6 +110,59 @@ describe('GitHubIssueHost.list', () => {
       reason: 'gh api graphql for the issues of acme/web exited with code 1: HTTP 403: API rate limit exceeded',
     });
     assert.equal(gh.ran.length, 2);
+  });
+});
+
+describe('GitHubIssueHost.pulls', () => {
+  it('reads every open pull request, then those changed since the time, through the shipped queries with the saved token', async () => {
+    const gh = new FakeGh().holdsPulls('acme/web', [
+      ghPull('acme/web', 1, { updatedAt: '2030-01-01T00:00:00Z' }),
+      ghPull('acme/web', 2, { updatedAt: '2030-01-03T00:00:00Z', state: 'MERGED' }),
+      ghPull('acme/web', 3, { updatedAt: '2030-01-04T00:00:00Z' }),
+    ]);
+    const read = await hostWith(gh, new FakeCredentials().saves('teamrig-gh-acme', 'tok_abcdefgh')).pulls('acme/web', '2030-01-02T00:00:00Z');
+    const numbers = (pulls: readonly HostPull[]): number[] => pulls.map((pull) => pull.number);
+    assert.deepEqual(read.kind === 'listed' && [numbers(read.open), numbers(read.changed), read.notes], [[3, 1], [3, 2], []]);
+    assert.ok(gh.ran.every((request) => isIssueQuery(request.args) && request.env['GH_TOKEN'] === 'tok_abcdefgh'));
+  });
+
+  it('says when the read may be cut short, or held items it could not read', async () => {
+    const many = Array.from({ length: PULL_LIMIT + 1 }, (_, index) => ghPull('acme/web', index + 1));
+    const first = await hostWith(new FakeGh().holdsPulls('acme/web', many)).pulls('acme/web', undefined);
+    assert.deepEqual(first.kind === 'listed' && [first.open.length, first.changed.length, first.notes], [PULL_LIMIT, PULL_PAGE_SIZE, ['the open pull request read reached 200, so it may leave some out']]);
+    const later = await hostWith(new FakeGh().holdsPulls('acme/web', many)).pulls('acme/web', '2029-12-31T00:00:00Z');
+    assert.deepEqual(later.kind === 'listed' && later.notes, ['the open pull request read reached 200, so it may leave some out', 'the changed pull request read reached 200, so it may leave some out']);
+    const odd = await hostWith(new FakeGh().holdsPulls('acme/web', [{ ...ghPull('acme/web', 900), state: 'DRAFTED' }])).pulls('acme/web', undefined);
+    assert.deepEqual(odd.kind === 'listed' && odd.notes, ['1 item(s) gh printed did not read as pull requests and were left out']);
+  });
+
+  it('gives the one line when the read fails', async () => {
+    assert.deepEqual(await hostWith(new FakeGh()).pulls('acme/nope', undefined), {
+      kind: 'failed',
+      reason: 'acme/nope is not visible to the token saved as teamrig-gh-acme: check github.repos, and on GitHub give that token this repository',
+    });
+  });
+});
+
+describe('GitHubIssueHost.jobLog', () => {
+  it("reads the failed job's log with the saved token and gives its excerpt, a secret shape redacted", async () => {
+    const stdout = ['check\tRun tests\t2030-01-01T00:00:00.0000000Z not ok 1 - reads', 'check\tRun tests\t2030-01-01T00:00:01.0000000Z token tok_abcdefgh leaked'].join('\n');
+    const gh = new FakeGh().holdsJobLog(41, stdout);
+    const log = await hostWith(gh, new FakeCredentials().saves('teamrig-gh-acme', 'tok_zzzzzzzz')).jobLog('acme/web', 41);
+    assert.deepEqual(log, { kind: 'read', step: 'Run tests', lines: ['not ok 1 - reads', 'token [redacted secret pattern from the team config] leaked'] });
+    assert.deepEqual(
+      gh.ran.map((request) => [request.args, request.env['GH_TOKEN']]),
+      [[['run', 'view', '--job', '41', '--log-failed', '--repo', 'acme/web'], 'tok_zzzzzzzz']],
+    );
+  });
+
+  it('gives the one line, naming the Actions permission, when the read fails', async () => {
+    const forbidden: GhResult = { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'HTTP 403: Resource not accessible by personal access token\n' };
+    const log = await hostWith(new FakeGh().answers('acme/web', forbidden), new FakeCredentials().saves('teamrig-gh-acme', 'k')).jobLog('acme/web', 41);
+    assert.equal(log.kind === 'failed' && log.reason.includes('may not read the failed job logs of acme/web') && log.reason.includes('set Actions to Read-only'), true, JSON.stringify(log));
+    const odd: GhResult = { end: { kind: 'exited', code: 2 }, stdout: '', stderr: 'boom tok_abcdefgh\n' };
+    const failed = await hostWith(new FakeGh().answers('acme/web', odd)).jobLog('acme/web', 41);
+    assert.deepEqual(failed.kind === 'failed' && failed.reason.startsWith('gh run view for the failed job logs of acme/web') && !failed.reason.includes('tok_abcdefgh'), true, JSON.stringify(failed));
   });
 });
 
@@ -316,12 +371,18 @@ describe('GitHubIssueHost', () => {
     assert.ok(end.kind === 'failed' && end.reason.startsWith('the token saved as teamrig-gh-acme may not label acme/web#7'), JSON.stringify(end));
   });
 
-  it('writes with the gh login when no token is saved, and says so', async () => {
+  it('writes with the saved token and says so, and with no token saved reaches nothing, running no gh, never the gh login', async () => {
     const gh = new FakeGh();
     const host = hostWith(gh);
-    assert.deepEqual(await host.reach('acme/web', 'write'), { kind: 'reached', access: 'acme: writes with the gh login; no token saved as teamrig-gh-acme', scope: 'acme' });
+    assert.deepEqual(await host.reach('acme/web', 'write'), { kind: 'reached', access: 'acme: writes with the token saved as teamrig-gh-acme', scope: 'acme' });
     assert.deepEqual(await host.close(TARGET), { kind: 'done' });
-    assert.equal(gh.ran[0]?.env['GH_TOKEN'], undefined);
+    assert.equal(gh.ran[0]?.env['GH_TOKEN'], 'acme-token');
+    const none = new FakeGh();
+    const keyless = hostWith(none, new FakeCredentials());
+    const missing = "no token for acme is saved as teamrig-gh-acme in the test store; teamrig reaches a repository only with its owner's saved token, never the gh login: save one with: save teamrig-gh-acme";
+    assert.deepEqual(await keyless.reach('acme/web', 'write'), { kind: 'unreachable', reason: missing });
+    assert.deepEqual(await keyless.close(TARGET), { kind: 'failed', reason: missing });
+    assert.deepEqual(none.ran, []);
   });
 
   it('reaches nothing and runs no gh when the store holds the key but cannot read it', async () => {
@@ -330,6 +391,7 @@ describe('GitHubIssueHost', () => {
     const reason = 'could not read teamrig-gh-acme from the test store: the keyring is locked; unlock the store and rerun, or save the key again with: save teamrig-gh-acme';
     assert.deepEqual(await host.reach('acme/web', 'read'), { kind: 'unreachable', reason });
     assert.deepEqual(await host.list('acme/web', '2029-12-25'), { kind: 'failed', reason });
+    assert.deepEqual(await host.pulls('acme/web', undefined), { kind: 'failed', reason });
     assert.deepEqual(await host.open(DRAFT), { kind: 'failed', reason });
     assert.deepEqual(await host.comment(TARGET, 'Thanks'), { kind: 'failed', reason });
     assert.deepEqual(await host.close(TARGET), { kind: 'failed', reason });
@@ -352,7 +414,7 @@ describe('GitHubIssueHost', () => {
 
   it('names an issue not there, a gh that could not start, and one stopped by a signal', async () => {
     const missing = new FakeGh().failsWrite({ end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' });
-    assert.deepEqual(await hostWith(missing).close(TARGET), { kind: 'failed', reason: 'acme/web#7 is not there for the gh login: check the number, and that the token reaches acme/web' });
+    assert.deepEqual(await hostWith(missing).close(TARGET), { kind: 'failed', reason: 'acme/web#7 is not there for the token saved as teamrig-gh-acme: check the number, and that the token reaches acme/web' });
     const absent = new FakeGh().failsWith(Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' }));
     const notInstalled = await hostWith(absent).close(TARGET);
     assert.ok(notInstalled.kind === 'failed' && notInstalled.reason.startsWith('gh, the GitHub CLI, is not installed'));
@@ -387,7 +449,7 @@ describe('GitHubIssueHost links', () => {
     const denied = new FakeGh().failsWrite({ end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Resource not accessible by personal access token (HTTP 403)\n' });
     assert.deepEqual(await hostWith(denied).addSubIssue(TARGET, 1008), {
       kind: 'failed',
-      reason: 'the gh login may not add a sub-issue to acme/web#7: save a token for acme with Issues and Pull requests read and write, with: save teamrig-gh-acme',
+      reason: 'the token saved as teamrig-gh-acme may not add a sub-issue to acme/web#7: on GitHub, edit that token and set Issues and Pull requests to Read and write; its text stays the same, so nothing needs saving again',
     });
   });
 

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { HostIssue, LabelEvent } from '../issues/issue.ts';
-import { issueTrust } from './trust.ts';
+import { isInsideAuthor, isOurAuthor, issueTrust, ourLogins } from './trust.ts';
 
 const ACCEPTED_AT = '2030-01-05T10:00:00Z';
 
@@ -95,5 +95,33 @@ describe('issueTrust', () => {
     assert.equal(issueTrust(acceptedBy(accept, { renamedAt: '2030-01-05T11:00:00Z' }), 'teamrig'), 'untrusted', 'title changed after');
     assert.equal(issueTrust(acceptedBy(accept, { lastEditedAt: ACCEPTED_AT }), 'teamrig'), 'untrusted', 'edited in the same second');
     assert.equal(issueTrust(acceptedBy(accept, { lastEditedAt: '2030-01-05T09:59:59Z', renamedAt: '2030-01-04T00:00:00Z' }), 'teamrig'), 'accepted');
+  });
+});
+
+describe('isOurAuthor', () => {
+  const ours = ourLogins({ owners: { Teammate: 'api' } });
+
+  it("takes the repository's owner and a login the team named in github.owners, in any case", () => {
+    assert.equal(isOurAuthor('OWNER', 'anyone', ours), true);
+    assert.equal(isOurAuthor('collaborator', 'TEAMMATE', ours), true);
+    assert.equal(isOurAuthor('NONE', 'teammate', ours), true);
+  });
+
+  it('refuses a collaborator or member the team never named, an outsider and a deleted account', () => {
+    for (const association of ['COLLABORATOR', 'MEMBER', 'CONTRIBUTOR', 'NONE']) {
+      assert.equal(isOurAuthor(association, 'helper', ours), false, association);
+    }
+    assert.equal(isOurAuthor('MEMBER', '', ours), false);
+  });
+});
+
+describe('isInsideAuthor', () => {
+  it('takes the owner, a member and a collaborator, in any case, and no other tie', () => {
+    for (const association of ['OWNER', 'member', 'Collaborator']) {
+      assert.equal(isInsideAuthor(association), true, association);
+    }
+    for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'NONE', '']) {
+      assert.equal(isInsideAuthor(association), false, association);
+    }
   });
 });

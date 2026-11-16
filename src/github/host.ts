@@ -6,10 +6,12 @@ import {
   type HostAssignee,
   type HostComments,
   type HostIssueId,
+  type HostJobLog,
   type HostLabel,
   type HostLinks,
   type HostList,
   type HostOpen,
+  type HostPulls,
   type HostReach,
   type HostUse,
   type HostWatch,
@@ -35,6 +37,7 @@ import {
   issueLabelAddArgs,
   issueLabelRemoveArgs,
   issueReadArgs,
+  jobLogArgs,
   labelReadArgs,
   isLogin,
   labelCreateArgs,
@@ -46,12 +49,18 @@ import {
   type GhRunner,
   type WatchPath,
 } from './gh.ts';
-import { probeAnswerOf, type ProbeAnswer } from './probe.ts';
-import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, startFailureText, type IssueList } from './issues.ts';
+import { type ProbeAnswer, probeAnswerOf } from './probe.ts';
+import { ghFailureKind, ISSUE_LIMIT, type IssueList, listIssues, plainLine, readCommentsIn, type ReadKind, runRead, startFailureText } from './issues.ts';
+import { failedLogExcerpt } from './job-log.ts';
 import { listLinks } from './links.ts';
 import { createdNumber } from './migrate.ts';
 import { latestIssues } from './plan.ts';
-import { TokenReadError, type RepoAccess, type RepoTokens } from './tokens.ts';
+import { listPulls, PULL_LIMIT } from './pulls.ts';
+import { PULL_PAGE_SIZE } from './queries.ts';
+import { NoAccessError, type RepoAccess, type RepoTokens } from './tokens.ts';
+
+/** A failed job's log read, as a failure line words it: the Actions permission lets a token read it. */
+const JOB_LOG_READ: ReadKind = { noun: 'failed job logs', permission: 'Actions', command: 'gh run view' };
 
 /** What each use does with an access, as its ACCESS line words it. */
 const USE_VERB: Readonly<Record<HostUse, string>> = { read: 'read with', open: 'opens issues with', write: 'writes with' };
@@ -59,8 +68,8 @@ const USE_VERB: Readonly<Record<HostUse, string>> = { read: 'read with', open: '
 /**
  * GitHub as an issue host (issues/host.ts): a list is pages of the two shipped issue queries, a links read pages of
  * the third, and each write one gh REST call the runner's allowlist takes (gh.ts), made with the token saved for the
- * repository's owner, else, when none is saved, the gh login. A saved token the store cannot read reaches nothing: never the login in its place
- * (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a write failed.
+ * repository's owner. An owner with no saved token, or one the store cannot read, is reached by nothing: never the
+ * gh login in its place (tokens.ts). gh's own error, any secret shape in it redacted, is the reason a write failed.
  */
 export class GitHubIssueHost implements IssueHost {
   readonly name = 'GitHub';
@@ -74,16 +83,16 @@ export class GitHubIssueHost implements IssueHost {
     this.scanner = scanner;
   }
 
-  /** Reached with the owner's saved token, else the gh login; the scope is the owner, as one token serves all its repositories. */
+  /** Reached with the owner's saved token only; the scope is the owner, as one token serves all its repositories. */
   async reach(repo: string, use: HostUse): Promise<HostReach> {
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'unreachable', reason: access.message };
     }
     const verb = USE_VERB[use];
     return {
       kind: 'reached',
-      access: access.via === 'token' ? `${access.owner}: ${verb} the token saved as ${access.credential}` : `${access.owner}: ${verb} the gh login; no token saved as ${access.credential}`,
+      access: `${access.owner}: ${verb} the token saved as ${access.credential}`,
       scope: access.owner,
     };
   }
@@ -94,7 +103,7 @@ export class GitHubIssueHost implements IssueHost {
    */
   async list(repo: string, closedSince: string): Promise<HostList> {
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     const open = await listIssues(this.gh, access, { repo, state: 'open', limit: ISSUE_LIMIT });
@@ -109,13 +118,55 @@ export class GitHubIssueHost implements IssueHost {
   }
 
   /**
+   * The open pull requests, then those changed since `since`, as the owner's saved token reads them
+   * (pulls.ts). With no `since` the second read takes one page, which only dates the next read.
+   */
+  async pulls(repo: string, since: string | undefined): Promise<HostPulls> {
+    const access = await this.tokens.accessFor(repo);
+    if (access instanceof NoAccessError) {
+      return { kind: 'failed', reason: access.message };
+    }
+    const open = await listPulls(this.gh, access, { repo, read: 'open', since: undefined, limit: PULL_LIMIT });
+    if (open.kind === 'failed') {
+      return open;
+    }
+    const changed = await listPulls(this.gh, access, { repo, read: 'changed', since, limit: since === undefined ? PULL_PAGE_SIZE : PULL_LIMIT });
+    if (changed.kind === 'failed') {
+      return changed;
+    }
+    const unreadable = open.unreadable + changed.unreadable;
+    const notes = [
+      ...(open.full ? [`the open pull request read reached ${PULL_LIMIT}, so it may leave some out`] : []),
+      ...(since !== undefined && changed.full ? [`the changed pull request read reached ${PULL_LIMIT}, so it may leave some out`] : []),
+      ...(unreadable > 0 ? [`${unreadable} item(s) gh printed did not read as pull requests and were left out`] : []),
+    ];
+    return { kind: 'listed', open: open.pulls, changed: changed.pulls, notes };
+  }
+
+  /**
+   * The end of one failed job's log (job-log.ts), as the owner's saved token reads it; each line and
+   * a failure's reason have any secret shape redacted.
+   */
+  async jobLog(repo: string, jobId: number): Promise<HostJobLog> {
+    const access = await this.tokens.accessFor(repo);
+    if (access instanceof NoAccessError) {
+      return { kind: 'failed', reason: access.message };
+    }
+    const run = await runRead(this.gh, access, repo, jobLogArgs(repo, jobId), JOB_LOG_READ);
+    if (run.kind === 'failed') {
+      return { kind: 'failed', reason: this.scanner.redact(run.reason) };
+    }
+    return { kind: 'read', ...failedLogExcerpt(run.stdout, (text) => this.scanner.redact(text)) };
+  }
+
+  /**
    * Opens one issue. A failure is one plain line with gh's own first error line, any secret shape in it redacted; a
    * run stopped by a signal, or one that printed no issue number, may still have opened it, so its line says to
    * look before a rerun.
    */
   async open(draft: IssueDraft): Promise<HostOpen> {
     const access = await this.tokens.accessFor(draft.repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
@@ -154,7 +205,7 @@ export class GitHubIssueHost implements IssueHost {
   async issueId(target: IssueTarget): Promise<HostIssueId> {
     const shown = targetText(target);
     const access = await this.tokens.accessFor(target.repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
@@ -224,7 +275,7 @@ export class GitHubIssueHost implements IssueHost {
   /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
   private async read(repo: string, args: readonly string[], what: string): Promise<HostRead> {
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
@@ -252,7 +303,7 @@ export class GitHubIssueHost implements IssueHost {
   async createLabel(repo: string, label: LabelSpec): Promise<HostEnd> {
     const shown = `the label ${JSON.stringify(label.name)} in ${repo}`;
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
@@ -283,7 +334,7 @@ export class GitHubIssueHost implements IssueHost {
   /** Every issue of the repository with its links, read with the same access as a list. */
   async links(repo: string): Promise<HostLinks> {
     const access = await this.tokens.accessFor(repo);
-    return access instanceof TokenReadError ? { kind: 'failed', reason: access.message } : listLinks(this.gh, access, repo);
+    return access instanceof NoAccessError ? { kind: 'failed', reason: access.message } : listLinks(this.gh, access, repo);
   }
 
   addSubIssue(parent: IssueTarget, childId: number): Promise<HostEnd> {
@@ -306,7 +357,7 @@ export class GitHubIssueHost implements IssueHost {
    */
   async watch(repo: string, marks: WatchMarks): Promise<HostWatch> {
     const access = await this.tokens.accessFor(repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     const next = new Map(marks);
@@ -346,7 +397,7 @@ export class GitHubIssueHost implements IssueHost {
   /** One write; `missing`, when given, says what a Not Found means for it in place of the issue not being there. */
   private async write(target: IssueTarget, args: readonly string[], what: string, missing?: string): Promise<HostEnd> {
     const access = await this.tokens.accessFor(target.repo);
-    if (access instanceof TokenReadError) {
+    if (access instanceof NoAccessError) {
       return { kind: 'failed', reason: access.message };
     }
     let result: GhResult;
@@ -374,22 +425,17 @@ function listNotes(state: IssueState, list: Extract<IssueList, { kind: 'listed' 
   ];
 }
 
-/** Why a write failed, with the fix when it is a known one: a refused token or login, a missing permission, an issue not there. */
+/** Why a write failed, with the fix when it is a known one: a refused token, a missing permission, an issue not there. */
 export function writeFailureText(target: IssueTarget, what: string, code: number, stderr: string, access: RepoAccess): string {
   const shown = targetText(target);
   const token = `the token saved as ${access.credential}`;
-  const saveOne = `save a token for ${access.owner} with Issues and Pull requests read and write, with: ${access.save}`;
   switch (ghFailureKind(code, stderr)) {
     case 'no-login':
-      return access.via === 'token'
-        ? `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`
-        : `gh is not logged in to GitHub: run gh auth login, or ${saveOne}`;
+      return `GitHub refused ${token} (expired or revoked?): create a new one and save it again with: ${access.save}`;
     case 'no-permission':
-      return access.via === 'token'
-        ? `${token} may not ${what} ${shown}: on GitHub, edit that token and set Issues and Pull requests to Read and write; its text stays the same, so nothing needs saving again`
-        : `the gh login may not ${what} ${shown}: ${saveOne}`;
+      return `${token} may not ${what} ${shown}: on GitHub, edit that token and set Issues and Pull requests to Read and write; its text stays the same, so nothing needs saving again`;
     case 'not-visible':
-      return `${shown} is not there for ${access.via === 'token' ? token : 'the gh login'}: check the number, and that the token reaches ${target.repo}`;
+      return `${shown} is not there for ${token}: check the number, and that the token reaches ${target.repo}`;
     case undefined:
       return plainLine(`gh api to ${what} ${shown} ${exitText(code, stderr)}`);
   }
