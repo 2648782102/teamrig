@@ -119,6 +119,7 @@ describe('mentionItems', () => {
     author,
     authorKind: 'User',
     posts: [],
+    labelCount: 0,
     head,
     fork,
     mergeable: 'unknown',

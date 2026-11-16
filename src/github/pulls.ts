@@ -2,7 +2,7 @@ import { isRecord, recordField, stringField, type JsonRecord } from '../core/gua
 import type { IssueComment } from '../issues/issue.ts';
 import type { FailedJob, HostPull, PullChecks, PullMergeable, PullReview, PullState } from '../issues/pull.ts';
 import type { GhRunner } from './gh.ts';
-import { connectionPage, kindOf, loginOf, nodesOf, plainLine, postOf, repoPage, runRead, timeField, WEB_URL, type ReadKind } from './issues.ts';
+import { connectionPage, countOf, kindOf, loginOf, nodesOf, plainLine, postOf, repoPage, runRead, timeField, WEB_URL, type ReadKind } from './issues.ts';
 import { pullPageArgs, type PullRead } from './queries.ts';
 import type { RepoAccess } from './tokens.ts';
 
@@ -116,6 +116,7 @@ export function pullOf(item: unknown, repo: string): HostPull | null {
     author: loginOf(recordField(item, 'author')),
     authorKind: kindOf(recordField(item, 'author')),
     posts: postsOf(item),
+    labelCount: countOf(recordField(item, 'labels')),
     head,
     fork: item['isCrossRepository'] === true,
     mergeable: MERGEABLE[stringField(item, 'mergeable') ?? ''] ?? 'unknown',

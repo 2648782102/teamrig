@@ -165,6 +165,8 @@ export interface PullSpec {
   readonly comments?: readonly JsonRecord[];
   /** Its reviews, as reviewNode builds them; none unless set. */
   readonly reviews?: readonly JsonRecord[];
+  /** How many labels it carries; none unless set. */
+  readonly labels?: number;
   /** The head branch, `t1-change` unless set. */
   readonly head?: string;
   readonly fork?: boolean;
@@ -198,6 +200,7 @@ export function ghPull(repo: string, number: number, spec: PullSpec = {}): JsonR
     comments: { nodes: [...(spec.comments ?? [])] },
     reviews: { nodes: [...(spec.reviews ?? [])] },
     headRefName: spec.head ?? 't1-change',
+    labels: { totalCount: spec.labels ?? 0 },
     isCrossRepository: spec.fork ?? false,
     mergeable: spec.mergeable ?? 'MERGEABLE',
     reviewDecision: spec.reviewDecision ?? null,

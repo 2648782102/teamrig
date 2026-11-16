@@ -26,6 +26,7 @@ function readPull(number: number, overrides: Partial<HostPull> = {}): HostPull {
     author: 'maintainer',
     authorKind: 'User',
     posts: [],
+    labelCount: 0,
     head: 't1-change',
     fork: false,
     mergeable: 'mergeable',
@@ -185,6 +186,15 @@ describe('pullOf', () => {
     const nodes = [{ number: 0, repository: { nameWithOwner: 'acme/web' } }, { number: 3 }, 'text', { number: 5, repository: { nameWithOwner: 'acme/web' } }];
     assert.deepEqual(pullOf({ ...closing, closingIssuesReferences: { nodes } }, 'acme/web')?.closes, [5]);
     assert.deepEqual(pullOf({ ...closing, closingIssuesReferences: null }, 'acme/web')?.closes, []);
+  });
+
+  it('reads the author account kind and how many labels it carries, never their names', () => {
+    const read = pullOf(ghPull('acme/web', 3, { authorKind: 'Bot', labels: 2 }), 'acme/web');
+    assert.equal(read?.authorKind, 'Bot');
+    assert.equal(read?.labelCount, 2);
+    const bare = pullOf({ ...ghPull('acme/web', 3), author: null, labels: { totalCount: 'two' } }, 'acme/web');
+    assert.equal(bare?.authorKind, '');
+    assert.equal(bare?.labelCount, 0, 'a count GitHub does not send as a number reads as none');
   });
 
   it('gives null for an item missing what a monitor needs', () => {

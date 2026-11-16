@@ -85,9 +85,10 @@ describe('the shipped queries', () => {
     assert.doesNotMatch(PULL_REQUESTS_QUERY, /mutation|body/i);
     assert.ok(PULL_REQUESTS_QUERY.includes(`first: ${PULL_PAGE_SIZE}`));
     assert.ok(PULL_REQUESTS_QUERY.includes('orderBy: {field: UPDATED_AT, direction: DESC}'));
-    for (const field of ['updatedAt', 'mergedAt', 'authorAssociation', 'isCrossRepository', 'mergeable', 'reviewDecision', 'statusCheckRollup { state', 'CheckRun { name conclusion databaseId }', `contexts(first: ${CHECK_CONTEXTS})`, `closingIssuesReferences(first: ${CLOSING_REFS}) { nodes { number repository { nameWithOwner } } }`]) {
+    for (const field of ['updatedAt', 'mergedAt', 'authorAssociation', 'isCrossRepository', 'mergeable', 'reviewDecision', 'statusCheckRollup { state', 'CheckRun { name conclusion databaseId }', `contexts(first: ${CHECK_CONTEXTS})`, `closingIssuesReferences(first: ${CLOSING_REFS}) { nodes { number repository { nameWithOwner } } }`, 'labels(first: 1) { totalCount }']) {
       assert.ok(PULL_REQUESTS_QUERY.includes(field), field);
     }
+    assert.doesNotMatch(PULL_REQUESTS_QUERY, /labels\([^)]*\) \{ [^}]*nodes/, 'labels only as a count, never their names');
     assert.deepEqual(pullPageArgs({ ...PAGE, after: 'Y3Vyc29y' }, 'changed'), ['api', 'graphql', '-f', `query=${PULL_REQUESTS_QUERY}`, '-f', 'owner=acme', '-f', 'name=web', '-f', 'after=Y3Vyc29y']);
   });
 

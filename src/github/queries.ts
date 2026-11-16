@@ -129,6 +129,7 @@ export const CLOSING_REFS = 5;
  * issues it closes once merged route its news to the tasks holding them, whatever its branch is named. With `posts`
  * (the open read only: the changed read also pages merged and closed ones, which never become threads), its newest
  * comments and reviews give only when and by whom, so the response clock sees who spoke last (clock.ts).
+ * Its labels only as a count, for GH-DRIFT's outside pull request no one labelled (github/drift.ts).
  */
 function pullNode(posts: boolean): string {
   const postFields = posts
@@ -141,6 +142,7 @@ function pullNode(posts: boolean): string {
         author { __typename login }${postFields}
         headRefName isCrossRepository mergeable reviewDecision
         closingIssuesReferences(first: ${CLOSING_REFS}) { nodes { number repository { nameWithOwner } } }
+        labels(first: 1) { totalCount }
         commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: ${CHECK_CONTEXTS}) { nodes { __typename ... on CheckRun { name conclusion databaseId } } } } } } }
       }`;
 }

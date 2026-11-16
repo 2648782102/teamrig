@@ -26,6 +26,7 @@ function pull(number: number, overrides: Partial<HostPull> = {}): HostPull {
     author: 'dev',
     authorKind: 'User',
     posts: [],
+    labelCount: 0,
     head: `t${number}-fix`,
     fork: false,
     mergeable: 'mergeable',

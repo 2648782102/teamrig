@@ -290,7 +290,7 @@ function issueOf(item: unknown, repo: string): HostIssue | null {
 }
 
 /** A connection's `totalCount`, 0 when GitHub gives none or not a count. */
-function countOf(connection: JsonRecord | undefined): number {
+export function countOf(connection: JsonRecord | undefined): number {
   const count = connection?.['totalCount'];
   return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? count : 0;
 }

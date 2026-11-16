@@ -59,6 +59,8 @@ export interface HostPull {
    * spoke last (src/github/clock.ts).
    */
   readonly posts: readonly IssueComment[];
+  /** How many labels it carries; a maintainer labels an outside one as it takes it in. */
+  readonly labelCount: number;
   /** The branch it would merge. */
   readonly head: string;
   /** True when that branch lives in another repository (a fork): its name then says nothing about this team's tasks. */
