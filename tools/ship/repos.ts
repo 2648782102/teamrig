@@ -43,6 +43,12 @@ export interface RepoProfile {
    * pass alone (T2532). Each is one of `checks`, never the summary, which echoes them (github.ts). Empty when not listed.
    */
   flaky: readonly string[];
+  /**
+   * The `## <name>` sections the --note-file must hold for merge to open a pull request (T3058): the repo's template
+   * asks each pull request to say them (teamrig's `Reach`), and a note without them would open one that does not.
+   * Empty when not listed: any note, or none, opens one.
+   */
+  pullSections: readonly string[];
 }
 
 export const PROFILES_PATH = new URL('./repos.json', import.meta.url);
@@ -74,6 +80,12 @@ function parseFlaky(slug: string, value: unknown, checks: readonly string[], sum
   return value;
 }
 
+function parsePullSections(slug: string, value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  if (!isNameList(value) || new Set(value).size !== value.length) throw new Error(`repos.json: ${slug} "pullSections" needs a list of distinct section names`);
+  return value;
+}
+
 function parseRegenerated(slug: string, value: unknown): readonly string[] {
   if (value === undefined) return [];
   if (!isNameList(value) || value.some(path => path.startsWith('/') || path.split('/').includes('..'))) {
@@ -85,7 +97,7 @@ function parseRegenerated(slug: string, value: unknown): readonly string[] {
 
 export function parseProfiles(json: string): Map<string, RepoProfile> {
   const body: unknown = JSON.parse(json);
-  if (!isRecord(body)) throw new Error('repos.json: expected { "<owner>/<repo>": { "main", "gate", "checks", "summary", "local", "regenerated", "flaky" } }');
+  if (!isRecord(body)) throw new Error('repos.json: expected { "<owner>/<repo>": { "main", "gate", "checks", "summary", "local", "regenerated", "flaky", "pullSections" } }');
   const profiles = new Map<string, RepoProfile>();
   for (const [slug, entry] of Object.entries(body)) {
     if (!isRecord(entry) || typeof entry['main'] !== 'string' || !isNameList(entry['checks'])) throw new Error(`repos.json: ${slug} needs "main" and a "checks" list of names`);
@@ -102,6 +114,7 @@ export function parseProfiles(json: string): Map<string, RepoProfile> {
       local: parseLocalChecks(slug, entry['local']),
       regenerated: parseRegenerated(slug, entry['regenerated']),
       flaky: parseFlaky(slug, entry['flaky'], entry['checks'], summary),
+      pullSections: parsePullSections(slug, entry['pullSections']),
     });
   }
   return profiles;
