@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { JsonRecord } from '../core/guards.ts';
 import { withStampFooter } from '../core/stamp.ts';
+import { isIssueCreate } from '../github/gh.ts';
 import { foldEvents, type Task } from '../register/fold.ts';
 import { readEvents } from '../register/snapshot.ts';
 import { CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
@@ -31,10 +32,10 @@ describe('teamrig add with its issue', () => {
     assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
     assert.equal(result.stdout.at(-1), 'OPENED T1 gh:acme/web#1');
     assert.deepEqual(
-      gh.ran.map((request) => request.args),
-      [['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=Add a health check', '-f', `body=${withStampFooter('A probe the load balancer reads.')}`, '-f', 'labels[]=bug', '-f', 'labels[]=p2']],
+      gh.ran.map((request) => request.args).filter(isIssueCreate),
+      [['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=Add a health check', '-f', `body=${withStampFooter('A probe the load balancer reads.')}`, '-f', 'labels[]=bug', '-f', 'labels[]=p2', '-f', 'labels[]=status:open']],
     );
-    assert.deepEqual(gh.ran.map((request) => request.env['GH_TOKEN']), ['acme-issues-token']);
+    assert.ok(gh.ran.every((request) => request.env['GH_TOKEN'] === 'acme-issues-token'));
     const task = tasksOf(kit).get('T1');
     assert.deepEqual([task?.title, task?.ref], ['Private health check', 'gh:acme/web#1']);
   });
@@ -44,7 +45,7 @@ describe('teamrig add with its issue', () => {
     const gh = new FakeGh().holds('acme/web', []);
     const result = await kit.run([...TASK, ...ISSUE], { ...AS_LEAD, gh, credentials: withToken() });
     assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
-    assert.deepEqual(gh.ran.map((request) => request.args.find((arg) => arg.startsWith('body='))), ['body=A probe the load balancer reads.']);
+    assert.deepEqual(gh.ran.map((request) => request.args).filter(isIssueCreate).map((args) => args.find((arg) => arg.startsWith('body='))), ['body=A probe the load balancer reads.']);
   });
 
   it('opens in --issue-repo when it names another of github.repos', async () => {
@@ -53,6 +54,18 @@ describe('teamrig add with its issue', () => {
     const result = await kit.run([...TASK, ...ISSUE, '--issue-repo', 'Acme/API'], { ...AS_LEAD, gh, credentials: withToken() });
     assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
     assert.equal(tasksOf(kit).get('T1')?.ref, 'gh:acme/api#1');
+  });
+
+  it('opens with the type the repository has, and says why it skips one it lacks (T3349)', async () => {
+    const kit = new CliHarness(AT_ADD_TEAM);
+    const gh = new FakeGh().holds('acme/web', []).holdsFields('acme/web', { fields: [], types: [{ name: 'Bug', isEnabled: true }], issues: [] }).hasLabels('acme/web', ['status:open']);
+    const typed = await kit.run([...TASK, '--type', 'bug', ...ISSUE], { ...AS_LEAD, gh, credentials: withToken() });
+    assert.equal(typed.code, EXIT.ok, [...typed.stdout, ...typed.stderr].join('\n'));
+    assert.deepEqual(gh.ran.map((request) => request.args).filter(isIssueCreate).map((args) => args.slice(8, 10)), [['-f', 'type=Bug']]);
+    const untyped = await kit.run(['add', '--title', 'Private retry check', '--description', 'private what and why', '--priority', 'p2', '--issue', 'Add a retry check', '--issue-body', 'Retries stop at three.'], { ...AS_LEAD, gh, credentials: withToken() });
+    assert.equal(untyped.code, EXIT.ok, [...untyped.stdout, ...untyped.stderr].join('\n'));
+    assert.ok(untyped.stdout.includes('TYPE-SKIPPED Task on acme/web: its issue types are Bug; the issue opens with none'), untyped.stdout.join('\n'));
+    assert.equal(tasksOf(kit).get('T2')?.ref, 'gh:acme/web#2');
   });
 
   it('keeps a task local with its reason as its ref, opening nothing', async () => {
@@ -129,7 +142,7 @@ describe('teamrig add with its issue', () => {
     const again = await kit.run([...TASK, ...ISSUE], { ...AS_LEAD, gh, credentials: withToken() });
     assert.equal(again.code, EXIT.refused, [...again.stdout, ...again.stderr].join('\n'));
     assert.match([...again.stdout, ...again.stderr].join('\n'), /T1 already tracks this/u);
-    assert.equal(gh.ran.filter((request) => request.args.includes('POST')).length, 1);
+    assert.equal(gh.ran.filter((request) => request.args.includes('repos/acme/web/issues') && request.args.includes('POST')).length, 1);
     assert.equal(tasksOf(kit).size, 1);
   });
 

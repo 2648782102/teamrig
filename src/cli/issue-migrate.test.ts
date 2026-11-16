@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
 import { withStampFooter } from '../core/stamp.ts';
-import { isIssueCreate, isIssueQuery } from '../github/gh.ts';
+import { isIssueCreate, isIssueQuery, isLabelCreate, isLabelRead } from '../github/gh.ts';
 import { foldEvents, type Task } from '../register/fold.ts';
 import { readEvents } from '../register/snapshot.ts';
 import { APP, CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
@@ -16,6 +16,13 @@ const AS_LEAD = { env: { TEAMRIG_SESSION: 'lead' } };
 const ROWS = join(APP, 'rows.jsonl');
 const PREVIEW = join(APP, 'preview.md');
 const NO_TOKEN = 'ACCESS acme: opens issues with the token saved as teamrig-gh-acme';
+const NO_TYPES = 'it has no issue types (only a repository an organisation owns has them); the issue opens with none';
+/** The status label an open task's issue gets, made where the repository lacks it. */
+const OPEN_LABEL = ['-f', 'labels[]=status:open'];
+
+function createsOf(gh: FakeGh): readonly (readonly string[])[] {
+  return gh.ran.map((request) => request.args).filter(isIssueCreate);
+}
 
 function issueRow(id: string, repo: string, title: string, overrides: JsonRecord = {}): string {
   return JSON.stringify({ id, decision: 'issue', repo, type: 'task', priority: 'p2', title, body: `Why ${title}.`, ...overrides });
@@ -58,8 +65,8 @@ describe('teamrig issue migrate', () => {
     assert.deepEqual(gh.ran, []);
     assert.equal(kit.files.get(EVENTS_PATH), log);
     const preview = kit.files.get(PREVIEW) ?? '';
-    assert.match(preview, /### T1 → acme\/web \[enhancement, p2\]\n\n\*\*Add a health check\*\*\n\nWhy Add a health check\./u);
-    assert.match(preview, /### T2 → acme\/api \[bug, p1\]/u);
+    assert.match(preview, /### T1 → acme\/web \[enhancement, p2\]\n\nOpens with type Task, labels status:open, unassigned, each one the repository has\.\n\n\*\*Add a health check\*\*\n\nWhy Add a health check\./u);
+    assert.match(preview, /### T2 → acme\/api \[bug, p1\]\n\nOpens with type Bug, /u);
     assert.match(preview, /- T3: Names a host\./u);
     assert.doesNotMatch(preview, /Private/u);
   });
@@ -82,17 +89,17 @@ describe('teamrig issue migrate', () => {
     assert.deepEqual(await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.ok), [
       '2 issue(s) to open, 1 kept local, 0 skipped, 0 live task(s) with no row',
       NO_TOKEN,
+      `TYPE-SKIPPED Task on acme/web: ${NO_TYPES}`,
       'OPENED T1 gh:acme/web#1',
+      `TYPE-SKIPPED Bug on acme/api: ${NO_TYPES}`,
       'OPENED T2 gh:acme/api#1',
       "DONE opened 2 issue(s) and set each task's ref",
     ]);
-    assert.deepEqual(
-      gh.ran.map((request) => request.args),
-      [
-        ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=Add a health check', '-f', `body=${withStampFooter('Why Add a health check.')}`, '-f', 'labels[]=enhancement', '-f', 'labels[]=p2'],
-        ['api', 'repos/acme/api/issues', '-X', 'POST', '-f', 'title=Login fails on retry', '-f', `body=${withStampFooter('Why Login fails on retry.')}`, '-f', 'labels[]=bug', '-f', 'labels[]=p1'],
-      ],
-    );
+    assert.deepEqual(createsOf(gh), [
+      ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=Add a health check', '-f', `body=${withStampFooter('Why Add a health check.')}`, '-f', 'labels[]=enhancement', '-f', 'labels[]=p2', ...OPEN_LABEL],
+      ['api', 'repos/acme/api/issues', '-X', 'POST', '-f', 'title=Login fails on retry', '-f', `body=${withStampFooter('Why Login fails on retry.')}`, '-f', 'labels[]=bug', '-f', 'labels[]=p1', ...OPEN_LABEL],
+    ]);
+    const migrated = gh.ran.length;
     const tasks = tasksOf(kit);
     assert.deepEqual([...tasks.values()].map((task) => [task.id, task.ref, task.title, task.status]), [
       ['T1', 'gh:acme/web#1', 'Private health check', 'open'],
@@ -111,7 +118,7 @@ describe('teamrig issue migrate', () => {
 
     const synced = await kit.run(['issue', 'sync', '--yes'], { ...AS_LEAD, gh });
     assert.equal(synced.code, EXIT.ok, synced.stdout.join('\n'));
-    assert.ok(gh.ran.slice(2).every((request) => isIssueQuery(request.args)));
+    assert.ok(gh.ran.slice(migrated).every((request) => isIssueQuery(request.args)));
     assert.equal(tasksOf(kit).size, 3, synced.stdout.join('\n'));
   });
 
@@ -146,39 +153,53 @@ describe('teamrig issue migrate', () => {
     const credentials = new FakeCredentials().saves('teamrig-gh-acme', 'acme-issues-token');
     const lines = await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.ok, { credentials });
     assert.equal(lines[1], 'ACCESS acme: opens issues with the token saved as teamrig-gh-acme');
-    assert.deepEqual(
-      gh.ran.map((request) => request.env['GH_TOKEN']),
-      ['acme-issues-token', 'acme-issues-token'],
-    );
+    assert.ok(gh.ran.length > 2 && gh.ran.every((request) => request.env['GH_TOKEN'] === 'acme-issues-token'));
     assert.ok(!lines.join('\n').includes('acme-issues-token'));
   });
 
   it('stops at the first issue gh fails to open, and a rerun opens the rest', async () => {
     const kit = await migratingTeam();
     const gh = new FakeGh().failsCreate('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Resource not accessible by integration (HTTP 403)\n' });
-    assert.deepEqual((await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.failed)).slice(2), [
+    assert.deepEqual((await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.failed)).slice(3), [
       'FAILED T1: gh api for an issue of acme/web exited with code 1: gh: Resource not accessible by integration (HTTP 403)',
       'STOPPED at T1 after opening 0 issue(s); fix the cause and rerun: tasks holding their issue are skipped',
     ]);
-    assert.equal(gh.ran.length, 1);
+    assert.equal(createsOf(gh).length, 1);
     assert.ok([...tasksOf(kit).values()].every((task) => task.ref === null));
 
     const fixed = new FakeGh();
-    assert.deepEqual((await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], fixed, EXIT.ok)).slice(2), ['OPENED T1 gh:acme/web#1', 'OPENED T2 gh:acme/api#1', "DONE opened 2 issue(s) and set each task's ref"]);
+    const rerun = await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], fixed, EXIT.ok);
+    assert.deepEqual(rerun.filter((line) => !line.startsWith('TYPE-SKIPPED')).slice(2), ['OPENED T1 gh:acme/web#1', 'OPENED T2 gh:acme/api#1', "DONE opened 2 issue(s) and set each task's ref"]);
   });
 
   it('says to look on GitHub when gh printed no issue number', async () => {
     const kit = await migratingTeam();
     const gh = new FakeGh().failsCreate('acme/web', { end: { kind: 'exited', code: 0 }, stdout: 'created', stderr: '' });
     const lines = await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.failed);
-    assert.equal(lines[2], "FAILED T1: gh printed no issue number: look for it on acme/web before a rerun, and set the task's ref if it is there");
+    assert.equal(lines[3], "FAILED T1: gh printed no issue number: look for it on acme/web before a rerun, and set the task's ref if it is there");
   });
 
-  it('runs gh for issue creates only', async () => {
+  it('runs gh for issue creates, the reads the fit makes and status labels only', async () => {
     const kit = await migratingTeam();
     const gh = new FakeGh();
     await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.ok);
-    assert.ok(gh.ran.length > 0 && gh.ran.every((request) => isIssueCreate(request.args)));
+    assert.equal(createsOf(gh).length, 2);
+    assert.ok(gh.ran.every((request) => [isIssueCreate, isIssueQuery, isLabelRead, isLabelCreate].some((allowed) => allowed(request.args))));
+  });
+
+  it('opens a started task\'s issue with its type, status and area labels and its owner\'s login (T3349)', async () => {
+    const kit = new CliHarness({ ...GITHUB_TEAM, github: { repos: ['acme/web'], owners: { octocat: 'alpha' }, areaOwners: { 'area:sync': 'alpha' } } });
+    const added = await kit.run(['add', '--title', 'Private retry fix', '--description', 'private what and why', '--priority', 'p0', '--owner', 'alpha', '--type', 'bug'], AS_LEAD);
+    assert.equal(added.code, EXIT.ok, [...added.stdout, ...added.stderr].join('\n'));
+    const started = await kit.run(['set', 'T1', '--status', 'in-progress', '--session', 'alpha']);
+    assert.equal(started.code, EXIT.ok, [...started.stdout, ...started.stderr].join('\n'));
+    await kit.files.write(ROWS, issueRow('T1', 'acme/web', 'Retry fails', { type: 'bug', priority: 'p0' }));
+    const gh = new FakeGh().holds('acme/web', []).holdsFields('acme/web', { fields: [], types: [{ name: 'Task', isEnabled: true }, { name: 'Bug', isEnabled: true }], issues: [] }).hasLabels('acme/web', ['status:in progress', 'area:sync']);
+    const lines = await expectRun(kit, ['issue', 'migrate', 'rows.jsonl', '--yes'], gh, EXIT.ok);
+    assert.ok(!lines.some((line) => line.includes('SKIPPED')), lines.join('\n'));
+    assert.deepEqual(createsOf(gh).map((args) => args.slice(8)), [
+      ['-f', 'type=Bug', '-f', 'labels[]=bug', '-f', 'labels[]=p0', '-f', 'labels[]=status:in progress', '-f', 'labels[]=area:sync', '-f', 'assignees[]=octocat'],
+    ]);
   });
 
   it('opens nothing while GitHub is off on the machine', async () => {
