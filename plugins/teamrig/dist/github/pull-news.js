@@ -1,7 +1,10 @@
+import { formatUtcMinute } from "../core/time.js";
 import { cut } from "../register/views.js";
 import { branchTaskOf } from "../worktree/owner.js";
-import { issueRef } from "./map.js";
-import { isOurAuthor } from "./trust.js";
+import { ANSWER_TARGET_HOURS, targetMs } from "./clock.js";
+import { plainLine } from "./issues.js";
+import { cutTitle, issuePriority, issueRef } from "./map.js";
+import { isInsideAuthor, isOurAuthor } from "./trust.js";
 /** What a pull request that just opened is compared with, so one opened already conflicting or failing says so. */
 const FRESH = { mergeable: 'mergeable', checks: 'none', review: 'none' };
 /**
@@ -73,8 +76,52 @@ function newest(times, cursor) {
  * branch name, or anyone else's, is theirs to choose, so it never routes news to a session.
  */
 export function pullRecipient(pull, ours, ownerOf, watcher) {
+    return branchOwner(pull, ours, ownerOf) ?? watcher;
+}
+/** The owner of the task one of our authors' own branch names (`ownBranchTask`); undefined when the pull request goes to the watcher. */
+function branchOwner(pull, ours, ownerOf) {
     const task = ownBranchTask(pull, ours);
-    return (task === undefined ? undefined : ownerOf(task)) ?? watcher;
+    return task === undefined ? undefined : ownerOf(task);
+}
+/**
+ * The import steps that give each new pull request going to the watcher (`pullRecipient`: a fork's, an outside
+ * author's, or one on a branch naming no task with an owner) a task of the watcher's, so it sits on a list until
+ * someone answers it, not only in an inbox line. Its ref is the pull request's and it is due at a contributor's pull
+ * request's answer target (clock.ts) after it opened. A ref a task holds gets none, so a second read adds no twin.
+ */
+export function pullTasks(events, at) {
+    const steps = [];
+    const taken = new Set(at.held);
+    for (const { kind, pull } of events) {
+        const ref = issueRef(pull.repo, pull.number);
+        if (kind !== 'opened' || taken.has(ref) || branchOwner(pull, at.ours, at.ownerOf) !== undefined) {
+            continue;
+        }
+        taken.add(ref);
+        steps.push({ kind: 'add', ref, input: pullTaskInput(pull, ref, at) });
+    }
+    return steps;
+}
+/**
+ * The watcher's task for `pull`. Its title is outside input, read as the issue import reads an issue's: it carries
+ * the pull request's title only for an author inside the repository (trust.ts), on one plain line and only when no
+ * secret shape is in it; else it names the pull request and its author. Its description is written here, from the
+ * host's fields, as the pull request read carries no body.
+ */
+function pullTaskInput(pull, ref, at) {
+    const opened = Date.parse(pull.createdAt);
+    const due = formatUtcMinute(new Date(opened + targetMs('pull')));
+    const by = pull.author === '' ? 'a deleted account' : pull.author;
+    const inside = isInsideAuthor(pull.authorAssociation);
+    const title = plainLine(pull.title);
+    const shown = inside && title !== '' && at.rules.secrets.find(title) === undefined ? `Pull request: ${title}` : `Pull request ${pull.repo}#${pull.number} by ${by}`;
+    const where = [...(isOurAuthor(pull.authorAssociation, pull.author, at.ours) ? [] : ['outside']), ...(pull.fork ? ['fork'] : [])];
+    const description = [
+        `Pull request ${pull.url} opened by ${by}${where.length > 0 ? ` (${where.join(', ')})` : ''} at ${formatUtcMinute(new Date(opened))} UTC:`,
+        `answer it on GitHub by ${due} UTC, its ${ANSWER_TARGET_HOURS.pull} h target.`,
+        ...(inside ? [] : ['Its title stays on GitHub: its author is outside the repository.']),
+    ].join(' ');
+    return { title: cutTitle(shown, at.rules.maxTitle), description, owner: at.watcher, ref, priority: issuePriority([], at.rules.priorities), due };
 }
 /** The task one of our authors' own branch of the repository names (`t<id>-...`); undefined for a fork, anyone else or another branch name. */
 export function ownBranchTask(pull, ours) {
