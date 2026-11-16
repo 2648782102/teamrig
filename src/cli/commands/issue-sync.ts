@@ -1,9 +1,14 @@
 import { ENV, KIT_NAME } from '../../core/home.ts';
 import { SecretScanner } from '../../core/secrets.ts';
 import { addedTasks, type AddedTask, type RepoFailure } from '../../github/auto.ts';
-import { importRules } from '../../github/map.ts';
+import { importRules, issueOwner, issueRef } from '../../github/map.ts';
 import { importedTasks, linkedRefs, planSync, type SyncPlan, type SyncStep } from '../../github/plan.ts';
+import { withCiExcerpts } from '../../github/ci-excerpt.ts';
+import { securityIssues, type SecurityIssue } from '../../github/security-alert.ts';
+import { eventsByRecipient, pullEvents, pullNewsText, pullRecipient, type PullEvent, type PullWatch } from '../../github/pull-news.ts';
+import { ourLogins } from '../../github/trust.ts';
 import { applySteps, closedSince, type StepOutcome } from '../../github/sync.ts';
+import type { IssueHost } from '../../issues/host.ts';
 import { autoPushWrites, sessionLogins } from '../../issues/status-push.ts';
 import { priorityText } from '../../register/model.ts';
 import { GITHUB_ACTOR } from '../../register/policy.ts';
@@ -17,7 +22,7 @@ import type { HostIssue } from '../../issues/issue.ts';
 import { claimBudget, recordClaims } from './issue-claim.ts';
 import { recordClocks, repoThreads } from './issue-clock.ts';
 import { issuePush, pushEndLine, pushRepos } from './issue-push.ts';
-import { GITHUB_OFF, githubOff, reportAutoSync } from './issue-sync-auto.ts';
+import { GITHUB_OFF, githubOff, readSyncState, reportAutoSync } from './issue-sync-auto.ts';
 
 /** The rows of steps a repository prints; the rest are counted. */
 export const SHOWN_STEPS = 10;
@@ -31,15 +36,18 @@ type RepoEnd = 'ok' | 'failed' | 'refused';
 /**
  * `issue sync [--repo <owner/name>] [--yes]`: brings the task list in step with the GitHub issues of the team's
  * `github.repos`, inbound; `--push` plans the outbound half instead (issue-push.ts). Each repository is listed through the issue host port (issues/host.ts; on GitHub
- * with the token saved for its owner, else, when none is saved, the gh login), and an ACCESS line says which, once
- * per owner; a saved token the store could not read fails that owner's repositories, never read through the login
+ * with the token saved for its owner, never the gh login), and an ACCESS line names it, once
+ * per owner; no saved token, or one the store could not read, fails that owner's repositories, never read through the login
  * instead. A sync only lists issues, and the
  * register's import writes (register.ts) touch only the tasks it added, as `github`. Without `--yes` it
  * shows what it would write and writes nothing. Either way a LEFT OUT line names, by number only, the open
  * issues of a repository that the trust rule kept out (github/trust.ts). `--auto`, which the watch runs when GitHub changed (issue-watch.ts), writes as
  * `--yes` does and tells each owner's inbox its new tasks, and the lead's when the failing repositories change or
- * an issue is newly left out. Exit 1 when a repository could not be read (its tasks stay
- * as they are), 2 when the register refused a step, else 0.
+ * an issue is newly left out. Each repository's pull requests are read too and compared with what the last
+ * `--auto` read of them (pull-news.ts): a PULL NEWS line per session names what happened since, but only `--auto`
+ * keeps what it read and tells each session's inbox, so a run by hand changes nothing there. Exit 1 when a
+ * repository could not be read (its tasks stay as they are, and its pull request watch), 2 when the register
+ * refused a step, else 0.
  */
 export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
   noPositionals(args);
@@ -77,6 +85,10 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   const failures: RepoFailure[] = [];
   const leftOut = new Map<string, readonly number[]>();
   const unread = new Set<string>();
+  const watched = (await readSyncState(runtime, kit))?.pulls ?? new Map<string, PullWatch>();
+  const pulls = new Map<string, PullWatch>();
+  const pullNews: PullEvent[] = [];
+  const security = new Map<string, readonly SecurityIssue[]>();
   let written = 0;
   /** The open threads of the repositories read, for the response clock, and those repositories. */
   const threads: Thread[] = [];
@@ -104,27 +116,53 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
     }
     read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
     const tasks = [...(await register.snapshot()).state.tasks.values()];
-    const plan = planSync(read.issues, importedTasks(tasks), rules, linkedRefs(tasks));
+    const imported = importedTasks(tasks);
+    const plan = planSync(read.issues, imported, rules, linkedRefs(tasks));
+    // A security issue goes to its task's owner, else where the import would route it; an outsider's left-out report too.
+    security.set(repo, securityIssues(read.issues, (issue) => imported.get(issueRef(issue.repo, issue.number))?.owner ?? issueOwner(issue, rules)));
     leftOut.set(repo, plan.leftOut);
     const leftOutText = leftOutLines(repo, plan.leftOut, rules.acceptLabel);
-    if (!write) {
+    let end: RepoEnd = 'ok';
+    if (write) {
+      const outcomes = await applySteps(register, plan.steps);
+      // Against the tasks as written, so an issue the import just took is held by its new task.
+      threads.push(...repoThreads(read.issues, [...(await register.snapshot()).state.tasks.values()], rules));
+      clocked.add(repo);
+      claimRead.set(repo, read.issues);
+      [...resultLines(repo, plan, outcomes), ...leftOutText].forEach(say);
+      written += outcomes.filter((outcome) => outcome.result.ok).length;
+      added.push(...addedTasks(outcomes));
+      const refused = refusedReason(outcomes);
+      if (refused !== undefined) {
+        failures.push({ repo, reason: refused });
+        end = 'refused';
+      }
+    } else {
       [...previewLines(repo, plan), ...leftOutText].forEach(say);
-      ends.push('ok');
+    }
+    const watch = await readPulls(host, repo, watched.get(repo));
+    watch.lines.forEach(say);
+    if (watch.kind === 'failed') {
+      if (end === 'ok') {
+        failures.push({ repo, reason: watch.reason });
+      }
+      ends.push('failed');
       continue;
     }
-    const outcomes = await applySteps(register, plan.steps);
-    // Against the tasks as written, so an issue the import just took is held by its new task.
-    threads.push(...repoThreads(read.issues, [...(await register.snapshot()).state.tasks.values()], rules));
-    clocked.add(repo);
-    claimRead.set(repo, read.issues);
-    [...resultLines(repo, plan, outcomes), ...leftOutText].forEach(say);
-    written += outcomes.filter((outcome) => outcome.result.ok).length;
-    added.push(...addedTasks(outcomes));
-    const refused = refusedReason(outcomes);
-    if (refused !== undefined) {
-      failures.push({ repo, reason: refused });
-    }
-    ends.push(refused === undefined ? 'ok' : 'refused');
+    pulls.set(repo, watch.after);
+    pullNews.push(...watch.events);
+    ends.push(end);
+  }
+  const owners = new Map([...(await register.snapshot()).state.tasks.values()].map((task) => [task.id, task.owner]));
+  const watcher = config.github.watcher ?? config.roles.lead;
+  // Only --auto tells the news, so only it reads the failed jobs' logs for it and writes their excerpts.
+  const ours = ourLogins(config.github);
+  const ci = auto ? await withCiExcerpts({ host, files: runtime.files, dir: kit.paths.githubCi, now: new Date(runtime.clock.now()).toISOString(), ours }, pullNews) : { events: pullNews, lines: [] };
+  ci.lines.forEach(say);
+  const news = eventsByRecipient(ci.events, (pull) => pullRecipient(pull, ours, (task) => owners.get(task), watcher));
+  for (const [to, events] of news) {
+    const { text, wake } = pullNewsText(events, ours);
+    say(`PULL NEWS ${to}${wake ? ' (wakes)' : ''}: ${text}`);
   }
   if (write) {
     (await recordClocks(runtime, kit, config, clocked, threads)).forEach(say);
@@ -160,7 +198,9 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
     }
   }
   if (auto) {
-    (await reportAutoSync(runtime, kit, config, { added, failures, leftOut })).forEach(say);
+    (await reportAutoSync(runtime, kit, config, { added, failures, leftOut, pulls, pullNews: news, security })).forEach(say);
+  } else if (news.size > 0) {
+    say(`NOTE only ${KIT_NAME} issue sync --auto tells the pull request news and keeps what it read, so the next run names it again`);
   }
   say(
     write
@@ -168,6 +208,25 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       : `PREVIEW nothing was written; ${KIT_NAME} issue sync --yes writes the above as ${GITHUB_ACTOR}`,
   );
   return ends.includes('failed') ? EXIT.failed : ends.includes('refused') ? EXIT.refused : EXIT.ok;
+}
+
+/** One repository's pull request read: the lines it prints, and why it failed or what it read and the events since the last read. */
+type PullRead =
+  | { readonly kind: 'failed'; readonly reason: string; readonly lines: readonly string[] }
+  | { readonly kind: 'read'; readonly after: PullWatch; readonly events: readonly PullEvent[]; readonly lines: readonly string[] };
+
+/**
+ * Reads `repo`'s pull requests and compares them with `before`, the watch the last `--auto` run kept (pull-news.ts).
+ * The first read of a repository only marks, so the news starts with the next one.
+ */
+async function readPulls(host: IssueHost, repo: string, before: PullWatch | undefined): Promise<PullRead> {
+  const read = await host.pulls(repo, before?.cursor);
+  if (read.kind === 'failed') {
+    const reason = `pull requests: ${read.reason}`;
+    return { kind: 'failed', reason, lines: [`FAILED ${repo} ${reason}; what was last read of them stays`] };
+  }
+  const step = pullEvents(before, read.open, read.changed);
+  return { kind: 'read', after: step.after, events: step.events, lines: read.notes.map((note) => `NOTE ${repo}: ${note}`) };
 }
 
 /** Why the task list refused some of a repository's steps: how many, and the first one's error; undefined when none was. */

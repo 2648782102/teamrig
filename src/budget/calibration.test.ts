@@ -41,6 +41,7 @@ const SIGHT: ReadingSight = {
   use: { usedPct: 13, resetsAt: END, at: NOW - MS_PER_MINUTE },
   covered: true,
   w: 120_000_000,
+  readings: [],
   now: NOW,
 };
 const FIT: RateFit = { wPerPct: 10_000_000, errorPts: 0.5, readings: 20 };
@@ -63,6 +64,21 @@ describe('crossingOf', () => {
   it('logs the use the moment it passes a whole percent, with the W metered and the fit forecast for it', () => {
     assert.deepEqual(crossingOf(SIGHT, FIT), { at: NOW - MS_PER_MINUTE, usedPct: 13, start: START, end: END, w: 120_000_000, forecastPct: 12 });
     assert.equal(crossingOf(SIGHT, undefined)?.forecastPct, undefined);
+  });
+
+  describe('in a period that started inside the week (T3164)', () => {
+    const afterReset: Period = { ...PERIOD, start: START + 3 * MS_PER_WEEK / 7, lastPct: 70 };
+    const sight: ReadingSight = { ...SIGHT, before: afterReset, period: { ...afterReset, lastPct: 71 }, use: { usedPct: 71, resetsAt: END, at: NOW - MS_PER_MINUTE }, w: 20_000_000 };
+
+    it('forecasts from where the reset left the use, not from 0%', () => {
+      const readings = [reading(70, 10_000_000, { start: afterReset.start })];
+      assert.equal(crossingOf({ ...sight, readings }, FIT)?.forecastPct, 71);
+    });
+
+    it('forecasts nothing before a reading places where the use started', () => {
+      assert.equal(crossingOf(sight, FIT)?.forecastPct, undefined);
+      assert.notEqual(crossingOf(sight, FIT), undefined);
+    });
   });
 
   it('logs nothing for the first reading of a period: its use may sit anywhere within its percent', () => {
@@ -122,6 +138,37 @@ describe('fitRate', () => {
     assert.equal(fitRate([reading(1, 10), reading(1 + FIT_SPREAD_PTS - 1, 100)]), undefined);
     assert.notEqual(fitRate([reading(1, 10), reading(1 + FIT_SPREAD_PTS, 110)]), undefined);
     assert.equal(fitRate([reading(1, 0), reading(20, 0)]), undefined);
+  });
+
+  describe('a period that started inside the week (T3164)', () => {
+    /** A reset on Saturday 10-24 01:00 that left the use at 69%, the week's reset still on 10-28. */
+    const afterReset = { start: START + 3 * MS_PER_WEEK / 7, end: END };
+    const RATE = 11_000_000;
+    /** 70% to 90% at 11M W per percent, the first reading 1M W after the reset at 69%. */
+    const rising = [70, 75, 80, 85, 90].map((pct) => reading(pct, (pct - 69) * RATE, afterReset));
+
+    it('fits the rate the readings rise at, not a line through 0% that reads it about 8x low', () => {
+      const fit = fitRate(rising);
+      assert.equal(Math.round(fit?.wPerPct ?? 0), RATE);
+      assert.equal(Math.round((fit?.errorPts ?? 1) * 1e9), 0);
+      assert.equal(fit?.readings, 4);
+    });
+
+    it('fits a full reset, from 0%, at the same rate as a whole week', () => {
+      const fromZero = [1, 6, 12].map((pct) => reading(pct, pct * RATE, afterReset));
+      assert.equal(Math.round(fitRate(fromZero)?.wPerPct ?? 0), RATE);
+    });
+
+    it('lets its own rate overrule an older fit before it spans the points (T2019)', () => {
+      const lastWeek = [10, 50, 94].map((pct) => reading(pct, pct * 4_000_000, { start: START - MS_PER_WEEK, end: START }));
+      const early = [70, 72, 74].map((pct) => reading(pct, (pct - 69) * RATE, afterReset));
+      assert.equal(Math.round(fitRate([...lastWeek, ...early])?.wPerPct ?? 0), RATE);
+    });
+
+    it('still fits a period a whole week long through 0%', () => {
+      const almostWeek = { start: START + MS_PER_HOUR - 1, end: END };
+      assert.equal(fitRate([reading(10, 100, almostWeek), reading(20, 300, almostWeek)])?.wPerPct, 14);
+    });
   });
 
   describe('across periods (T1985)', () => {
@@ -238,6 +285,14 @@ describe('useAtW', () => {
     assert.equal(useAtW(READINGS, START, 230_000_000, RATE), 23);
     assert.equal(useAtW([], START, 30_000_000, RATE), 3);
     assert.equal(useAtW(READINGS, START, -1, RATE), 0);
+  });
+
+  it('reads a W before the first reading of a period that started inside the week from where the reset left the use (T3164)', () => {
+    const afterReset = { start: START + 3 * MS_PER_WEEK / 7, end: END };
+    const readings = [reading(70, 10_000_000, afterReset), reading(71, 20_000_000, afterReset)];
+    assert.equal(useAtW(readings, afterReset.start, 0, RATE), 69);
+    assert.equal(useAtW(readings, afterReset.start, 5_000_000, RATE), 69.5);
+    assert.equal(useAtW(readings, afterReset.start, 15_000_000, RATE), 70.5);
   });
 
   it("leaves out another period's readings", () => {

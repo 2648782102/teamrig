@@ -1,6 +1,6 @@
 /**
- * The only GraphQL texts teamrig sends to GitHub: three reads of a repository's issues, a page at a time. gh.ts
- * refuses a `gh api graphql` run whose query is not one of these word for word, so a query never writes (no
+ * The only GraphQL texts teamrig sends to GitHub: three reads of a repository's issues and two of its pull requests, a
+ * page at a time. gh.ts refuses a `gh api graphql` run whose query is not one of these word for word, so a query never writes (no
  * mutation) and never reads past the fields below.
  */
 
@@ -80,11 +80,57 @@ export const ISSUE_LINKS_QUERY = `query($owner: String!, $name: String!, $after:
   }
 }`;
 
+/** Pull requests one page reads: fewer than issues, as each also reads its last commit's check rollup. */
+export const PULL_PAGE_SIZE = 50;
+/** Checks of a pull request's last commit one read names: enough for a CI matrix, few enough to keep a page small. */
+export const CHECK_CONTEXTS = 20;
+
+/**
+ * What both pull request reads get of one: no body and no comment text, only what tells a monitor that something
+ * happened to it, and who opened it from where (`isCrossRepository`: a fork). Each check run of its last commit
+ * gives its name, how it ended and its id (an Actions job's id), so a failed one's log can be read (pulls.ts).
+ */
+const PULL_NODE = `nodes {
+        number title url state isDraft createdAt updatedAt closedAt mergedAt authorAssociation
+        author { __typename login }
+        headRefName isCrossRepository mergeable reviewDecision
+        commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: ${CHECK_CONTEXTS}) { nodes { __typename ... on CheckRun { name conclusion databaseId } } } } } } }
+      }`;
+
+/**
+ * Pull requests in any state, the most recently changed first, so a reader stops at the first one changed before
+ * the last read: what opened, merged or closed since then.
+ */
+export const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: ${PULL_PAGE_SIZE}, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      ${PULL_NODE}
+    }
+  }
+}`;
+
+/**
+ * Every open pull request, the most recently changed first. Read in full at each run: GitHub does not move
+ * `updatedAt` when a pull request starts to conflict because its base moved, so only reading each open one again
+ * sees that, and a finished check run with it.
+ */
+export const OPEN_PULLS_QUERY = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: ${PULL_PAGE_SIZE}, after: $after, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      ${PULL_NODE}
+    }
+  }
+}`;
+
 /** Each shipped text with the variables it declares: gh.ts runs a query only with these, each at most once. */
 export const QUERY_VARIABLES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [OPEN_ISSUES_QUERY, new Set(['owner', 'name', 'after'])],
   [CLOSED_ISSUES_QUERY, new Set(['owner', 'name', 'after', 'since'])],
   [ISSUE_LINKS_QUERY, new Set(['owner', 'name', 'after'])],
+  [PULL_REQUESTS_QUERY, new Set(['owner', 'name', 'after'])],
+  [OPEN_PULLS_QUERY, new Set(['owner', 'name', 'after'])],
 ]);
 
 /** Which page of which repository a read asks for: `after` is the cursor the page before ended on. */
@@ -108,6 +154,14 @@ export function linksPageArgs(page: PageVariables): string[] {
 export function closedPageArgs(page: PageVariables, since: string): string[] {
   return pageArgs(CLOSED_ISSUES_QUERY, page, field('since', since));
 }
+
+/** The arguments for one page of pull requests in any state (`changed`) or of the open ones, the most recently changed first. */
+export function pullPageArgs(page: PageVariables, read: PullRead): string[] {
+  return pageArgs(read === 'open' ? OPEN_PULLS_QUERY : PULL_REQUESTS_QUERY, page, []);
+}
+
+/** Which pull requests a read takes: the open ones, or those in any state changed since a time. */
+export type PullRead = 'open' | 'changed';
 
 function pageArgs(query: string, page: PageVariables, extra: readonly string[]): string[] {
   const after = page.after === undefined ? [] : field('after', page.after);

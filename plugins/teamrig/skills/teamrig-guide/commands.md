@@ -71,6 +71,22 @@ Flags:
   is `owner` (`register.ownerSource`): the lead of a team above the asked one relays the human's order, and the task
   there is sourced `owner`, its history naming the lead as the writer; from any other session it is refused, and
   any other source is refused too.
+- `--issue "<public title>"`: opens the task's GitHub issue with this title and `--issue-body`, labelled by
+  `--type` (`bug`, else `enhancement`) and `--priority` (p0 and p1 as `p1`, p2 as `p2`, lower as `p3`), and points
+  the task's ref at it, so the sync adds no second task for it. The issue is public: one-line title, no task id,
+  no secret, no private data (a home folder path, an e-mail address, an IP address, an internal host); the task
+  keeps its own title and description. It opens with the token saved for the repository's owner. When GitHub fails
+  the task stays written with no issue (`FAILED T<n>'s issue: ...`, exit 1); with GitHub off on the machine it
+  prints `OFF`. An add that posts its issue is not let through as a register command: it is judged as every
+  GitHub write is.
+- `--issue-body "<public text>"`: the issue's body; it comes with `--issue`.
+- `--issue-repo <owner/repo>`: where the issue opens, one of `github.repos`; else `[github.issueAtAdd]`, else the
+  one repository of `github.repos`.
+- `--local "<why>"`: the task gets no issue; the reason is written as its ref, `local: <why>`. Not with `--issue`
+  or `--ref`. A security hole is always added with `--local` (say `--local "security, private report"`): it is
+  reported only in private (core rule 11).
+- While `[github.issueAtAdd]` names a repository, every add gives `--issue` and `--issue-body`, or `--local`, or a
+  `--ref` to an issue it has; any other add is refused and writes nothing. None of the four flags goes with `--team`.
 
 Example:
 
@@ -1202,8 +1218,8 @@ Its old name, gh sync, is refused with this one (exit 64). Setup, tokens and eve
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md).
 
 Access, per owner (the `acme` of `acme/web`): the token saved in the system's credential store as
-`teamrig-gh-<owner>` (lowercase), handed to `gh` as `GH_TOKEN` for that run only, else the `gh auth login` account;
-the sync needs only Issues: Read-only. A fine-grained token reaches one owner's repositories, so two owners need two
+`teamrig-gh-<owner>` (lowercase), handed to `gh` as `GH_TOKEN` for that run only, never the `gh auth login` account;
+the sync needs only Issues: Read-only and Pull requests: Read-only. A fine-grained token reaches one owner's repositories, so two owners need two
 tokens. An `ACCESS` line says, once per owner, which one reads it; the token itself is never printed. A missing or
 refused token gives that repository a `FAILED` line naming the fix, and the other repositories are read on. A saved
 token the store cannot read (a locked keyring) fails that owner's repositories the same way, never read through
@@ -1212,7 +1228,8 @@ the `gh` login in its place.
 - An open issue with no task becomes one, with the source `github` and the ref `gh:<owner>/<name>#<number>`. Its
   title is the issue's on one plain line, cut to `register.maxTitle`; its priority is its most urgent `p<n>` label
   (else `p2`); its owner is the session `github.owners` maps its first listed assignee's login to, else the
-  repository's session in `github.sessions`, else the lead.
+  session `[github.areaOwners]` maps its first area label to (in the config's order), else the repository's session
+  in `github.sessions`, else the lead.
   Its description is the issue's body: control characters become spaces, blank lines close up, and past 2,000
   characters it is cut, ending with `…`. An empty body gives none; a body that looks like it holds a secret
   gives a line saying it was left out, to be read on GitHub.
@@ -1249,6 +1266,15 @@ A run that writes also times each open issue's wait for an answer of ours (the t
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md#answer-times)): at 75% of its target
 the session that answers it gets one unwoken inbox line from `github` (a `REMINDED` line), and past it `teamrig check`
 shows the lead GH-LATE. A preview times nothing.
+Pull requests: each run also reads every open pull request of each repository, and those changed since the last
+`--auto` read, and compares them with what that read kept. The news is a pull request opened, merged or closed
+unmerged, or one that starts to conflict with its base, to fail its checks, or gets approved or changes requested;
+each is told once, never again while it lasts, and the first read of a repository only marks what is there. It goes
+to the owner of the task the pull request's branch names (`t<id>-...`) when an author inside the repository pushed
+that branch to the repository itself, else to `[github.watcher]` (unset: the lead). A run by hand prints a
+`PULL NEWS <session>` line per session and keeps nothing; `--auto` posts it. Titles are outside input, quoted as data.
+A repository whose pull requests cannot be read gets a `FAILED <repo> pull requests:` line and exit 1; its issues still
+sync. Reading them needs Pull requests: Read-only on the token.
 
 Flags:
 
@@ -1257,7 +1283,14 @@ Flags:
 - `--auto`: what `teamrig issue watch` runs. It writes as `--yes` does, then posts one inbox line, from `github`, to each owner
   naming the tasks added for it, and one to the lead when a repository starts failing (once, not at every run) or
   when every repository reads again, and one when it leaves out an outsider's issue it did not leave out before (by
-  ref only, at most ten named). It reads every repository, so it refuses `--repo`. With `github.statusPush` on it
+  ref only, at most ten named), and one to each session with pull request news (at most eight pull requests named;
+  it also wakes the session for a conflict or failing checks on its own pull request, a `t<id>-` branch by the
+  repository's owner or a login in `github.owners`, or an outsider's new pull request, when `wake.enabled`). When its own pull request's checks start failing, it reads the
+  end of each failed job's log (at most 5 a run) into `state/github-ci/<owner>-<name>-<number>.md` and the line names
+  the job, its failed step and that file. An open issue labelled `security` wakes the session it routes to and pages
+  the owner through the `alerts` page webhook, once per issue ever and for at most 3 issues a run (the rest go to the
+  lead in one line and one page); the lead is woken when no page goes. It reads every
+  repository, so it refuses `--repo`. With `github.statusPush` on it
   then sends the status push (`--push --yes`) too, labels only: a close it plans is printed as a `HELD` line and
   sent only by a session's `--push --yes`. Its writes per run are lowered so an hour of runs sends at most 250
   (4 a run at the default `github.probeSeconds` of 60, 20 at 300); a failed write is told to the lead like a
@@ -1338,7 +1371,7 @@ teamrig issue watch
 Output (when it stops, the last session closed 10 minutes before):
 
 ```text
-ACCESS acme: read with the gh login; no token saved
+ACCESS acme: read with the token saved as teamrig-gh-acme
 REPO acme/web: 1 added, 0 changed, 4 unchanged
 WROTE 1 change(s) to the task list as github; GitHub was only read
 STOP no session of the team ran for 10 minutes; the next one starts the watch again
@@ -1404,7 +1437,7 @@ PREVIEW nothing was written; teamrig issue migrate <file> --yes opens the issues
 Posts one comment on an issue or pull request of the team's repositories, named as `owner/name#number`. A security
 hole is never its subject: that goes only to private reporting ([security skill](../security/SKILL.md#a-security-hole)). GitHub is
 the only host so far: the repository must be in `github.repos`, and the comment goes through `gh api` with the
-token saved for the owner as `teamrig-gh-<owner>`, else the `gh auth login` account (an `ACCESS` line says which).
+token saved for the owner as `teamrig-gh-<owner>`, never the `gh auth login` account (an `ACCESS` line names it).
 The token needs Issues and Pull requests: Read and write. It refuses, posting nothing, a caller not on the team, a
 target that is not `owner/name#number`, a repository not in `github.repos`, and a body that is empty, past 65,536
 characters, looks like it holds a secret, holds private data (a path inside a home folder, an e-mail address, an
@@ -2173,7 +2206,8 @@ with work it can start or a time wait of its own ending within 30 minutes, one q
 an away summary or a file change with no entry is no activity), in a turn, at a tool call (running, or waiting on a permission or an answer), waiting on a decision it put to the
 person (a `Decision needed:` line) or still running background work, one whose Claude Code runs shells the end
 would cut off, and one too big or idle to resume (`hiring.resumeMaxTokens`,
-`hiring.resumeMaxIdleDays`): retire that one with its handover instead. Claude Code resumes a session only from the
+`hiring.resumeMaxIdleDays`): retire that one with its handover instead, unless its refresh is ready, as its reopen then
+starts fresh on its handover. Claude Code resumes a session only from the
 folder it started in, whose project folder holds its transcript: the project, or a worktree or subfolder its
 transcript's entries ran in. The close logs that folder for the reopen, and refuses a session whose transcript is
 filed under no such folder. Without `--yes` it shows the close and ends nothing. A tab [teamrig open](#teamrig-open) started closes with it: its launch finds the close in the log, says
@@ -2318,8 +2352,8 @@ the hire log (`state/hires.jsonl`). Its tasks, inbox and records stay where they
 - It refuses while the session owns open tasks, unless `--to <heir>` hands them over.
 - It refuses without the session's handover (`<handover>/<id>.md`, the file a refresh writes: open work, next
   steps, branches, traps), unless `--no-handover "<why>"` says why there is none.
-- It refuses while a role (`roles.lead`, `roles.deliveryOwner`, `roles.securityReviewer`), `github.owners` or `github.sessions` names
-  the session: point those at another session first.
+- It refuses while a role (`roles.lead`, `roles.deliveryOwner`, `roles.securityReviewer`), `github.owners`, `github.areaOwners` or
+  `github.sessions` names the session: point those at another session first.
 - `check` flags a burst hire to retire once its burst is over (RETIRE-DUE), and each hired session past its review
   day (REVIEW-DUE), which a keep clears ([teamrig hire](#teamrig-hire)). A hire with no task is never due to retire
   for it: the idle pass deactivates it.
@@ -2411,9 +2445,10 @@ NOTE backend has an inbox line: lead took back the sessions you led (importer, s
 Service roles (`teamrig roles grant`, `revoke` and `list`) let a named session run a few teamrig commands for an outside
 service past every permission check, from its own tab only: the team's `serviceRoles` config [serviceRoles] maps
 each role to its holders and its commands. The commands come from teamrig's table, each a reviewed shape
-(`issue close`, `issue comment`); a name outside it fails the config load. `team` holds a role for every session
-only where each command checks its caller itself; the others name their sessions. `hook route-allow` lets the
-holder's own tab run them with no permission check, up to `prompts.serviceRoleDailyCap` calls a role in 24 hours
+(`issue close`, `issue comment`, `queue ship`, `queue merge`); a name outside it fails the config load. `team` holds
+a role for every session only where each command checks its caller itself, as a ship or merge does (it runs only on
+the session's own task branch); the others name their sessions. `hook route-allow` lets the holder's own tab run them
+with no permission check, up to `prompts.serviceRoleDailyCap` closes and comments a role in 24 hours
 ([the service-role allow](hooks.md#before-a-shell-command-the-service-role-allow)). See also
 [the service-role guard](hooks.md#before-a-write-or-a-shell-command-the-service-role-guard).
 
@@ -4130,7 +4165,7 @@ Output:
 WROTE the changes below; the old settings file is at /home/me/.teamrig/backups/claude-settings.json
   ADD /home/me/.claude/settings.json autoMode.environment: $defaults
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Protected branches: main, master. A normal push to one asks the person. A force-push, a --mirror push or deleting one is refused, and a --force-with-lease push asks. Every session edits on its own branch in its own git worktree, never in a repo's main checkout.
-  ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop; they write only under ~/.teamrig/teams/shop/.
+  ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop, but not teamrig add with --issue, --issue-body, --issue-repo, which also posts a public GitHub issue; they write only under ~/.teamrig/teams/shop/.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig queue ... -- <cmd>` and `teamrig test ... -- <cmd>` run the session's own build, test or script on this host (queue waits for the host lock, test records the result); neither grants anything, so judge the command after `--` as if it ran alone.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig worktree remove <path> [--delete-branch]` is how a session removes its finished worktree, and every session may run it: teamrig itself removes only a worktree whose t<id>- branch names a task the session owns or one of a session it leads (any for the lead, session lead), and refuses the main checkout, uncommitted work and a branch with a commit not on its base.
   ADD /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Every session may rebase its own branch in its own git worktree onto the fresh default branch (`git fetch`, then `git rebase origin/<branch>` or `git pull --rebase`, and `git rebase --continue` or `--abort` to settle a stopped one): it rewrites only that session's own commits not yet merged. A branch it pushed before goes back with `git push --force-with-lease` to that same branch. A protected branch (main, master) is never rebased, nor a repo's main checkout.
@@ -4163,7 +4198,7 @@ Output:
 ```text
 PREVIEW nothing written (add --yes to write)
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Protected branches: main, master. A normal push to one asks the person. A force-push, a --mirror push or deleting one is refused, and a --force-with-lease push asks. Every session edits on its own branch in its own git worktree, never in a repo's main checkout.
-  REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop; they write only under ~/.teamrig/teams/shop/.
+  REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] The task register: every session may run teamrig start, teamrig add, teamrig set, teamrig update, teamrig verify, teamrig list, teamrig show, teamrig check, teamrig plan, teamrig budget, teamrig rules, teamrig refresh, teamrig inbox read, teamrig inbox status, teamrig inbox add, teamrig who, teamrig rename for team shop, but not teamrig add with --issue, --issue-body, --issue-repo, which also posts a public GitHub issue; they write only under ~/.teamrig/teams/shop/.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig queue ... -- <cmd>` and `teamrig test ... -- <cmd>` run the session's own build, test or script on this host (queue waits for the host lock, test records the result); neither grants anything, so judge the command after `--` as if it ran alone.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] `teamrig worktree remove <path> [--delete-branch]` is how a session removes its finished worktree, and every session may run it: teamrig itself removes only a worktree whose t<id>- branch names a task the session owns or one of a session it leads (any for the lead, session lead), and refuses the main checkout, uncommitted work and a branch with a commit not on its base.
   REMOVE /home/me/.claude/settings.json autoMode.environment: [teamrig shop] Every session may rebase its own branch in its own git worktree onto the fresh default branch (`git fetch`, then `git rebase origin/<branch>` or `git pull --rebase`, and `git rebase --continue` or `--abort` to settle a stopped one): it rewrites only that session's own commits not yet merged. A branch it pushed before goes back with `git push --force-with-lease` to that same branch. A protected branch (main, master) is never rebased, nor a repo's main checkout.
@@ -4728,7 +4763,12 @@ both ends (`queueFreeMb`, `endFreeMb`). Exit 0 when the command passed, 1 when i
 (or, for a small step, the memory it needs) is still held after the wait. It is REFUSED too while a
 [pipeline freeze](#teamrig-pipeline-freeze) holds its `--kind`, looked at before `--detach` returns, before the lock
 and once more after the wait (`REFUSED the pipeline is frozen until 2030-01-08 14:00 IST by po (PC down; F2); ...
-teamrig pipeline unfreeze F2`), and while the freezes file is unreadable.
+teamrig pipeline unfreeze F2`), and while the freezes file is unreadable. A step whose command names a delivery
+repository's `shipTool` is REFUSED unless the tool is a tracked file of a checkout with no change whose HEAD makes
+the default branch's tree as of the last fetch, looked at as it is queued and once more after the wait, when the
+checkout must still be at that commit or at the newest main (`REFUSED the ship tool ... is not origin/main's current
+code in a checkout with no change: run git -C <checkout> fetch -q origin && git -C <checkout> checkout -q --detach
+origin/main, then queue the step again`).
 
 The lock is `host.lock` in the kit home, one for every team on the host, unless `delivery.queue.lockPath` names
 another. It lasts `delivery.queue.lockTtlMinutes` (150); a lock past that, or one whose process is gone, is
@@ -5618,8 +5658,9 @@ so they all learn one W per percent and their parts of the week add up to the ac
 change: in a period with an account line, the keeping team's own lines (`"team"`, from 0.246.0) logged before the
 period's first account line count too, as its outside use then held every other team's tabs; a team line logged
 after it comes from a tab still on an older teamrig and is dropped, as other teams' lines are, and a line naming
-neither counts only in a period with no line naming one. A fit of W per percent through 0 sets the rate: over the newest period whose readings
-span 10 points, so a limit that moved at a reset stops counting once the new period's readings do, else over the last
+neither counts only in a period with no line naming one. A fit of W per percent through the period's start sets the
+rate (0% for a whole week; for a period a reset inside the week opened, its lowest reading, since such a reset can
+leave the use at any percent): over the newest period whose readings span 10 points, so a limit that moved at a reset stops counting once the new period's readings do, else over the last
 8 weeks' readings once they span 10 points. A newer period's own readings set the rate sooner, from 2%, once their
 rate is at least 1.5 times that fit or at most half of it: a limit moved at a reset, or by a plan changed inside the
 week, shows by then. Only readings whose W rose from the one before count, and a newer period's own rate needs two of

@@ -213,11 +213,11 @@ export async function openSession(runtime: CliRuntime, kit: Kit, config: KitConf
   const fresh = request.fresh === true;
   // A closed session whose refresh is ready starts from its handover: a resume keeps the old context, and a start
   // takes a ready handover only when fresh, so a resume would lose it (T2354).
-  const handover = closed === undefined || fresh ? undefined : await readyHandoverOf(new RefreshStore(runtime.files, kit.paths), id);
+  const handover = closed === undefined || fresh ? undefined : await new RefreshStore(runtime.files, kit.paths).readyHandover(id);
   const closedIn = closed?.claudeSession === undefined || fresh ? undefined : handover === undefined ? await reopenOf(runtime, config, closed, project, request.projectGiven === true) : { verdict: READY_FRESH, folder: project };
   const reopen = closedIn?.verdict;
   // A closed session opened fresh still logs its reopen below, so the idle pass knows it runs again.
-  const resume = fresh ? undefined : await resumeOf(runtime, kit.paths, config, { id, project, from, reopen, asked });
+  const resume = fresh ? undefined : await resumeOf(runtime, kit.paths, config, { id, project, from, reopen, asked, projectGiven: request.projectGiven === true });
   // Claude Code finds a session to resume only in the folder it ran in (T1408); a new one starts in the project.
   const folder = resume === undefined ? project : (closedIn?.folder ?? project);
   const own = request.prompt ?? (handover === undefined ? firstPromptOf(team, id, from, resume, reopen) : refreshPrompt(team, id, handover));
@@ -251,11 +251,6 @@ export async function openSession(runtime: CliRuntime, kit: Kit, config: KitConf
 
 /** A closed session's reopen while its refresh is ready: fresh, so its start takes the handover (T2354). */
 const READY_FRESH: ResumeVerdict = { kind: 'fresh', detail: 'its refresh is ready: it starts from its handover' };
-
-/** The handover of a session whose refresh is ready, else undefined. */
-async function readyHandoverOf(store: RefreshStore, id: string): Promise<string | undefined> {
-  return (await store.state(id))?.phase === 'ready' ? store.handoverPath(id) : undefined;
-}
 
 /** Whether a closed session resumes, and in which folder: the one its close recorded, else the project. */
 interface ClosedReopen {
@@ -298,6 +293,8 @@ interface ResumeFacts {
   readonly reopen: ResumeVerdict | undefined;
   /** `--resume` was given. */
   readonly asked: boolean;
+  /** Whether `project` came from `--project`: the fresh open the refusal of a resume names keeps it. */
+  readonly projectGiven: boolean;
 }
 
 /**
@@ -307,13 +304,15 @@ interface ResumeFacts {
  * neither closed nor rehired, and only the internal `launch` could bring them back in their own Claude Code session).
  */
 async function resumeOf(runtime: CliRuntime, paths: TeamPaths, config: KitConfig, facts: ResumeFacts): Promise<string | undefined> {
-  const { id, project, from, reopen, asked } = facts;
+  const { id, project, from, reopen, asked, projectGiven } = facts;
   if (reopen !== undefined) {
     if (reopen.kind === 'resume') {
       return reopen.claudeSession;
     }
     if (asked) {
-      throw new RefusedError(`not resumed: ${reopen.detail}; ${KIT_NAME} open ${id} opens it fresh`);
+      // A bare `open` would resume in the folder it ran in, so the fresh open named keeps a given --project (GeneralA6/teamrig#819).
+      const again = projectGiven ? `${KIT_NAME} open ${id} --project ${project}` : `${KIT_NAME} open ${id}`;
+      throw new RefusedError(`not resumed: ${reopen.detail}; ${again} opens it fresh`);
     }
     return undefined;
   }

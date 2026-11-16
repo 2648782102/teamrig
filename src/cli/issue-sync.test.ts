@@ -1,12 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
 import { isIssueQuery } from '../github/gh.ts';
 import { foldEvents, type Task } from '../register/fold.ts';
 import { readEvents } from '../register/snapshot.ts';
-import { CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
+import { CliHarness, EVENTS_PATH, TEAM, TEAM_HOME } from '../testing/cli-harness.ts';
 import { FakeCredentials } from '../testing/fake-credentials.ts';
-import { FakeGh, ghIssue, ghRepoOf } from '../testing/fake-gh.ts';
+import { FakeGh, ghIssue, ghPull, ghRepoOf } from '../testing/fake-gh.ts';
 import { EXIT } from './runtime.ts';
 
 const GITHUB_TEAM: JsonRecord = { ...TEAM, github: { repos: ['acme/web', 'acme/api'], owners: { octocat: 'bravo' } } };
@@ -27,7 +28,7 @@ function register(kit: CliHarness): { tasks: ReadonlyMap<string, Task>; writers:
 }
 
 /** What a run that reads acme's repositories with no token saved prints first. */
-const NO_TOKEN = 'ACCESS acme: read with the gh login; no token saved as teamrig-gh-acme';
+const NO_TOKEN = 'ACCESS acme: read with the token saved as teamrig-gh-acme';
 
 /**
  * Runs `argv` with no token saved and fails the test with its output unless it ends with `code`. It gives the
@@ -58,7 +59,8 @@ describe('teamrig issue sync', () => {
       'PREVIEW nothing was written; teamrig issue sync --yes writes the above as github',
     ]);
     assert.equal(kit.files.get(EVENTS_PATH), undefined);
-    assert.equal(gh.ran.length, 4);
+    // Per repository: the open and the closed issue reads, the open and the changed pull request reads.
+    assert.equal(gh.ran.length, 8);
   });
 
   it('writes the tasks as github with --yes, and a second run writes nothing', async () => {
@@ -113,7 +115,7 @@ describe('teamrig issue sync', () => {
       'REPO acme/web: 0 added, 1 changed, 1 unchanged',
       'SET T1 gh:acme/web#7 open: open on GitHub, changed there since this task closed',
     ]);
-    assert.equal(reopened.ran.length, 2);
+    assert.equal(reopened.ran.length, 4);
   });
 
   it('keeps a task the team dropped while its issue is open, until the issue changes on GitHub', async () => {
@@ -185,7 +187,7 @@ describe('teamrig issue sync', () => {
     const gh = new FakeGh().holds('acme/web', [ghIssue('acme/web', 7)]);
     const lines = await expectRun(kit, ['issue', 'sync', '--yes'], gh, EXIT.failed);
     assert.deepEqual(lines.slice(2), [
-      'FAILED acme/api: acme/api is not visible to the gh login: check github.repos, or save a read-only token for acme with: save teamrig-gh-acme; its tasks stay as they are',
+      'FAILED acme/api: acme/api is not visible to the token saved as teamrig-gh-acme: check github.repos, and on GitHub give that token this repository; its tasks stay as they are',
       'WROTE 1 change(s) to the task list as github; GitHub was only read',
     ]);
   });
@@ -222,30 +224,49 @@ describe('teamrig issue sync', () => {
   it("reads each owner's repositories with the token saved for that owner, once per owner, and never prints it", async () => {
     const kit = new CliHarness({ ...TEAM, github: { repos: ['acme/web', 'acme/api', 'globex/site'] } });
     const gh = twoIssues().holds('globex/site', []);
-    const credentials = new FakeCredentials().saves('teamrig-gh-acme', 'acme-read-token');
+    const credentials = new FakeCredentials().saves('teamrig-gh-acme', 'acme-read-token').saves('teamrig-gh-globex', 'globex-read-token');
     const result = await kit.run(['issue', 'sync'], { gh, credentials });
     assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
     assert.deepEqual(
       result.stdout.filter((line) => line.startsWith('ACCESS')),
-      ['ACCESS acme: read with the token saved as teamrig-gh-acme', 'ACCESS globex: read with the gh login; no token saved as teamrig-gh-globex'],
+      ['ACCESS acme: read with the token saved as teamrig-gh-acme', 'ACCESS globex: read with the token saved as teamrig-gh-globex'],
     );
     assert.deepEqual(
       gh.ran.map((request) => [ghRepoOf(request.args), request.env['GH_TOKEN']]),
-      [['acme/web', 'acme-read-token'], ['acme/web', 'acme-read-token'], ['acme/api', 'acme-read-token'], ['acme/api', 'acme-read-token'], ['globex/site', undefined], ['globex/site', undefined]],
+      [
+        ...Array.from({ length: 4 }, () => ['acme/web', 'acme-read-token']),
+        ...Array.from({ length: 4 }, () => ['acme/api', 'acme-read-token']),
+        ...Array.from({ length: 4 }, () => ['globex/site', 'globex-read-token']),
+      ],
     );
     assert.deepEqual(credentials.reads, ['teamrig-gh-acme', 'teamrig-gh-globex']);
-    assert.ok(![...result.stdout, ...result.stderr].some((line) => line.includes('acme-read-token')), 'the token was printed');
+    assert.ok(![...result.stdout, ...result.stderr].some((line) => /(acme|globex)-read-token/u.test(line)), 'a token was printed');
+  });
+
+  it('fails an owner with no saved token, running no gh for it, never the gh login, and reads the other owners on', async () => {
+    const kit = new CliHarness({ ...TEAM, github: { repos: ['acme/web', 'globex/site'] } });
+    const gh = twoIssues().holds('globex/site', [ghIssue('globex/site', 4)]);
+    const credentials = new FakeCredentials().saves('teamrig-gh-acme', 'acme-read-token');
+    const result = await kit.run(['issue', 'sync'], { gh, credentials, env: { HOME: '/u', GH_TOKEN: 'login-token' } });
+    assert.equal(result.code, EXIT.failed);
+    assert.ok(
+      result.stdout.includes(
+        "FAILED globex/site: no token for globex is saved as teamrig-gh-globex in the test store; teamrig reaches a repository only with its owner's saved token, never the gh login: save one with: save teamrig-gh-globex; its tasks stay as they are",
+      ),
+      result.stdout.join('\n'),
+    );
+    assert.ok(gh.ran.length > 0 && gh.ran.every((request) => ghRepoOf(request.args) === 'acme/web' && request.env['GH_TOKEN'] === 'acme-read-token'));
   });
 
   it('fails an owner whose saved token the store cannot read, never reading it through the gh login, and reads the other owners on', async () => {
     const kit = new CliHarness({ ...TEAM, github: { repos: ['acme/web', 'globex/site'] } });
     const gh = twoIssues().holds('globex/site', [ghIssue('globex/site', 4)]);
-    const credentials = new FakeCredentials().failsOn('teamrig-gh-acme', 'the keyring is locked');
+    const credentials = new FakeCredentials().failsOn('teamrig-gh-acme', 'the keyring is locked').saves('teamrig-gh-globex', 'globex-read-token');
     const result = await kit.run(['issue', 'sync'], { gh, credentials });
     assert.equal(result.code, EXIT.failed);
     assert.deepEqual(result.stdout.slice(0, 3), [
       'FAILED acme/web: could not read teamrig-gh-acme from the test store: the keyring is locked; unlock the store and rerun, or save the key again with: save teamrig-gh-acme; its tasks stay as they are',
-      'ACCESS globex: read with the gh login; no token saved as teamrig-gh-globex',
+      'ACCESS globex: read with the token saved as teamrig-gh-globex',
       'REPO globex/site: 1 to add, 0 to change, 0 unchanged',
     ]);
     assert.ok(gh.ran.every((request) => ghRepoOf(request.args) === 'globex/site'));
@@ -256,16 +277,41 @@ describe('teamrig issue sync', () => {
     const gh = new FakeGh()
       .answers('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'HTTP 401: Bad credentials (https://api.github.com/graphql)\n' })
       .holds('globex/site', [ghIssue('globex/site', 4)]);
-    const result = await kit.run(['issue', 'sync'], { gh, credentials: new FakeCredentials().saves('teamrig-gh-acme', 'old-token') });
+    const result = await kit.run(['issue', 'sync'], { gh, credentials: new FakeCredentials().saves('teamrig-gh-acme', 'old-token').saves('teamrig-gh-globex', 'globex-read-token') });
     assert.equal(result.code, EXIT.failed);
     assert.deepEqual(result.stdout, [
       'ACCESS acme: read with the token saved as teamrig-gh-acme',
       'FAILED acme/web: GitHub refused the token saved as teamrig-gh-acme (expired or revoked?): create a new one and save it again with: save teamrig-gh-acme; its tasks stay as they are',
-      'ACCESS globex: read with the gh login; no token saved as teamrig-gh-globex',
+      'ACCESS globex: read with the token saved as teamrig-gh-globex',
       'REPO globex/site: 1 to add, 0 to change, 0 unchanged',
       'ADD new gh:globex/site#4 p2 lead: "Issue 4"',
       'PREVIEW nothing was written; teamrig issue sync --yes writes the above as github',
     ]);
+  });
+
+  it('names the pull request news since the last automatic read, and by hand keeps no watch and tells no inbox', async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    const state = join(TEAM_HOME, 'state', 'github-sync.json');
+    const watched = '{"v":3,"startedAt":1,"failing":[],"pulls":{"acme/web":{"cursor":"2030-01-01T00:00:00Z","open":[{"number":20,"mergeable":"mergeable","checks":"none","review":"none"}]}}}\n';
+    await kit.files.write(state, watched);
+    const gh = twoIssues().holdsPulls('acme/web', [ghPull('acme/web', 20, { mergeable: 'CONFLICTING', updatedAt: '2030-01-02T00:00:00Z' })]);
+    const lines = await expectRun(kit, ['issue', 'sync'], gh, EXIT.ok);
+    assert.deepEqual(lines.slice(-3), [
+      'PULL NEWS lead (wakes): GitHub pull requests: gh:acme/web#20 "Change 20": conflicts with its base',
+      'NOTE only teamrig issue sync --auto tells the pull request news and keeps what it read, so the next run names it again',
+      'PREVIEW nothing was written; teamrig issue sync --yes writes the above as github',
+    ]);
+    assert.equal(kit.files.get(state), watched);
+    assert.equal(kit.files.get(join(TEAM_HOME, 'state', 'inbox', 'lead.md')), undefined);
+  });
+
+  it("writes a repository's issues when its pull requests cannot be read, and fails the run for it", async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    const gh = twoIssues().failsPulls('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'HTTP 502: Bad gateway\n' });
+    const lines = await expectRun(kit, ['issue', 'sync', '--yes'], gh, EXIT.failed);
+    assert.equal(lines[0], 'REPO acme/web: 2 added, 0 changed, 0 unchanged');
+    assert.match(lines.find((line) => line.startsWith('FAILED')) ?? '', /^FAILED acme\/web pull requests: .*HTTP 502.*; what was last read of them stays$/);
+    assert.equal(register(kit).tasks.size, 2);
   });
 
   it("gives an issue no listed login is assigned to its repository's session", async () => {

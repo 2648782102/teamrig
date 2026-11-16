@@ -87,7 +87,7 @@ const EVERY_KEY = {
   permissions: { keepAllow: ['Bash(kubectl get *)'] },
   statusLine: { folder: false, branch: false, pace: false },
   decisions: { batchTimesUtc: ['13:03'], batchAt: 3 },
-  github: { repos: ['acme/web'], owners: { octocat: 'bravo' }, closedDays: 30, probeSeconds: 120 },
+  github: { repos: ['acme/web'], owners: { octocat: 'bravo' }, closedDays: 30, probeSeconds: 120, watcher: 'charlie' },
   serviceRoles: { github: { holders: ['bravo'], commands: ['issue close'] } },
   paths: { state: '/s', inbox: '/i', skills: '/k' },
   exec: { path: ['C:/tools'], webhookEnv: 'EXEC_WEBHOOK_URL' },
@@ -469,6 +469,12 @@ describe('config.schema.json', () => {
   it('takes the github accept labels the parser takes', async () => {
     const label = nodeAt(await loadSchema(), 'github.acceptLabel');
     assert.deepEqual([label['minLength'], label['maxLength'], label['pattern']], [1, GITHUB_LABEL_MAX_LENGTH, '^[^\\r\\n]+$']);
+  });
+
+  it('takes the github area labels the parser takes', async () => {
+    const names = nodeAt(await loadSchema(), 'github.areaOwners')['propertyNames'];
+    assert.ok(isRecord(names));
+    assert.deepEqual([names['minLength'], names['maxLength'], names['pattern']], [1, GITHUB_LABEL_MAX_LENGTH, '^[^\\r\\n]+$']);
   });
 
   it('takes the verify gate choices the parser takes', async () => {

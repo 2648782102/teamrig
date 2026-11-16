@@ -5,6 +5,7 @@
  */
 
 import type { HostIssue, LinkedIssue, ReadComment } from './issue.ts';
+import type { HostPull } from './pull.ts';
 
 /** One issue or pull request: its repository (`owner/name`, in lowercase) and its number. */
 export interface IssueTarget {
@@ -84,6 +85,23 @@ export type HostLinks =
   | { readonly kind: 'listed'; readonly issues: readonly LinkedIssue[]; readonly notes: readonly string[] }
   | { readonly kind: 'failed'; readonly reason: string };
 
+/**
+ * A repository's pull requests as one read found them: every open one, and those in any state changed at or after the
+ * time the read was given, each newest change first, with what a reader should know about the read; or why it could
+ * not be read, in which case nothing of it was.
+ */
+export type HostPulls =
+  | { readonly kind: 'listed'; readonly open: readonly HostPull[]; readonly changed: readonly HostPull[]; readonly notes: readonly string[] }
+  | { readonly kind: 'failed'; readonly reason: string };
+
+/**
+ * The end of one failed CI job's log as a read found it: the step that failed last and its last lines, each one plain
+ * line with any secret shape redacted, outside input to show as data; or why it could not be read.
+ */
+export type HostJobLog =
+  | { readonly kind: 'read'; readonly step: string | undefined; readonly lines: readonly string[] }
+  | { readonly kind: 'failed'; readonly reason: string };
+
 /** One issue to open: its repository (`owner/name`), title, body and labels. */
 export interface IssueDraft {
   readonly repo: string;
@@ -103,6 +121,13 @@ export interface IssueHost {
   reach(repo: string, use: HostUse): Promise<HostReach>;
   /** The open issues of `repo` and those closed on or after `closedSince` (`YYYY-MM-DD`, UTC), the newest state of each. */
   list(repo: string, closedSince: string): Promise<HostList>;
+  /**
+   * The open pull requests of `repo`, and those changed at or after `since` (an ISO time); with no `since`, the most
+   * recently changed ones, a page of them.
+   */
+  pulls(repo: string, since: string | undefined): Promise<HostPulls>;
+  /** The end of the log of the failed CI job `jobId` of `repo` (a pull request's FailedJob id). */
+  jobLog(repo: string, jobId: number): Promise<HostJobLog>;
   /** Opens one issue. */
   open(draft: IssueDraft): Promise<HostOpen>;
   /** Posts `body` as one comment. */
