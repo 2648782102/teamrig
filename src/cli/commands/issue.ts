@@ -48,7 +48,7 @@ export async function issueEdit(args: ParsedArgs, runtime: CliRuntime): Promise<
  * guard sees a teamrig argument, not a file read, so without this the CLI would post a key file the text checks find
  * no shape in. The refusal names the flag, never the file's text.
  */
-async function bodyFileOf(given: string, runtime: CliRuntime, config: KitConfig): Promise<string> {
+export async function bodyFileOf(given: string, runtime: CliRuntime, config: KitConfig): Promise<string> {
   const path = resolve(runtime.cwd, given);
   if (secretRulesOf(config.secretGuard, runtime.userHome, runtime.platform).paths.listed(path)) {
     throw new RefusedError(`--body-file names a file the secret guard keeps (secretGuard.paths): ${given} is never read or posted`);
@@ -162,7 +162,7 @@ function duplicateOfFlag(text: string | undefined, target: IssueTarget, reason: 
 }
 
 /** The issue or pull request the one positional names; refused when it names none. */
-function targetOf(args: ParsedArgs): IssueTarget {
+export function targetOf(args: ParsedArgs): IssueTarget {
   const text = onePositional(args, 'issue');
   const target = parseIssueTarget(text);
   if (target === undefined) {
@@ -189,19 +189,19 @@ async function hostFor(args: ParsedArgs, runtime: CliRuntime, repo: string, post
 }
 
 /** A text to post and the flag that gave it, which a refusal names. */
-interface Posted {
+export interface Posted {
   readonly flag: string;
   readonly text: string;
 }
 
 /** The team's config and the host kind of a repository the caller may write to. */
-interface CheckedRepo {
+export interface CheckedRepo {
   readonly config: KitConfig;
   readonly kind: HostKind;
 }
 
 /** The team's config and `repo`'s host kind once the caller is on the team and the repository is one of the team's. */
-async function checkedRepo(args: ParsedArgs, runtime: CliRuntime, repo: string): Promise<CheckedRepo> {
+export async function checkedRepo(args: ParsedArgs, runtime: CliRuntime, repo: string): Promise<CheckedRepo> {
   const team = await openTeam(runtime, 'read');
   const notOnTeam = new RegisterPolicy(team.config, team.above).checkCaller(sessionIdOf(team.roster, callerOf(args.flags, runtime.env)));
   if (notOnTeam !== undefined) {
@@ -217,8 +217,16 @@ async function checkedRepo(args: ParsedArgs, runtime: CliRuntime, repo: string):
 
 /** The host of a checked repository once the text to post (if any) may be posted; undefined, after an OFF line, while GitHub is off. */
 function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | undefined): IssueHost | undefined {
-  const { config, kind } = checked;
-  const scanner = new SecretScanner(config.register.secretPatterns);
+  const scanner = scannerAfter(checked, runtime, posted);
+  return scanner === undefined ? undefined : hostOf(checked.kind, runtime, scanner);
+}
+
+/**
+ * The team's secret scanner once the text to post (if any) may be posted, refused when it may not; undefined, after an
+ * OFF line, while GitHub is off on the machine, so a host is made only for a write that will run.
+ */
+export function scannerAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | undefined): SecretScanner | undefined {
+  const scanner = new SecretScanner(checked.config.register.secretPatterns);
   const refused = posted === undefined ? undefined : postRefusal(posted.flag, posted.text, scanner);
   if (refused !== undefined) {
     throw new RefusedError(refused);
@@ -227,5 +235,5 @@ function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | u
     runtime.out.stdout(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; nothing was written`);
     return undefined;
   }
-  return hostOf(kind, runtime, scanner);
+  return scanner;
 }
