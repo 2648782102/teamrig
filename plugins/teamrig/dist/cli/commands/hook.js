@@ -34,6 +34,7 @@ import { decideStart, decideStop, reaskGrowth, thousands, thresholdOf, } from ".
 import { ownerTurnsLine, ownerTurnsText } from "../../refresh/owner-turns.js";
 import { carryLines, carryStartOf, readCarry } from "../../refresh/carry.js";
 import { claudeProcessOf } from "../../refresh/restart.js";
+import { firedBySchedule } from "../../refresh/scheduled-prompt.js";
 import { RefreshStore } from "../../refresh/store.js";
 import { readContextTokens } from "../../refresh/usage.js";
 import { noPositionals } from "../args.js";
@@ -53,7 +54,7 @@ import { droppedEditReasonOf } from "./hook-dropped-edit.js";
 import { handStepReasonOf } from "./hook-hand-step.js";
 import { effortWritebackOf } from "./hook-effort-writeback.js";
 import { meetingHold } from "./hook-meeting.js";
-import { restartOrPark, restartTargetOf } from "./hook-restart.js";
+import { inheritedCrons, restartOrPark, restartTargetOf } from "./hook-restart.js";
 import { helperContextOf } from "./hook-helper-start.js";
 import { promptSecretBlock } from "./hook-prompt-secret.js";
 import { guardLoadOf, hookTeam } from "./hook-guard-load.js";
@@ -212,6 +213,13 @@ async function titleOutcome(runtime, kit, config, payload, read) {
  * work (T1383), cancels it, so the session keeps its context; one line tells the model, with the context growth
  * (`growth` tokens) that asks again. None when no restart waits, or one is already ending the session.
  */
+/** Whether the prompt a UserPromptSubmit `payload` carries was fired by one of the session's live scheduled jobs. */
+async function scheduledPrompt(runtime, kit, id, payload) {
+    const transcript = isRecord(payload) ? stringField(payload, 'transcript_path') : undefined;
+    const prompt = isRecord(payload) ? stringField(payload, 'prompt') : undefined;
+    const inherited = await inheritedCrons(new RefreshStore(runtime.files, kit.paths), id, transcript);
+    return firedBySchedule(runtime.files, { transcript, prompt }, inherited, runtime.clock.now());
+}
 async function cancelledRestartLine(runtime, kit, id, refresh) {
     const store = new RefreshStore(runtime.files, kit.paths);
     const parked = (await store.parked(id)) !== undefined;
@@ -283,7 +291,9 @@ export async function inboxReminder(args, runtime) {
     if (session !== undefined) {
         await logPrompt(runtime, { config, paths: kit.paths, id: session }, payload).catch(() => undefined);
     }
-    const cancelled = session === undefined ? undefined : await cancelledRestartLine(runtime, kit, session, sessionRefreshOf(config, session)).catch(() => undefined);
+    // A scheduled job's prompt is no one typing: it leaves the restart armed, which waits for the turn it starts to end.
+    const scheduled = session !== undefined && (await scheduledPrompt(runtime, kit, session, payload).catch(() => false));
+    const cancelled = session === undefined || scheduled ? undefined : await cancelledRestartLine(runtime, kit, session, sessionRefreshOf(config, session)).catch(() => undefined);
     const budgetLine = session === undefined ? undefined : await promptBudgetLine(runtime, { kit, config, roster: own.roster, id: session }).catch(() => undefined);
     // Like the inbox lines below, reading the digest moves its cursor, so it is read late; only a leader gets one.
     const digest = session === undefined ? undefined : await leaderDigestText(runtime, kit.paths, config, session).catch(() => undefined);
