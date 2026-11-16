@@ -221,11 +221,15 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
   `main`. CI runs it with no secrets and a read-only token, and an outside contributor's run waits for the
   maintainer to approve it. Leave `plugin.json`, `src/core/version.ts` and the dist alone: CI's version and dist
   gates let a fork's pull request through without them (a dist it does change must still match the build). The
-  maintainer merges it as you wrote it, rebase-merged so your commits and sign-off stay yours
-  (`node tools/ship/ship.ts merge-pr <dir> <n> --approved <sha> --task T<id>`, `tools/ship/merge-pr.ts`), once CI
-  passed on its head, the head contains `main`, and the maintainer approved that head by its full 40-hex sha, never a
-  prefix; a push after the approval needs a new one, and a head behind `main` is rebased by you, or by the maintainer when you allow maintainer edits.
-  Right after the merge, a release pull request of the maintainer's raises the version and rebuilds the dist.
+  maintainer lands it (`node tools/ship/ship.ts merge-pr <dir> <n> --approved <sha> --task T<id>`,
+  `tools/ship/merge-pr.ts`) once CI passed on its head and the maintainer approved that head by its full 40-hex sha,
+  never a prefix; a push after the approval needs a new one. A head that contains `main` and leaves the version and
+  the dist alone is rebase-merged as you wrote it, so your commits and sign-off stay yours, and a release pull
+  request of the maintainer's then raises the version and rebuilds the dist. Any other head, one behind `main` or one
+  that changed the version or the dist, has its commits replayed on `main` with your authorship, message and
+  sign-off, its changes to the version and the dist dropped; the replay raises the version and rebuilds the dist
+  itself, and your pull request is closed with credit naming your commits on `main`. You rebase only when your work
+  conflicts with `main`, or reads differently on it.
 - **Your commit e-mail**: the `Signed-off-by:` line carries your commit e-mail, and the scrub refuses an e-mail
   address in a commit message unless it is one of GitHub's no-reply addresses. Before your first commit, set the
   no-reply address GitHub shows under Settings, Emails: `git config user.email <id>+<user>@users.noreply.github.com`.
