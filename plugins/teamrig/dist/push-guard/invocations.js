@@ -331,7 +331,7 @@ class GitInvocationFinder {
             case 'nothing':
                 break;
             case 'opaque':
-                this.doubt(launched.reason, launched.gated, launched.stdinScript === true);
+                this.doubt(launched.reason, launched.gated, launched.stdinScript === true || launched.shellCode === true);
                 break;
             case 'script': {
                 const inner = location.child();
@@ -515,7 +515,7 @@ class GitInvocationFinder {
             return;
         }
         if (sub.dynamic) {
-            this.doubt('the git command it runs is only known when it runs', true);
+            this.doubt('the git command it runs is only known when it runs', true, true);
             return;
         }
         const state = { dir, gitDir, configOverride, aliases, aliasesUnknown, hooksOverride };
