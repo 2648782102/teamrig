@@ -54,8 +54,10 @@ describe('RecordingIssueHost (T3230)', () => {
   });
 
   it('passes every read through to the host it wraps, under its name', async () => {
-    const { host } = recording();
+    const { host, inner } = recording();
     assert.equal(host.name, new FakeIssueHost().name);
     assert.deepEqual(await host.labelExists('acme/web', 'status:open'), await new FakeIssueHost().labelExists('acme/web', 'status:open'));
+    assert.deepEqual(await host.posts('acme/web', '2026-11-16T00:00:00Z'), { kind: 'read', posts: [], cutAt: undefined, notes: [] });
+    assert.deepEqual(inner.postReads, [{ repo: 'acme/web', since: '2026-11-16T00:00:00Z' }]);
   });
 });

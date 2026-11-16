@@ -19,6 +19,7 @@ import type {
   LabelSpec,
   WatchMarks,
 } from './host.ts';
+import type { HostPosts } from './post.ts';
 import { afterWrite, fieldsOf, withEntry, withoutEntry, type PushedState, type PushedWrite } from './pushed-record.ts';
 import { STATUS_LABEL_PREFIX } from './status-push.ts';
 
@@ -57,6 +58,10 @@ export class RecordingIssueHost implements IssueHost {
 
   pulls(repo: string, since: string | undefined): Promise<HostPulls> {
     return this.inner.pulls(repo, since);
+  }
+
+  posts(repo: string, since: string): Promise<HostPosts> {
+    return this.inner.posts(repo, since);
   }
 
   jobLog(repo: string, jobId: number): Promise<HostJobLog> {
