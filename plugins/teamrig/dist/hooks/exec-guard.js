@@ -50,6 +50,7 @@ export const HOOK_COMMANDS = new Set([
     'effort-writeback',
     'exec-guard',
     'failed-send',
+    'gh-guard',
     'helper-gate',
     'inbox-reminder',
     'loop-nudge',

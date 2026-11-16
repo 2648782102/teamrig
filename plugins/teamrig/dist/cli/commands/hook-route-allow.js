@@ -7,7 +7,7 @@ import { noPositionals } from "../args.js";
 import { hookLogOf } from "../hook-logs.js";
 import { EXIT } from "../runtime.js";
 import { guardLoadOf } from "./hook-guard-load.js";
-import { dbWriteGuardOutputOf, execGuardOutputOf, packageGuardOutputOf, pushGuardOutputOf, secretGuardOutputOf, serviceRoleGuardOutputOf } from "./hook-guard-outputs.js";
+import { dbWriteGuardOutputOf, execGuardOutputOf, ghGuardOutputOf, packageGuardOutputOf, pushGuardOutputOf, secretGuardOutputOf, serviceRoleGuardOutputOf } from "./hook-guard-outputs.js";
 import { envSession, parseJson } from "./hook-input.js";
 import { roleAllowOutputOf } from "./hook-role-allow.js";
 import { callRouteOf } from "./hook-route-context.js";
@@ -20,7 +20,7 @@ async function everyGuardPassed(runtime, guard, payload) {
         dbWriteGuardOutputOf(runtime, guard, payload),
         serviceRoleGuardOutputOf(runtime, guard, payload),
     ]);
-    return guardsPassed([...answers, secretGuardOutputOf(runtime, guard, payload), passRecordGuardOutput(payload)]);
+    return guardsPassed([...answers, secretGuardOutputOf(runtime, guard, payload), ghGuardOutputOf(runtime, guard, payload), passRecordGuardOutput(payload)]);
 }
 /**
  * What the hook prints for this payload: an allow for a line that runs a route marked for PreToolUse, or for a service
