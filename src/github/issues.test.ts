@@ -4,7 +4,7 @@ import type { JsonRecord } from '../core/guards.ts';
 import { commentNode, FakeGh, ghIssue, labeledEvent, renamedEvent } from '../testing/fake-gh.ts';
 import { GhOutputCapError, isIssueQuery, type GhRequest, type GhResult, type GhRunner } from './gh.ts';
 import type { HostIssue } from '../issues/issue.ts';
-import { issuePageArgs, listIssues, parseIssuePage, plainLine, readCommentsIn, startFailureText, type IssueListRequest } from './issues.ts';
+import { issuePageArgs, listIssues, parseIssuePage, plainLine, readCommentsIn, readPullFilesIn, PULL_PATH_MAX, startFailureText, type IssueListRequest } from './issues.ts';
 import { closedPageArgs, openPageArgs } from './queries.ts';
 import type { RepoAccess } from './tokens.ts';
 
@@ -348,6 +348,31 @@ describe('parseIssuePage', () => {
 describe('plainLine', () => {
   it('turns control and format characters into spaces, so outside text stays one plain line', () => {
     assert.equal(plainLine('  Fix\u001b[2J the‮ login\r\nnow\t '), 'Fix [2J the login now');
+  });
+});
+
+describe('readPullFilesIn (T3187)', () => {
+  it("keeps each file's path and nothing else, leaving out and counting a name that is no plain path", () => {
+    const stdout = JSON.stringify([
+      { filename: 'src/a.ts', status: 'modified', patch: '@@ secret? @@' },
+      { filename: 'docs/b.md', status: 'added' },
+      { filename: 'two\nlines.ts' },
+      { filename: 'bell\u0007.ts' },
+      { filename: 'mark‮.ts' },
+      { filename: 'x'.repeat(PULL_PATH_MAX + 1) },
+      { filename: '' },
+      { status: 'removed' },
+      'not a file',
+      { filename: 'y'.repeat(PULL_PATH_MAX) },
+    ]);
+    assert.deepEqual(readPullFilesIn(stdout), { paths: ['src/a.ts', 'docs/b.md', 'y'.repeat(PULL_PATH_MAX)], leftOut: 7 });
+  });
+
+  it('gives undefined when gh printed no list', () => {
+    for (const stdout of ['', '{}', 'null', '{"filename":"a"}', 'not json']) {
+      assert.equal(readPullFilesIn(stdout), undefined, stdout);
+    }
+    assert.deepEqual(readPullFilesIn('[]'), { paths: [], leftOut: 0 });
   });
 });
 

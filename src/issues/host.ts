@@ -77,6 +77,12 @@ export type HostAssignee = { readonly kind: 'found'; readonly login: string } | 
 export type HostComments = { readonly kind: 'read'; readonly comments: readonly ReadComment[] } | { readonly kind: 'failed'; readonly reason: string };
 
 /**
+ * The paths one read of a pull request's changed files gave, at most one page (gh.ts PULL_FILES_PAGE), with how many
+ * names it left out as no plain path (more than one line, a control character, or too long); or the read failed.
+ */
+export type HostPullFiles = { readonly kind: 'read'; readonly paths: readonly string[]; readonly leftOut: number } | { readonly kind: 'failed'; readonly reason: string };
+
+/**
  * A repository's issues as one list read them, the open ones and those closed since the day it was given, with what
  * a reader should know about the read; or why it could not be read, in which case nothing of it was.
  */
@@ -188,6 +194,11 @@ export interface IssueHost {
    * bounded page: the claim pass's only read of comment text, which it matches for a claim line and drops.
    */
   newComments(target: IssueTarget, since: number): Promise<HostComments>;
+  /**
+   * The paths the pull request changes, from one bounded page of its files: issue intake routes each to the session
+   * owning its area. Fails for an issue that is no pull request, or one GitHub does not show.
+   */
+  pullFiles(target: IssueTarget): Promise<HostPullFiles>;
 }
 
 /** What a host gave for its last answers about one repository: the caller keeps them between looks and never reads them. */

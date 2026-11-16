@@ -1,4 +1,4 @@
-import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLabelFile, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
+import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLabelFile, HostLinks, HostList, HostOpen, HostPullFiles, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
 import type { LinkedIssue } from '../issues/issue.ts';
 import type { HostPost, HostPosts } from '../issues/post.ts';
 import type { HostPull } from '../issues/pull.ts';
@@ -52,6 +52,19 @@ export class FakeIssueHost implements IssueHost {
   private assigneeRead: HostAssignee | undefined;
   private assignEnd: HostEnd = { kind: 'done' };
   private unassignEnd: HostEnd = { kind: 'done' };
+  private readonly files = new Map<string, HostPullFiles>();
+
+  /** From now on, a read of the pull request `<repo>#<number>`'s changed files gives these paths (as many left out). */
+  changes(pull: string, paths: readonly string[], leftOut = 0): this {
+    this.files.set(pull, { kind: 'read', paths, leftOut });
+    return this;
+  }
+
+  /** From now on, a read of the pull request `<repo>#<number>`'s changed files fails for `reason`. */
+  failsFiles(pull: string, reason: string): this {
+    this.files.set(pull, { kind: 'failed', reason });
+    return this;
+  }
 
   /** From now on, taking an assignee off fails for `reason`. */
   failsUnassign(reason: string): this {
@@ -344,5 +357,11 @@ export class FakeIssueHost implements IssueHost {
   /** Its issues have no comments, as its list holds none. */
   newComments(_target: IssueTarget, _since: number): Promise<HostComments> {
     return Promise.resolve({ kind: 'read', comments: [] });
+  }
+
+  /** The files `changes` gave the pull request, else a failed read, as GitHub shows no such pull request. */
+  pullFiles(target: IssueTarget): Promise<HostPullFiles> {
+    const key = `${target.repo}#${String(target.number)}`;
+    return Promise.resolve(this.files.get(key) ?? { kind: 'failed', reason: `GitHub shows no pull request ${key}` });
   }
 }
