@@ -1592,8 +1592,9 @@ or it was opened by the account the access acts as, it fails and posts nothing. 
 access and text checks as `teamrig issue comment`, and the text comes from a file. An approval of a change that
 touches a security path of the merge review gate (teamrig's own, such as lockfiles, hooks and workflows, and the
 security entries of [pushGuard.reviewPaths]; a renamed file counts by both paths) is held until `--verdict` names
-the security reviewer's [roles.securityReviewer] done task for that very head: its done note or evidence names the
-head's full id, so a pass of an older head or of another change passes nothing. The review is the reviewer's word on GitHub only: it
+the security reviewer's [roles.securityReviewer] done task for that very head: its done note or evidence says
+`PASS at <head>` (or `PASS at head <head>`) with the head's full id, so a verdict of changes, a pass of an older
+head or of another change passes nothing. The review is the reviewer's word on GitHub only: it
 approves no task's wait and merges nothing. It prints `REVIEWED <target>: approved at <head>`, or `FAILED <target>:
 <reason>; no review was posted`. Exit 1 when it failed, 2 when refused, else 0.
 
@@ -1604,7 +1605,8 @@ Flags:
 - `--request-changes`: ask for changes before it lands; needs `--body-file`.
 - `--head <sha>`: the full id of the head commit you read, required.
 - `--body-file <path>`: the file holding the review's text.
-- `--verdict <task>`: the security reviewer's done task that passed a change to a gated path at this head.
+- `--verdict <task>`: the security reviewer's done task that passed a change to a gated path at this head, its note
+  or evidence saying `PASS at <full head>`.
 
 Example:
 
