@@ -18,7 +18,8 @@ following the item, the new comments, reviews, labels and closes of its issue or
 
 Setting it up takes three steps: list the repositories, give teamrig read access to their issues, then preview and
 write. After that it runs on its own within a minute of a change on GitHub while your sessions work, and reminds you of an issue waiting
-long for your answer ([Answer times](#answer-times)).
+long for your answer ([Answer times](#answer-times)) and of an issue whose status label is out of step
+([Status out of step](#status-out-of-step)).
 
 ## 1. List the repositories
 
@@ -308,6 +309,20 @@ what the last sync kept.
 turns every sync off on one machine, but only for a watch started after it is set: a running watch keeps the
 environment it started with, so set `probeSeconds` to 0 to stop it.
 `teamrig issue sync --yes` still works at any time.
+
+## Status out of step
+
+A contributor reads an issue's `status:` label to see whether it is free to take. When the label says one thing and
+the issue another, `teamrig check` shows the lead a GH-DRIFT line, once while it stands:
+
+- An open issue that an open pull request closes (GitHub's closing reference, such as `Fixes #9` in the pull
+  request) but that does not show `status:in review`, for example `GH-DRIFT gh:acme/web#9: an open pull request closes
+  it, yet it shows status:open and no assignee, not status:in review`. Set its task verifying, and the status push
+  labels it; if the pull request does not fix it, its author takes the closing reference out.
+
+A sync that writes keeps these rows in `state/github-drift.json` in the team's folder, read from the same issue list
+as the rest of the sync, so it costs no GitHub call. The line goes once the issue shows `status:in review`, closes, or
+loses its pull request. A repository that cannot be read keeps its rows until it can, and a preview keeps nothing.
 
 ## Moving your tasks to issues
 
