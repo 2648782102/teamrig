@@ -183,6 +183,14 @@ again while it lasts; the first run on a repository only notes what is there.
   collaborator or member the team never listed counts as an outsider, since write access lets anyone push a
   `t<id>-` branch. A fork's or an outsider's pull request, or a branch that names no task, goes to
   `github.watcher` in the team config, else the lead.
+- Such a pull request that just opened also becomes a task of the watcher's, so it stays on a list until someone
+  answers it: source `github`, ref `gh:<owner>/<name>#<number>`, priority `p2`, due 24 hours after it opened (a
+  contributor's pull request's answer target, UTC). Its title is `Pull request: <title>` for an author inside the
+  repository (its owner, a member or a collaborator) whose title holds no secret shape, else
+  `Pull request <owner>/<name>#<number> by <author>`: an outsider's title stays on GitHub. Its description names the
+  pull request, its author and when to answer it by. A ref a task already holds gets no second task. A run with
+  `--yes` or `--auto` writes it (`PULL TASKS <repo>: 1 added`); the dry run prints the `ADD` line it would write. The
+  status push never names such a task `UNLISTED` while its pull request is open; set it done once you answered.
 - Each session gets one inbox line, for example
   `github: GitHub pull requests: gh:acme/web#20 "Fix the login redirect": conflicts with its base`. A conflict or
   failing checks on the session's own pull request (a `t<id>-` branch of one of the team's authors, not a fork), and an

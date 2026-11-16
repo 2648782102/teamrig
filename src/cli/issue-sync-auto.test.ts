@@ -99,7 +99,11 @@ describe('teamrig issue sync --auto', () => {
         'GitHub sync added 1 task(s) for you: T1 gh:acme/web#7 "Fix login"',
         'GitHub pull requests: gh:acme/web#20 "Change 20": conflicts with its base',
       ]);
-      assert.deepEqual(githubLines(kit, 'alpha'), ['GitHub pull requests: gh:acme/web#22 "Change 22": opened by stranger (outside, fork); gh:acme/web#21 "Change 21": merged']);
+      // The outsider's new pull request is on the watcher's list too, once (pull-news.ts pullTasks).
+      assert.deepEqual(githubLines(kit, 'alpha'), [
+        'GitHub sync added 1 task(s) for you: T2 gh:acme/web#22 "Pull request acme/web#22 by stranger"',
+        'GitHub pull requests: gh:acme/web#22 "Change 22": opened by stranger (outside, fork); gh:acme/web#21 "Change 21": merged',
+      ]);
       assert.deepEqual(githubLines(kit, 'lead'), []);
       const asks = new WakeAsks(kit.files, join(TEAM_HOME, 'state', 'wake-asks'));
       assert.deepEqual([(await asks.read('bravo')).length, (await asks.read('alpha')).length], wake ? [1, 1] : [0, 0], `wake ${wake}`);
