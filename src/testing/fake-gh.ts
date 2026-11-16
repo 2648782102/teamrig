@@ -430,7 +430,7 @@ export class FakeGh implements GhRunner {
   }
 
   /** From now on, the pull request `<repo>#<number>` changes these files, and a files read of any other is Not Found. */
-  changes(pull: string, paths: readonly string[]): this {
+  pullFiles(pull: string, paths: readonly string[]): this {
     this.files.set(pull, paths);
     return this;
   }

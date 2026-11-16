@@ -329,7 +329,7 @@ describe('GitHubIssueHost', () => {
   });
 
   it("reads a pull request's changed paths through the one files read, and fails on one GitHub does not show (T3187)", async () => {
-    const gh = new FakeGh().changes('acme/web#7', ['src/a.ts', 'docs/b.md']);
+    const gh = new FakeGh().pullFiles('acme/web#7', ['src/a.ts', 'docs/b.md']);
     const host = hostWith(gh);
     assert.deepEqual(await host.pullFiles(TARGET), { kind: 'read', paths: ['src/a.ts', 'docs/b.md'], leftOut: 0 });
     assert.ok(gh.ran.every((request) => isPullFilesRead(request.args)));
