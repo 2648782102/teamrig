@@ -5,7 +5,9 @@ import { formatEndTime } from "./format.js";
 /**
  * A leader's cut, for today at most, of one session to its own daily budget: past that budget the session is held
  * whatever room the team has left today, so it wakes, and is reopened, for p0 work only, and `budget.overAction`
- * holds its new helpers back as it says. Without a cut a session past its part uses the room the others left (src/budget/warn.ts
+ * holds its new helpers back as it says. Under `budget.overAction` `warn` the budget holds nothing (src/wake/decide.ts
+ * `wakeRestOf`, #922), a cut included: the cut session is only warned past its own budget, its leader told, and
+ * `cutText` says so. Without a cut a session past its part uses the room the others left (src/budget/warn.ts
  * `isHeld`). A cut leaves a lift in force: the session works up to its lifted part, then is held. It ends at its
  * `--until`, the end of the budget day, or a lift of the session given after it, whichever comes first; a newer cut
  * replaces an older one.
@@ -37,9 +39,11 @@ export function activeCut(cuts, lifts, session, now) {
  * What a cut does, after "cut", on the team's clock: `alpha to its own daily budget until 18:00 IDT: past it, it is
  * held whatever room the team has, ...`.
  */
-export function cutText(cut, name, zone) {
-    return (`${name} to its own daily budget until ${formatEndTime(cut.endsAt, zone)}: past it, it is held whatever room the team has, ` +
-        'so it wakes for p0 work only and budget.overAction holds its new helpers back as it says; a lift in force still sets that budget, and a new lift of it ends the cut.');
+export function cutText(cut, name, zone, overAction) {
+    const past = overAction === 'warn'
+        ? 'past it, it is warned whatever room the team has, but budget.overAction warn holds nothing, so it still wakes and works as before (set budget.overAction to hold it)'
+        : 'past it, it is held whatever room the team has, so it wakes for p0 work only and budget.overAction holds its new helpers back as it says';
+    return `${name} to its own daily budget until ${formatEndTime(cut.endsAt, zone)}: ${past}; a lift in force still sets that budget, and a new lift of it ends the cut.`;
 }
 /**
  * Why a cut session past its budget is held, for its budget lines, with `by` the leader that gave the cut as the lines

@@ -500,7 +500,7 @@ export async function cut(args, runtime) {
         throw new RefusedError(decision.reason);
     }
     await new CutLog(runtime.files, kit.paths.cuts).append(decision.cut);
-    runtime.out.stdout(`CUT ${cutText(decision.cut, nameOf(id), zone)}`);
+    runtime.out.stdout(`CUT ${cutText(decision.cut, nameOf(id), zone, config.budget.overAction)}`);
     return EXIT.ok;
 }
 /** A dollar flag: `--add` above 0, `--spent` 0 or more; undefined when it is not given. */
