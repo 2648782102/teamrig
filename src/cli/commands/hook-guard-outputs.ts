@@ -8,7 +8,15 @@ import { dbWriteGuardOf, dbWriteGuardOutput } from '../../hooks/db-write-guard.t
 import { execGuardOutput, type TabIdentity } from '../../hooks/exec-guard.ts';
 import { packageGuardOf, packageGuardOutput } from '../../hooks/package-guard.ts';
 import { hookAsksOf } from '../../hooks/permission.ts';
-import { commitsOf, protectedBranchesOf, pushGuardOutput, pushToProtectedOf, skipHooksOf, type PushClearance } from '../../hooks/push-guard.ts';
+import {
+  commitsOf,
+  protectedBranchesOf,
+  type PushClearance,
+  pushGuardOutput,
+  pushToProtectedOf,
+  skipHooksOf,
+  trustedScriptsOf,
+} from '../../hooks/push-guard.ts';
 import { secretGuardOf, secretGuardOutput, secretPatternsOf } from '../../hooks/secret-guard.ts';
 import { serviceRoleGuardOutput } from '../../hooks/service-role-guard.ts';
 import { sessionIdOf } from '../../inbox/inbox.ts';
@@ -93,6 +101,7 @@ export function pushGuardOutputOf(runtime: CliRuntime, guard: GuardLoad, payload
     repo: runtime.git,
     protectedBranches: protectedBranchesOf(load),
     pushToProtected: pushToProtectedOf(load),
+    trustedScripts: trustedScriptsOf(load),
     commits: commitsOf(load),
     commitLog: runtime.commitLog,
     skipHooks: skipHooksOf(load),
