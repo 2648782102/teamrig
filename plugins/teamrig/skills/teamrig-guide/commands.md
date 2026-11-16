@@ -3408,7 +3408,9 @@ WAKES shop-web (session web) within about 15 s: an inbox line from owner asks it
 What a tab started by `open` runs: it sets the session's variables and starts Claude Code under the session's
 name, model and effort. You do not run it yourself; `open` writes it. When the automatic context refresh ends
 Claude Code for a fresh start, launch starts it again in the same tab, fresh, with a prompt to read its handover
-first.
+first. Each plugin folder the team config names [open.pluginDirs] loads with `--plugin-dir`, for a teamrig or a
+plugin beside it that Claude Code has not installed; launch refuses to start while one holds no
+`.claude-plugin/plugin.json`.
 
 Flags:
 
