@@ -1315,9 +1315,10 @@ Flags:
   and any other `status:` label comes off; a goal, a task planned after its parts, shows none, as its parts' issues
   carry theirs, and so does a design issue (labelled `design`: talk, not work to take until agreed), which is also
   assigned to no one; a done task closes it as completed, a
-  dropped one as not planned. It plans against the issues as GitHub lists them now, so a label someone changed by
-  hand is set back and a run that stopped half way is planned again whole. It never reopens an issue a person
-  closed: a `KEPT` line names it, and an `UNLISTED` line an active task's issue that is not open on GitHub. A run
+  dropped one as not planned. It plans against the issues as GitHub lists them now, so a run that stopped half way
+  is planned again whole. A `status:` label or assignee a person changed since teamrig's last write stays: a `HELD`
+  line names the write it leaves, until the task's status matches the person's change. It never reopens an issue a
+  person closed: a `KEPT` line names it, and an `UNLISTED` line an active task's issue that is not open on GitHub. A run
   sends at most 40 writes (half GitHub's limit of 80 a minute), shared by the repositories in order, and leaves the
   rest for the next. On its own it only
   plans: it reads the issues and writes nothing. With `--yes` a session on the team sends the plan, a `SET` line for

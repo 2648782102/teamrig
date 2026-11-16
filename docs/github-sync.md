@@ -389,8 +389,12 @@ PREVIEW nothing was written; a push would send 7 write(s) now, at most 40 a run,
 - **A design issue shows none.** An issue labelled `design` is talk about how something should work, not work to
   take until it is agreed: the push takes every `status:` label off it and assigns it to no one, whatever its task's
   status. Done or dropped still closes it.
-- **Planned against GitHub as it is.** The plan compares each task with its issue as listed now, so a label someone
-  changed by hand is set back, and a run that stopped half way is planned again whole.
+- **Planned against GitHub as it is.** The plan compares each task with its issue as listed now, so a run that
+  stopped half way is planned again whole.
+- **A person's change stands.** teamrig keeps what it last left on each issue: its `status:` labels and assignees.
+  A field a person changed since then is theirs: the push leaves it, with a `HELD` line, until the task's status
+  matches it, and from then on writes it again as the task moves. An issue teamrig has no record of yet is taken as
+  it stands, so its first push sends every change.
 - **A person's close stands.** An issue closed while its task is active is never reopened: a `KEPT` line names it.
 - **Someone answers for it.** An open issue of a scheduled task (started, or with a due date), not a design issue,
   no one is assigned to gets an assignee: the login `github.owners` maps to the task's owning session, else the account that owns the
