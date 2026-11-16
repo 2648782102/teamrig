@@ -63,7 +63,7 @@ import { secretGuardOffWarnings } from '../secret-guard-off-check.ts';
 import { secretHookWarnings } from '../secret-hook-check.ts';
 import { ownerBatchOf, type BatchedTeam } from '../owner-batch.ts';
 import { rollUp, type RolledTeam, type RollUp } from '../roll-up.ts';
-import { splitUnowned } from '../unowned.ts';
+import { coverUnowned, splitUnowned } from '../unowned.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { loadTree, skillOwnersElsewhere, type KitTree, type TreeTeam } from '../tree.ts';
 import { readBursts } from '../burst-reading.ts';
@@ -1121,7 +1121,8 @@ export async function checkReport(args: ParsedArgs, runtime: CliRuntime): Promis
   const late = await githubLateWarnings(runtime.files, own.paths.githubClocks, zone, now.getTime());
   const restore = await restoreLauncherWarnings(runtime.files, resolveKitHome(runtime.env, runtime.userHome));
   const lead = own.config.roles.lead;
-  return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: [...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], lead, decisions };
+  const cover = coverUnowned([...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late], own.snapshot.state.tasks.values());
+  return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: cover.unowned, covered: cover.covered, lead, decisions };
 }
 
 /**
