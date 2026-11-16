@@ -227,7 +227,8 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **A stuck check**: an awaited check queued or running for `checkMinutes` (in `tools/ship/repos.json`, 30 when not
   listed) counts failed, its detail naming the minutes, and is never re-run as flaky; a job GitHub still lists running
-  after its run completed counts done with its conclusion, else failed. So a stuck check frees the ship slot.
+  after its run completed counts done with its conclusion, else failed. So a stuck check frees the ship slot; a long
+  runner queue counts too, so raise `checkMinutes` for a repository whose runners often queue that long.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
   new push dismisses an approval given before it. A change to the git hooks, CI, the scrub or teamrig's guards
   (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,
