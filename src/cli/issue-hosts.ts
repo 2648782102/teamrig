@@ -1,7 +1,9 @@
 import type { SecretScanner } from '../core/secrets.ts';
 import { GitHubIssueHost } from '../github/host.ts';
+import { GitHubPullReviewHost } from '../github/pull-review.ts';
 import { RepoTokens } from '../github/tokens.ts';
 import type { HostKind, IssueHost } from '../issues/host.ts';
+import type { PullReviewHost } from '../issues/review.ts';
 import { RefusedError, type CliRuntime } from './runtime.ts';
 
 /**
@@ -12,6 +14,14 @@ export function hostOf(kind: HostKind, runtime: CliRuntime, scanner: SecretScann
   switch (kind) {
     case 'github':
       return new GitHubIssueHost(runtime.gh, new RepoTokens(runtime.credentials, runtime.env), scanner);
+  }
+}
+
+/** The pull request review adapter for a host kind (issues/review.ts), as {@link hostOf} is the issue one. */
+export function pullReviewHostOf(kind: HostKind, runtime: CliRuntime, scanner: SecretScanner): PullReviewHost {
+  switch (kind) {
+    case 'github':
+      return new GitHubPullReviewHost(runtime.gh, new RepoTokens(runtime.credentials, runtime.env), scanner);
   }
 }
 

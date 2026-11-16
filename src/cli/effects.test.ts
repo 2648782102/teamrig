@@ -109,6 +109,7 @@ const EXPECTED = {
   'issue close': 'write',
   'issue label': 'write',
   'pr conflicts': 'write',
+  'pr review': 'write',
   'issue links': 'write',
   budget: 'read',
   'budget lift': 'write',
