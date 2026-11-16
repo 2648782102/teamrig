@@ -186,6 +186,8 @@ function fixture(options: Fixture = {}) {
     sweep,
     clearMerge: () => Promise.reject(new Error('merge-pr clears through clearPull')),
     catchUp: () => ({ kind: 'refused', reason: 'never caught up' }),
+    // The release's merge (mergeRun) asks to set the host share aside (T3336); as outside a queued step, it keeps it.
+    share: { away: () => Promise.resolve(false), back: () => Promise.resolve(null) },
     clearPull,
     files: {
       readText: (path) => files.get(path) ?? '',
