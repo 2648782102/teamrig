@@ -241,7 +241,7 @@ export async function issueSimilar(args: ParsedArgs, runtime: CliRuntime): Promi
 }
 
 /** The issue or pull request the one positional names; refused when it names none. */
-function targetOf(args: ParsedArgs): IssueTarget {
+export function targetOf(args: ParsedArgs): IssueTarget {
   const text = onePositional(args, 'issue');
   const target = parseIssueTarget(text);
   if (target === undefined) {
@@ -263,12 +263,12 @@ async function writeOn(args: ParsedArgs, runtime: CliRuntime, write: IssueWrite,
  * The host of `repo` once the caller is on the team, the repository is one of the team's and the text to post (if
  * any) may be posted; undefined, after an OFF line, while GitHub is off on the machine.
  */
-async function hostFor(args: ParsedArgs, runtime: CliRuntime, repo: string, posted: Posted | undefined): Promise<IssueHost | undefined> {
+export async function hostFor(args: ParsedArgs, runtime: CliRuntime, repo: string, posted: Posted | undefined): Promise<IssueHost | undefined> {
   return hostAfter(await checkedRepo(args, runtime, repo), runtime, posted);
 }
 
 /** A text to post and the flag that gave it, which a refusal names. */
-interface Posted {
+export interface Posted {
   readonly flag: string;
   readonly text: string;
 }
