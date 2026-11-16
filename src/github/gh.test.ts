@@ -27,6 +27,14 @@ import {
   isLabelRead,
   isLabelRemove,
   isLinkAdd,
+  isPullFilesRead,
+  isPullRead,
+  isPullReview,
+  isViewerRead,
+  pullFilesArgs,
+  pullReadArgs,
+  pullReviewArgs,
+  viewerReadArgs,
   isWatchProbe,
   issueAssignArgs,
   issueBodyArgs,
@@ -639,6 +647,66 @@ describe('isWatchProbe', () => {
   });
 });
 
+describe('the pull request review calls', () => {
+  const PULL: IssueNumber = { repo: 'acme/web', number: 12 };
+  const SHA = 'a'.repeat(40);
+
+  it('takes the read of one pull request, a page of its files and the viewer, as their builders make them', () => {
+    const cases: Array<[string[], (args: readonly string[]) => boolean]> = [
+      [pullReadArgs(PULL), isPullRead],
+      [pullFilesArgs(PULL, 1), isPullFilesRead],
+      [pullFilesArgs(PULL, 30), isPullFilesRead],
+      [viewerReadArgs(), isViewerRead],
+    ];
+    for (const [args, matcher] of cases) {
+      assert.equal(matcher(args), true, args.join(' '));
+      assert.equal(isAllowedGh(args), true, args.join(' '));
+    }
+    assert.deepEqual(pullReadArgs(PULL), ['api', 'repos/acme/web/pulls/12', '-X', 'GET']);
+    assert.deepEqual(pullFilesArgs(PULL, 2), ['api', 'repos/acme/web/pulls/12/files', '-X', 'GET', '-f', 'per_page=100', '-f', 'page=2']);
+  });
+
+  it('takes one approval or change request bound to a full commit, with or without its text', () => {
+    const approve = pullReviewArgs(PULL, { event: 'APPROVE', commit: SHA });
+    const changes = pullReviewArgs(PULL, { event: 'REQUEST_CHANGES', commit: SHA, body: 'a;b $(x) | y' });
+    assert.deepEqual(changes, ['api', 'repos/acme/web/pulls/12/reviews', '-X', 'POST', '-f', `commit_id=${SHA}`, '-f', 'event=REQUEST_CHANGES', '-f', 'body=a;b $(x) | y']);
+    for (const args of [approve, changes]) {
+      assert.equal(isPullReview(args), true, args.join(' '));
+      assert.equal(isAllowedGh(args), true, args.join(' '));
+    }
+  });
+
+  it('refuses an edit, a merge, an unbounded or out-of-range page, another account read, and a review not bound or not a verdict', () => {
+    const base = ['api', 'repos/acme/web/pulls/12/reviews', '-X', 'POST'];
+    const refused: string[][] = [
+      ['api', 'repos/acme/web/pulls/12', '-X', 'PATCH', '-f', 'state=closed'],
+      ['api', 'repos/acme/web/pulls/12', '-X', 'GET', '-f', 'x=1'],
+      ['api', 'repos/acme/web/pulls/12/merge', '-X', 'PUT'],
+      ['api', 'repos/acme/../pulls/12', '-X', 'GET'],
+      ['api', 'repos/acme/web/pulls/012', '-X', 'GET'],
+      ['api', 'repos/acme/web/pulls/12/files', '-X', 'GET', '-f', 'per_page=100', '-f', 'page=31'],
+      ['api', 'repos/acme/web/pulls/12/files', '-X', 'GET', '-f', 'per_page=100', '-f', 'page=0'],
+      ['api', 'repos/acme/web/pulls/12/files', '-X', 'GET', '-f', 'per_page=100'],
+      ['api', 'repos/acme/web/pulls/12/files', '-X', 'GET', '-f', 'per_page=100', '-f', 'page=1', '--paginate'],
+      ['api', 'user', '-X', 'PATCH', '-f', 'name=x'],
+      ['api', 'user'],
+      ['api', 'user/emails', '-X', 'GET'],
+      [...base, '-f', 'event=APPROVE'],
+      [...base, '-f', `commit_id=${SHA.slice(0, 12)}`, '-f', 'event=APPROVE'],
+      [...base, '-f', 'commit_id=main', '-f', 'event=APPROVE'],
+      [...base, '-f', `commit_id=${SHA}`, '-f', 'event=COMMENT', '-f', 'body=x'],
+      [...base, '-f', `commit_id=${SHA}`, '-f', 'event=APPROVE', '-f', 'comments[]=x'],
+      [...base, '-f', `commit_id=${SHA}`, '-f', 'event=APPROVE', '-f', 'body=x', '-f', 'body=y'],
+      [...base, '-F', `commit_id=${SHA}`, '-f', 'event=APPROVE'],
+      ['api', 'repos/acme/web/pulls/12/reviews/9/dismissals', '-X', 'PUT', '-f', 'message=x'],
+      ['api', 'repos/acme/web/pulls/12/reviews', '-X', 'GET'],
+    ];
+    for (const args of refused) {
+      assert.equal(isAllowedGh(args), false, args.join(' '));
+    }
+  });
+});
+
 describe('isJobLogRead', () => {
   it("takes the failed-log read of one job, as jobLogArgs makes it", () => {
     const args = jobLogArgs('acme/web', 40123456789);
@@ -689,7 +757,7 @@ describe('nodeGhRunner', () => {
     }
     await assert.rejects(
       nodeGhRunner(process.execPath, [gh]).run({ args: ['issue', 'close', '7'], env: ENV }),
-      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, and to read a failed job's log: it refuses gh issue close with these arguments/,
+      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, to read a failed job's log, and to read or review a pull request: it refuses gh issue close with these arguments/,
     );
     assert.equal(existsSync(marker), false);
   });

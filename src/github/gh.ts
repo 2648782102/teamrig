@@ -16,7 +16,9 @@ import { QUERY_VARIABLES, RAW_FIELD } from './queries.ts';
  * assignees (a claim the sync made that ran out), the creation of one of the labels teamrig makes (the status push
  * and issue label), one sub-issue or blocked-by link added (issue links), and `issue watch`'s two probes,
  * conditional reads that tell whether a repository changed (isWatchProbe), and the read of one failed Actions job's
- * log (the pull request monitor names its failed step). The runner refuses any other command line before it starts:
+ * log (the pull request monitor names its failed step), and for pr review the read of one pull request, a page of
+ * its changed files and the token's account, then one review bound to a full commit id. The runner refuses any other
+ * command line before it starts:
  * no title or state edit besides the close, no reopen, removal of more than one assignee at once, label create but
  * teamrig's own, label edit or delete, link removal, merge, branch delete, run rerun or cancel, or log download.
  *
@@ -490,6 +492,123 @@ export function isJobLogRead(args: readonly string[]): boolean {
   );
 }
 
+/** The command line that reads one pull request: its state, author and head commit, for a review's checks. */
+export function pullReadArgs(target: IssueNumber): string[] {
+  return ['api', `repos/${target.repo}/pulls/${target.number}`, '-X', 'GET'];
+}
+
+/** The files one page of a pull request's changed files gives at most: GitHub's largest page. */
+export const PULL_FILES_PAGE = 100;
+
+/** The pages of changed files GitHub gives at most: it lists no more than 3000 files of a pull request. */
+export const PULL_FILES_PAGES = 30;
+
+/** The command line that reads one page (from 1) of a pull request's changed files, a renamed file with its old path. */
+export function pullFilesArgs(target: IssueNumber, page: number): string[] {
+  return ['api', `repos/${target.repo}/pulls/${target.number}/files`, '-X', 'GET', RAW_FIELD, `per_page=${PULL_FILES_PAGE}`, RAW_FIELD, `page=${page}`];
+}
+
+/** The command line that reads the account a token acts as: the reviewer a review would be posted by. */
+export function viewerReadArgs(): string[] {
+  return ['api', 'user', '-X', 'GET'];
+}
+
+/** A review's verdict as GitHub's REST API takes it: a review that only comments is not one teamrig posts. */
+export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES';
+
+const REVIEW_EVENTS: ReadonlySet<string> = new Set<ReviewEvent>(['APPROVE', 'REQUEST_CHANGES']);
+
+/** A commit's full id: 40 lower-case hex digits, never a branch name or a short id GitHub could read as another commit. */
+export const COMMIT_ID = /^[0-9a-f]{40}$/u;
+
+/** One review to post: its verdict, the commit it is bound to, and its text when it has one. */
+export interface ReviewPost {
+  readonly event: ReviewEvent;
+  readonly commit: string;
+  readonly body?: string;
+}
+
+/**
+ * The command line that posts one review on a pull request, bound to `commit_id`: GitHub records the review against
+ * that commit, never the head at the moment it lands, so commits pushed after the read are not covered by it. GitHub
+ * does not refuse an older commit, so the caller checks the head first (issues/review.ts).
+ */
+export function pullReviewArgs(target: IssueNumber, review: ReviewPost): string[] {
+  const body = review.body === undefined ? [] : [RAW_FIELD, `body=${review.body}`];
+  return ['api', `repos/${target.repo}/pulls/${target.number}/reviews`, '-X', 'POST', RAW_FIELD, `commit_id=${review.commit}`, RAW_FIELD, `event=${review.event}`, ...body];
+}
+
+/** `repos/<owner>/<name>/pulls/<number>`, then `/files`, `/reviews` or nothing. */
+const PULL_PATH = /^repos\/([^/]+\/[^/]+)\/pulls\/([1-9][0-9]{0,9})(\/files|\/reviews)?$/u;
+
+/** The method of `gh api <path> -X <method>` and the part of the pull request the path names, when it is one pull request's. */
+function pullCall(args: readonly string[]): { readonly method: string; readonly part: 'pull' | 'files' | 'reviews' } | undefined {
+  const match = PULL_PATH.exec(args[1] ?? '');
+  const method = args[3];
+  if (args[0] !== 'api' || match === null || !REPO_NAME.test(match[1] ?? '') || args[2] !== '-X' || method === undefined) {
+    return undefined;
+  }
+  const tail = match[3];
+  return { method, part: tail === '/files' ? 'files' : tail === '/reviews' ? 'reviews' : 'pull' };
+}
+
+/**
+ * True for `gh api repos/<owner>/<name>/pulls/<number> -X GET` and nothing more: the read of one pull request. A
+ * field (a query, or with another method an edit of its title, body, base or state) is refused.
+ */
+export function isPullRead(args: readonly string[]): boolean {
+  const call = pullCall(args);
+  return call?.method === 'GET' && call.part === 'pull' && args.length === 4;
+}
+
+/** `page=<k>`, a page from 1 to PULL_FILES_PAGES. */
+const FILES_PAGE_NUMBER = /^(?:[1-9]|[12][0-9]|30)$/u;
+
+/**
+ * True for `gh api repos/<owner>/<name>/pulls/<number>/files -X GET -f per_page=100 -f page=<k>` and nothing more:
+ * one page of one pull request's changed files, k at most PULL_FILES_PAGES. Another field, page size, method or
+ * `--paginate` is refused, so the read stays one bounded page.
+ */
+export function isPullFilesRead(args: readonly string[]): boolean {
+  const call = pullCall(args);
+  const [size, page, ...rest] = rawPairs(args.slice(4)) ?? [];
+  return (
+    call?.method === 'GET' &&
+    call.part === 'files' &&
+    size?.[0] === 'per_page' &&
+    size[1] === String(PULL_FILES_PAGE) &&
+    page?.[0] === 'page' &&
+    FILES_PAGE_NUMBER.test(page[1]) &&
+    rest.length === 0
+  );
+}
+
+/** True for `gh api user -X GET` and nothing more: the read of the account the token acts as. */
+export function isViewerRead(args: readonly string[]): boolean {
+  return sameArgs(args, viewerReadArgs());
+}
+
+/**
+ * True for `gh api repos/<owner>/<name>/pulls/<number>/reviews -X POST -f commit_id=<40 hex> -f event=<APPROVE or
+ * REQUEST_CHANGES> [-f body=<text>]` and nothing more: one review, bound to a full commit id, that approves or asks
+ * for changes. A review with no commit, a short one, a COMMENT or PENDING event, line comments, another field, method
+ * or path (a merge, a dismissal, an edit of a review) is refused.
+ */
+export function isPullReview(args: readonly string[]): boolean {
+  const call = pullCall(args);
+  const [commit, event, body, ...rest] = rawPairs(args.slice(4)) ?? [];
+  return (
+    call?.method === 'POST' &&
+    call.part === 'reviews' &&
+    commit?.[0] === 'commit_id' &&
+    COMMIT_ID.test(commit[1]) &&
+    event?.[0] === 'event' &&
+    REVIEW_EVENTS.has(event[1]) &&
+    (body === undefined || body[0] === 'body') &&
+    rest.length === 0
+  );
+}
+
 /** One `gh` run: its arguments, passed as a list and never read by a shell, and the environment. */
 export interface GhRequest {
   readonly args: readonly string[];
@@ -573,12 +692,12 @@ export function isLinkAdd(args: readonly string[]): boolean {
   );
 }
 
-/** A command line the runner will not start: none of a shipped query's page, a watch probe, one issue's creation, comment, body, labels, close or link, or a failed job's log. */
+/** A command line the runner will not start: none of a shipped query's page, a watch probe, one issue's creation, comment, body, labels, close or link, a failed job's log, or one pull request's read or review. */
 export class GhRefusedError extends Error {
   override readonly name = 'GhRefusedError';
 
   constructor(args: readonly string[]) {
-    super(`teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, and to read a failed job's log: it refuses gh ${args.slice(0, 2).join(' ')} with these arguments`);
+    super(`teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, to read a failed job's log, and to read or review a pull request: it refuses gh ${args.slice(0, 2).join(' ')} with these arguments`);
   }
 }
 
@@ -602,7 +721,11 @@ export function isAllowedGh(args: readonly string[]): boolean {
     isLabelCreate(args) ||
     isLinkAdd(args) ||
     isWatchProbe(args) ||
-    isJobLogRead(args)
+    isJobLogRead(args) ||
+    isPullRead(args) ||
+    isPullFilesRead(args) ||
+    isViewerRead(args) ||
+    isPullReview(args)
   );
 }
 
