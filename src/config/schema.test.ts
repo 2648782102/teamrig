@@ -138,6 +138,7 @@ const LIMIT_PATHS: { readonly [Name in keyof typeof CONFIG_LIMITS]: string } = {
   ruleConflicts: 'ruleConflicts',
   protectedBranches: 'pushGuard.protectedBranches',
   reviewPaths: 'pushGuard.reviewPaths',
+  areaPaths: 'github.areaPaths.*',
   commitMaxLines: 'commits.maxLines',
   commitMaxFiles: 'commits.maxFiles',
   testPatterns: 'commits.testPatterns',

@@ -65,6 +65,7 @@ export const CONFIG_LIMITS = {
   wakeMinGapMinutes: { min: 0, max: 1440 },
   maxFailureChars: { min: 500, max: 50_000 },
   githubRepos: { maxItems: 20, maxLength: 140 },
+  areaPaths: { maxItems: 64, maxLength: 240 },
   closedDays: { min: 1, max: 365 },
   githubProbeSeconds: { min: 0, max: 3600 },
   similarThreshold: { min: 0, max: 1 },
