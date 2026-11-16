@@ -191,6 +191,7 @@ matrix.
   the dist on top to the `release` branch, tagged `v<version>` (`tools/release/publish.ts`).
 
 ## Issues
+[Issues and pull requests](docs/issues-and-pull-requests.md) is the short way in, for people and their AI tools.
 Each issue becomes a task teamrig tracks, so an issue carries the task's fields. Open one through a form: a blank issue
 is turned off.
 
