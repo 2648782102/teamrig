@@ -217,6 +217,8 @@ export interface TeamPaths {
   readonly githubPushHour: string;
   /** The response clock of each GitHub thread waiting on an answer of ours (github/clock.ts). */
   readonly githubClocks: string;
+  /** Each GitHub thread whose labels disagree with what is happening on it, as the last writing sync read it (github/drift.ts). */
+  readonly githubDrift: string;
   /** The lease of the team's one `issue watch`: its pid and last beat (github/watch.ts). */
   readonly githubWatch: string;
   /** Held while a hook claims the watch or the watch claims, renews or drops its lease. */
@@ -372,6 +374,7 @@ export function teamPaths(kitHome: string, team: string, claudeDir: string, over
     githubSyncLock: join(state, 'github-sync.lock'),
     githubPushHour: join(state, 'github-push-hour.json'),
     githubClocks: join(state, 'github-clocks.json'),
+    githubDrift: join(state, 'github-drift.json'),
     githubWatch: join(state, 'github-watch.json'),
     githubWatchLock: join(state, 'github-watch.lock'),
     githubClaims: join(state, 'github-claims.json'),

@@ -35,9 +35,11 @@ import { openTeamKit, requireConfig } from '../kit.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { teamRegister } from '../team-register.ts';
 import type { Thread } from '../../github/clock.ts';
+import { issueDrift, type Drift } from '../../github/drift.ts';
 import type { HostIssue } from '../../issues/issue.ts';
 import { claimBudget, recordClaims } from './issue-claim.ts';
 import { pullThreads, recordClocks, repoThreads } from './issue-clock.ts';
+import { recordDrift } from './issue-drift.ts';
 import { fieldRunOf } from './issue-field-push.ts';
 import { reserveHour, settleHour } from './issue-push-hour.ts';
 import { issuePush, pushEndLine, pushRepos } from './issue-push.ts';
@@ -128,6 +130,8 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   /** The open threads of the repositories read, for the response clock, and those repositories. */
   const threads: Thread[] = [];
   const clocked = new Set<string>();
+  /** The threads out of step in those same repositories, for GH-DRIFT. */
+  const drift: Drift[] = [];
   for (const repo of reposOf(config.github.repos, args.flags.get('repo'))) {
     const reach = await host.reach(repo, 'read');
     if (reach.kind === 'unreachable') {
@@ -172,6 +176,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       const outcomes = await applySteps(register, plan.steps);
       // Against the tasks as written, so an issue the import just took is held by its new task.
       issueThreads = repoThreads(read.issues, [...(await register.snapshot()).state.tasks.values()], rules, ours);
+      drift.push(...read.issues.flatMap(issueDrift));
       claimRead.set(repo, read.issues);
       [...resultLines(repo, plan, outcomes), ...leftOutText].forEach(say);
       written += outcomes.filter((outcome) => outcome.result.ok).length;
@@ -243,6 +248,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   }
   if (write) {
     (await recordClocks(runtime, kit, config, clocked, threads)).forEach(say);
+    await recordDrift(runtime, kit, config, clocked, drift);
   }
   if (pushing) {
     const hour = await reserveHour(runtime, kit, config);
