@@ -416,6 +416,13 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
       writes nothing to GitHub; refuses a folder whose origin is another repository
+  pr review <owner/name#n> --approve|--request-changes --head <sha> [--body-file <path>]
+      [--verdict <task>]   posts one review on a pull request of the team's repositories, bound to
+      --head, the full id of the head commit you read, with the same access and checks as issue
+      comment; refused, posting nothing, when the pull request is not open, its head moved since, or
+      it is the access's own account's; --request-changes needs --body-file; an approval of a change
+      to a security path of the merge review gate names the security reviewer's done task with
+      --verdict; the review approves no task's wait and merges nothing
   issue links [--repo <owner/name>] [--yes]   puts the task tree on the issues of github.repos: each
       task planned after or waiting on another, both mirrored in one repository, is marked blocked by
       it on GitHub, and a part of one whole becomes its sub-issue; without --yes it reads the links

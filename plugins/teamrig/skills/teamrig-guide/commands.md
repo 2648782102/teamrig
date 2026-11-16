@@ -1583,6 +1583,41 @@ CONFLICTS acme/web#7 (head d00d5ee) against origin/main (b4e2a91): 2 files
 To land it: rebase its branch onto origin/main and resolve these files.
 ```
 
+### teamrig pr review
+
+Posts one review on a pull request of the team's repositories: an approval, or a change request saying what to
+change. It is bound to the head commit you read (`--head`, its full id, as `git rev-parse` prints it), so a push
+after your read is never approved unread: when the pull request's head is no longer that commit, or it is not open,
+or it was opened by the account the access acts as, it fails and posts nothing. It uses the same caller, repository,
+access and text checks as `teamrig issue comment`, and the text comes from a file. An approval of a change that
+touches a security path of the merge review gate (teamrig's own, such as lockfiles, hooks and workflows, and the
+security entries of [pushGuard.reviewPaths]; a renamed file counts by both paths) is held until `--verdict` names
+the security reviewer's [roles.securityReviewer] done task. The review is the reviewer's word on GitHub only: it
+approves no task's wait and merges nothing. It prints `REVIEWED <target>: approved at <head>`, or `FAILED <target>:
+<reason>; no review was posted`. Exit 1 when it failed, 2 when refused, else 0.
+
+Flags:
+
+- `--session <id|name>`: the caller, a session of the team.
+- `--approve`: approve the pull request.
+- `--request-changes`: ask for changes before it lands; needs `--body-file`.
+- `--head <sha>`: the full id of the head commit you read, required.
+- `--body-file <path>`: the file holding the review's text.
+- `--verdict <task>`: the security reviewer's done task that passed a change to a gated path.
+
+Example:
+
+```sh
+teamrig pr review acme/web#7 --approve --head 4f2a9c1e0b7d3a6f8e5c2b1a0d9e8f7c6b5a4d3e
+```
+
+Output:
+
+```text
+ACCESS acme: writes with the token saved as teamrig-gh-acme
+REVIEWED acme/web#7: approved at 4f2a9c1e0
+```
+
 ### teamrig issue links
 
 Puts the task tree on the issues of `github.repos`. A task planned after another or waiting on it (a `task:` wait),
