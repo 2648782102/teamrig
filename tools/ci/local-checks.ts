@@ -15,7 +15,7 @@ export const DEFAULT_BASE = 'origin/main';
 export function localChecks(base: string): readonly LocalCheck[] {
   return [
     ...commitChecks(base),
-    TYPECHECK,
+    ...TYPECHECKS,
     { name: 'coverage gate', argv: ['node', 'tools/ci/coverage-cli.ts'] },
     { name: 'build: clean', argv: ['node', 'tools/build/clean.ts'] },
     { name: 'build: compile', argv: ['node', TSC, '-p', 'tsconfig.build.json'] },
@@ -39,14 +39,18 @@ export function localChecks(base: string): readonly LocalCheck[] {
 export function prePushChecks(base: string): readonly LocalCheck[] {
   return [
     ...commitChecks(base),
-    TYPECHECK,
+    ...TYPECHECKS,
     { name: 'compile', argv: ['node', TSC, '-p', 'tsconfig.build.json', '--noEmit'] },
     PLUGIN_TESTS,
     ...DOC_CHECKS,
   ];
 }
 
-const TYPECHECK: LocalCheck = { name: 'typecheck', argv: ['node', TSC, '-p', 'tsconfig.json'] };
+/** The typecheck of the source, then of the plugin's mod under the same strict flags (#664), as `npm run typecheck`. */
+const TYPECHECKS: readonly LocalCheck[] = [
+  { name: 'typecheck', argv: ['node', TSC, '-p', 'tsconfig.json'] },
+  { name: 'typecheck: mod', argv: ['node', TSC, '-p', 'tsconfig.mod.json'] },
+];
 
 /** The plugin's own tests, in an empty home: no account, settings or other plugins. */
 const PLUGIN_TESTS: LocalCheck = { name: 'plugin tests', argv: ['claude', 'plugin', 'test', 'plugins/teamrig'], isolatedHome: true };
@@ -82,12 +86,12 @@ function commitShape(base: string): readonly LocalCheck[] {
 }
 
 /**
- * The short checks (check-scope.ts, T3414): the scrub, the DCO sign-off, the typecheck and the given specs, for a
+ * The short checks (check-scope.ts, T3414): the scrub, the DCO sign-off, the typechecks (source and mod) and the given specs, for a
  * branch whose main merges only on GitHub's required checks, which run the whole suite on the pull request. The
  * pre-push hook runs `teamrig secrets pushed` before them. With no spec to run, the specs' check is left out.
  */
 export function shortChecks(base: string, specs: readonly string[]): readonly LocalCheck[] {
-  const checks = [...signedScrubbed(base), TYPECHECK];
+  const checks = [...signedScrubbed(base), ...TYPECHECKS];
   return specs.length === 0 ? checks : [...checks, { name: 'changed specs', argv: ['node', '--test', ...specs] }];
 }
 
