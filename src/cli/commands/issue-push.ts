@@ -87,6 +87,8 @@ export interface PushRun {
   readonly told: Set<string>;
   /** The field push after the labels (T3406); undefined when github.fields.push is off. */
   readonly fields: FieldRun | undefined;
+  /** The numbers of each repository's open pull requests, when the run read them already; else read when needed (withoutOpenPulls). */
+  readonly openPulls?: ReadonlyMap<string, ReadonlySet<number>>;
 }
 
 /** What a push did: the changes and writes it sent (planned, without send), and each repository that failed. */
@@ -129,7 +131,7 @@ export async function pushRepos(run: PushRun, say: (line: string) => void): Prom
     read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
     // Held as a list: the label plan and the field plan each go over every task.
     const tasks = [...(await run.tasks())];
-    const plan = planPush(repo, read.issues, tasks, { writesPerRun: left, closes: run.limits.closes }, run.logins);
+    const plan = await withoutOpenPulls(run, repo, planPush(repo, read.issues, tasks, { writesPerRun: left, closes: run.limits.closes }, run.logins), say);
     planLines(plan).forEach(say);
     const planned = plan.changes.reduce((sum, change) => sum + changeWrites(change), 0);
     left -= planned;
@@ -155,6 +157,29 @@ export async function pushRepos(run: PushRun, say: (line: string) => void): Prom
     }
   }
   return { sent, writes, failures };
+}
+
+/**
+ * `plan` without the open pull requests among its unlisted holds. The issue list never holds a pull request, so a
+ * task for one (the watcher's, pull-news.ts pullTasks) reads as not listed while it is open; its pull request is open,
+ * so it is not news. The run's own read of them stands, else they are read here, only when the plan has an unlisted
+ * hold; a failed read leaves the plan as it is.
+ */
+async function withoutOpenPulls(run: PushRun, repo: string, plan: PushPlan, say: (line: string) => void): Promise<PushPlan> {
+  if (plan.unlisted.length === 0) {
+    return plan;
+  }
+  let open = run.openPulls?.get(repo);
+  if (open === undefined) {
+    const read = await run.host.pulls(repo, undefined);
+    if (read.kind === 'failed') {
+      say(`NOTE ${repo}: the open pull requests could not be read (${read.reason}), so an unlisted line may name one`);
+      return plan;
+    }
+    open = new Set(read.open.map((pull) => pull.number));
+  }
+  const known = open;
+  return { ...plan, unlisted: plan.unlisted.filter((held) => !known.has(held.target.number)) };
 }
 
 /** The line ending a push: what it sent, or, without send, that it wrote nothing and what it would send. */
