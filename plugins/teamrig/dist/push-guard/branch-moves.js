@@ -13,7 +13,15 @@ const BRANCH_UPSTREAMS = new Set([...BRANCH_RETARGETS, '-t', '--track', '-c', '-
 /** `checkout` and `switch` options that may give a branch an upstream: a new branch from a remote one, or `--track`. */
 const UPSTREAM_SETTERS = new Set([...CREATE_OPTIONS, '-t', '--track']);
 /** `git remote` subcommands that rename or drop a remote's keys, `remote.<name>.push` and `branch.<name>.remote` among them. */
-const REMOTE_REWRITES = new Set(['add', 'rename', 'remove', 'rm']);
+const REMOTE_REWRITES = new Set(['rename', 'remove', 'rm']);
+/**
+ * `git remote add` options that write only fetch keys (`remote.<name>.url`, `.fetch`, `.tagOpt`) or fetch at once, so no
+ * key a named push reads. `--mirror` is left out: `--mirror=push` sets `remote.<name>.mirror`, which changes what a push
+ * to it sends.
+ */
+const REMOTE_ADD_FETCH_ONLY = new Set(['-f', '--fetch', '--tags', '--no-tags', '-t', '--track', '-m', '--master']);
+/** `git remote add` options from `REMOTE_ADD_FETCH_ONLY` that take the next word as their value. */
+const REMOTE_ADD_VALUED = new Set(['-t', '--track', '-m', '--master']);
 /** True when a `git config` writes a remote, push or branch key. */
 function writesPushConfig(texts) {
     return !texts.some((text) => CONFIG_READS.has(text)) && texts.some((text) => /^(?:remote|push|branch)\./i.test(text));
@@ -60,6 +68,17 @@ export class BranchMoves {
         return this.change;
     }
     /** Updates the views after one git command runs. */
+    /** True when `invocation` may move the branch of a folder. */
+    moves(invocation) {
+        return this.moveOf(invocation) !== undefined;
+    }
+    /** Forgets where every folder's branch is: the moves seen may not have run. */
+    forget() {
+        for (const key of this.views.keys()) {
+            this.views.set(key, UNKNOWN);
+        }
+        this.othersUnknown = true;
+    }
     observe(invocation) {
         const change = mapChangeOf(invocation);
         if (change === 'config' || (change === 'upstream' && this.change === 'none')) {
@@ -152,6 +171,35 @@ export class BranchMoves {
         return { kind: 'branch', branch: target.text, target: tracked ? 'unknown' : 'read' };
     }
 }
+/**
+ * What a `git remote add` changes of where a branch named alone pushes. A new remote has no `remote.<name>.push`, and a
+ * failed add on a taken name leaves the old keys, so the config read before the line still holds: 'none'. Any option
+ * outside `REMOTE_ADD_FETCH_ONLY`, or a word only known when it runs, may write more: 'config'. An abbreviated option
+ * (`--mi` for `--mirror`) is outside the set too, since git accepts any unique prefix of a long option.
+ */
+function remoteAddChange(args) {
+    // An unquoted variable may split into several words, an option among them.
+    if (args.some((arg) => arg.dynamic)) {
+        return 'config';
+    }
+    for (let index = 0; index < args.length; index += 1) {
+        const text = args[index]?.text ?? '';
+        if (text === '--') {
+            return 'none';
+        }
+        if (!text.startsWith('-')) {
+            continue;
+        }
+        const name = optionName(text);
+        if (!REMOTE_ADD_FETCH_ONLY.has(name)) {
+            return 'config';
+        }
+        if (REMOTE_ADD_VALUED.has(name) && name === text) {
+            index += 1;
+        }
+    }
+    return 'none';
+}
 /** What one git command may change of where a branch named alone pushes (see `namedPushTarget`). */
 function mapChangeOf({ subcommand, args }) {
     const texts = args.map((arg) => arg.text);
@@ -161,7 +209,10 @@ function mapChangeOf({ subcommand, args }) {
         case 'config':
             return writesPushConfig(texts) ? 'config' : 'none';
         case 'remote':
-            return first !== undefined && REMOTE_REWRITES.has(first.text) ? 'config' : 'none';
+            if (first?.text === 'add' && !first.dynamic) {
+                return remoteAddChange(args.slice(args.indexOf(first) + 1));
+            }
+            return first !== undefined && (first.dynamic || REMOTE_REWRITES.has(first.text)) ? 'config' : 'none';
         case 'branch':
             if (options.some((option) => BRANCH_LISTS.has(option))) {
                 return 'none';

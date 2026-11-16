@@ -84,17 +84,33 @@ describe('hook picker-guard', () => {
     assert.deepEqual(await kit.run(HOOK, { stdin: helper }), NOTHING, 'a helper in a tab that is no team session');
   });
 
-  it("refuses a sub-team's lead even with a meeting of its team left open, routing the card to its parent lead", async () => {
+  it("refuses a sub-team's lead, routing the card to its parent lead, and in its own open meeting saying to ask in plain text (T2985)", async () => {
     const kit = await treeHarness();
     await kit.files.write(teamConfigOf('web'), formatConfig({ ...SUB_TEAMS['web'], pickerGuard: { enabled: true } }));
     const web = { TEAMRIG_TEAM: 'web', TEAMRIG_SESSION: 'lead' };
-    // A child team's lead holds no meeting (T1018), so seed one it opened before that, still open half an hour on.
-    await new MeetingStore(kit.files, join(teamHomeOf('web'), 'state', 'meeting.json')).write({ startedAt: '2030-01-08T09:30:00.000Z', by: 'lead', endedAt: null, since: null, carried: [] });
     const result = await kit.run(HOOK, { stdin: call('AskUserQuestion'), env: web });
-    assert.equal(decisionOf(result), 'deny', 'the user talks only to the root lead');
+    assert.equal(decisionOf(result), 'deny', 'no meeting is open, so the card goes up');
     assert.match(reasonOf(result) ?? '', /then tell your parent lead app\/lead \(name `[^`]+`\) in one inbox line, `teamrig inbox add --to app\/lead /);
+    // A sub-team's lead meets the owner over its subtree (T2985): its meeting, opened half an hour before, is open.
+    await new MeetingStore(kit.files, join(teamHomeOf('web'), 'state', 'meeting.json')).write({ startedAt: '2030-01-08T09:30:00.000Z', by: 'lead', endedAt: null, since: null, carried: [] });
+    const meeting = await kit.run(HOOK, { stdin: call('AskUserQuestion'), env: web });
+    assert.equal(decisionOf(meeting), 'deny');
+    assert.match(reasonOf(meeting) ?? '', /^teamrig picker guard: the owner's daily meeting asks in plain text\./);
     const member = await kit.run(HOOK, { stdin: call('AskUserQuestion'), env: { ...web, TEAMRIG_SESSION: 'front' } });
     assert.match(reasonOf(member) ?? '', /--session front`; the lead brings it to the owner\./);
+  });
+
+  // T2985: a worker in its own meeting with the owner asks there in plain text.
+  it('refuses the picker of a session in its own meeting, saying to ask in plain text, and as before once it ends', async () => {
+    const kit = new CliHarness(ON_TEAM);
+    const ask = { stdin: call('AskUserQuestion'), env: ALPHA };
+    assert.equal((await kit.run(['meeting', 'start', '--about', 'the cache design', '--session', 'alpha'])).code, EXIT.ok);
+    const inMeeting = await kit.run(HOOK, ask);
+    assert.equal(decisionOf(inMeeting), 'deny');
+    assert.match(reasonOf(inMeeting) ?? '', /^teamrig picker guard: your meeting M1 with the owner is in this tab: ask in plain text/);
+    assert.match(reasonOf(await kit.run(HOOK, { stdin: call('AskUserQuestion'), env: { TEAMRIG_SESSION: 'bravo' } })) ?? '', /the lead brings it to the owner\./, 'another session');
+    assert.equal((await kit.run(['meeting', 'end', '--session', 'alpha'])).code, EXIT.ok);
+    assert.match(reasonOf(await kit.run(HOOK, ask)) ?? '', /the lead brings it to the owner\./);
   });
 
   it("tells the root lead of a tree in the owner's meeting to ask in plain text, as the lead of a team on its own", async () => {

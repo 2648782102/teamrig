@@ -5,7 +5,7 @@ import { askerOf, guardsPicker, pickerReason, type LeadMeeting } from './picker-
 
 const PICKER = { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' };
 /** No meeting open. */
-const CLOSED: LeadMeeting = { open: false };
+const CLOSED: LeadMeeting = { open: false, inTab: undefined };
 
 describe('guardsPicker', () => {
   it('looks at a PreToolUse call of the question picker with the switch on', () => {
@@ -63,20 +63,38 @@ describe('pickerReason', () => {
   });
 
   it('tells the lead in an open meeting to read the card, let the owner answer in words and record it', () => {
-    const reason = pickerReason('teamrig', { session: 'lead', role: 'lead' }, { open: true });
+    const reason = pickerReason('teamrig', { session: 'lead', role: 'lead' }, { open: true, inTab: undefined });
     assert.match(reason, /^teamrig picker guard: the owner's daily meeting asks in plain text\. Read the card as it stands, its options numbered and your recommendation first/);
     assert.doesNotMatch(reason, /askWith/);
     assert.match(reason, /let the owner answer in their own words; record the answer in the same turn: `teamrig update <id> --decided --note "owner decided: <decision>" --session lead`\.$/);
     assert.doesNotMatch(reason, /teamrig set|Decision needed|away for hours/);
   });
 
-  it("tells a sub-team's lead to record the card and pass it to its parent lead, and never to ask the owner from its tab", () => {
+  it("tells a sub-team's lead to record the card and pass it to its parent lead, or ask it at the owner's meeting in its tab", () => {
     const reason = pickerReason('teamrig', { session: 'lead', role: 'subteam-lead', parentLead: PARENT }, CLOSED);
     assert.match(reason, /Else record it on its task as a decision card, its --default included, and take your next task/);
     assert.match(reason, /--session lead`; then tell your parent lead app\/lead \(name `app-lead`\) in one inbox line,/);
     assert.match(reason, /`teamrig inbox add --to app\/lead --text "T<id> waits on the owner's decision: <what is decided>" --session lead`, and it carries the decision up\./);
-    assert.match(reason, /the picker never opens for a sub-team's lead, and its tab never asks the owner: with no task left, end your turn\.$/);
-    assert.doesNotMatch(reason, /Decision needed|meeting start|the lead brings it/);
+    assert.match(reason, /The picker never opens for a sub-team's lead: the owner's meeting in this tab asks it in plain text \(`teamrig meeting start`\); with no task left, end your turn\.$/);
+    assert.doesNotMatch(reason, /Decision needed|the lead brings it/);
+  });
+
+  // T2985: a sub-team's lead meets the owner over its subtree, in its own tab, as the root's lead does.
+  it("tells a sub-team's lead in its open meeting to read the card, let the owner answer in words and record it", () => {
+    const reason = pickerReason('teamrig', { session: 'lead', role: 'subteam-lead', parentLead: PARENT }, { open: true, inTab: undefined });
+    assert.match(reason, /^teamrig picker guard: the owner's daily meeting asks in plain text\./);
+    assert.match(reason, /`teamrig update <id> --decided --note "owner decided: <decision>" --session lead`\.$/);
+    assert.doesNotMatch(reason, /parent lead|Decision needed/);
+  });
+
+  // T2985: any session the owner meets in its own tab, a worker too, asks there in plain text.
+  it('tells a session in its own meeting with the owner to ask in plain text and record the answer, but not its helper', () => {
+    const inTab: LeadMeeting = { open: false, inTab: 'M4' };
+    const reason = pickerReason('teamrig', { session: 'alpha', role: 'session' }, inTab);
+    assert.match(reason, /^teamrig picker guard: your meeting M4 with the owner is in this tab: ask in plain text, your options numbered/);
+    assert.match(reason, /`teamrig update <id> --decided --note "owner decided: <decision>" --session alpha`\.$/);
+    assert.doesNotMatch(reason, /teamrig set|Decision needed|the lead brings it/);
+    assert.match(pickerReason('teamrig', { session: 'alpha', role: 'helper' }, inTab), /^teamrig picker guard: a helper's question picker/);
   });
 
   it('tells a helper to decide it within its brief, else to end its report with the decision, and to run no set', () => {

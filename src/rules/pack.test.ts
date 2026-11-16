@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIG_LIMITS, RULE_CONFLICT_LIMITS } from '../config/limits.ts';
-import { HOOK_ASKS, PUSH_TO_PROTECTED, type ConflictWinner, type HookAsks, type PushToProtected } from '../config/types.ts';
-import { FOLLOWUP_STATUSES, TASK_STATUSES } from '../register/model.ts';
+import { CONFIG_LIMITS } from '../config/limits.ts';
+import { HOOK_ASKS, PUSH_TO_PROTECTED, type ConflictWinner } from '../config/types.ts';
 import { testConfig } from '../testing/config.ts';
 import { RULES_CLOCK } from '../testing/zone.ts';
+import { DEPLOYED_REPO, filled, worstCaseConfig } from '../testing/worst-config.ts';
 import { CORE_RULE_KEYS, type CoreRuleKey } from './keys.ts';
 import {
   CONTEXT_MAX_CHARS,
@@ -24,83 +24,6 @@ import {
 } from './pack.ts';
 
 const COMMAND = 'teamrig';
-/** A delivery repository that `teamrig deploy` deploys. */
-const DEPLOYED_REPO = { mainCheckout: 'C:/src/app', deploy: { targets: ['api'], command: ['node', 'deploy.js'] } };
-const longest = (letter: string, length: number) => letter.repeat(length);
-const filled = (limit: { readonly maxItems: number; readonly maxLength: number }, letter: string) =>
-  Array.from({ length: limit.maxItems }, () => longest(letter, limit.maxLength));
-
-/**
- * How the push and message rules are worded: the budget spec tries every combination, as which is longest changes
- * with the wording.
- */
-interface Wording {
-  readonly pushToProtected: PushToProtected;
-  readonly hookAsks: HookAsks;
-  readonly wakeEnabled: boolean;
-}
-
-/** Every printed value at its longest: names, lists, numbers and the optional rules all on. */
-function worstCaseConfig(wording: Wording = { pushToProtected: 'ask', hookAsks: 'refuse', wakeEnabled: true }) {
-  const lead = longest('l', 32);
-  const delivery = longest('c', 32);
-  // A team above's reviewer, `<team>/<id>`, prints longest in rule 1; with one set, rule 11's auditor wording is longer.
-  const reviewer = `${longest('t', 32)}/${longest('r', 32)}`;
-  return testConfig({
-    // Its mark and offset, `ACWST` and `UTC+8:45`, print widest of every zone's, in either season.
-    timeZone: 'Australia/Eucla',
-    sessions: [lead, delivery],
-    roles: { lead, deliveryOwner: delivery, securityReviewer: reviewer },
-    ownerGates: filled(CONFIG_LIMITS.ownerGates, 'g'),
-    messages: { maxLines: CONFIG_LIMITS.maxLines.max },
-    register: {
-      requireNoteOn: [...TASK_STATUSES].sort((a, b) => b.length - a.length).slice(0, CONFIG_LIMITS.requireNoteOn.maxItems),
-      requireEvidenceOnDone: true,
-      requireSkillOnDone: true,
-      requireFollowupsOn: FOLLOWUP_STATUSES.slice(0, CONFIG_LIMITS.requireFollowupsOn.maxItems),
-      ownerSource: longest('o', 32),
-    },
-    skills: {
-      sharedPrefix: longest('s', 32),
-      maxDescriptionWords: CONFIG_LIMITS.maxDescriptionWords.max,
-      maxPerArea: CONFIG_LIMITS.maxPerArea.max,
-      maxVerifiedAgeDays: CONFIG_LIMITS.maxVerifiedAgeDays.max,
-      forbidFrontmatter: filled(CONFIG_LIMITS.forbidFrontmatter, 'k'),
-    },
-    pushGuard: { protectedBranches: filled(CONFIG_LIMITS.protectedBranches, 'b'), pushToProtected: wording.pushToProtected },
-    prompts: { hookAsks: wording.hookAsks },
-    wake: { enabled: wording.wakeEnabled },
-    commits: { maxLines: CONFIG_LIMITS.commitMaxLines.max, maxFiles: CONFIG_LIMITS.commitMaxFiles.max, largeCommitTrailer: 'T'.repeat(40), gate: 'refuse' },
-    delivery: { schedule: { queueCutoffUtc: '22:30' }, repos: { app: DEPLOYED_REPO } },
-    // Both round to their longest two-decimal form (two digits before the point), and together stay within 100%.
-    // The lead's week-split line prints the main lead's team id and the floor.
-    budget: {
-      enabled: true,
-      targetPct: 50.98765432109876,
-      reservePct: 48.98765432109876,
-      subagentWeight: 9.87654321,
-      accountLead: longest('a', 32),
-      shareFloorPct: CONFIG_LIMITS.shareFloorPct.max,
-    },
-    alerts: { persistentFailureHours: CONFIG_LIMITS.persistentFailureHours.max },
-    // A class name is at most 32 characters (WORK_CLASS_NAME); the lead's slice line prints the Maintenance one.
-    focus: {
-      classes: ['Roadmap', longest('m', 32), 'Improvements'],
-      maintenanceClass: longest('m', 32),
-      allocation: { Roadmap: 60, [longest('m', 32)]: 25, Improvements: 15 },
-      slicesPerSession: CONFIG_LIMITS.slicesPerSession.max,
-      maxOwnerDecisions: CONFIG_LIMITS.maxOwnerDecisions.max,
-    },
-    tabStatus: { enabled: true },
-    ruleConflicts: Array.from({ length: CONFIG_LIMITS.ruleConflicts.maxItems }, () => ({
-      file: longest('f', RULE_CONFLICT_LIMITS.fileMaxLength),
-      text: longest('t', RULE_CONFLICT_LIMITS.textMaxLength),
-      rule: 'worktrees',
-      wins: 'local',
-      reason: longest('r', RULE_CONFLICT_LIMITS.reasonMaxLength),
-    })),
-  });
-}
 
 describe('renderLeadRules', () => {
   it('fits its budget with every printed value at its worst case', () => {
@@ -192,6 +115,11 @@ describe('renderCorePack', () => {
     assert.deepEqual(over, [], `every wording fits ${CORE_PACK_MAX_CHARS}`);
   });
 
+  it('has rule 11 send a security hole only to private reporting, its fix naming the hardening (T3098)', () => {
+    const pack = renderCorePack(testConfig(), COMMAND, 'win32', RULES_CLOCK);
+    assert.match(pack, /^11\. .* Report a security hole only privately \(SECURITY\.md\); fixes name the hardening, never the attack\.$/m);
+  });
+
   it("has breaking a named caller wait for its answer, silence being no consent, and the proof load that caller", () => {
     const pack = renderCorePack(testConfig(), COMMAND, 'win32', RULES_CLOCK);
     assert.match(
@@ -209,14 +137,14 @@ describe('renderCorePack', () => {
 
   it('has a new task carry a plain-words description, naming the register keys once while any demand is on', () => {
     const on = renderCorePack(testConfig({ register: { requireNoteOn: [], requireEvidenceOnDone: false, requireSkillOnDone: false, requireFollowupsOn: [] } }), COMMAND, 'win32', RULES_CLOCK);
-    assert.match(on, /else by the receiver, with a plain description of what and why; only the owning session sets its status \(`teamrig set`\) \[register\]\. /);
+    assert.match(on, /else by the receiver, plainly saying what and why; only the owning session sets its status \(`teamrig set`\) \[register\]\. /);
     const off = renderCorePack(
       testConfig({ register: { requireDescription: false, requireNoteOn: [], requireEvidenceOnDone: false, requireSkillOnDone: false, requireFollowupsOn: [] } }),
       COMMAND,
       'win32',
       RULES_CLOCK,
     );
-    assert.match(off, /else by the receiver, with a plain description of what and why; only the owning session sets its status \(`teamrig set`\)\. /);
+    assert.match(off, /else by the receiver, plainly saying what and why; only the owning session sets its status \(`teamrig set`\)\. /);
     assert.doesNotMatch(off, /\[register/);
   });
 
@@ -283,7 +211,7 @@ describe('renderCorePack', () => {
     const pack = renderCorePack(testConfig(), COMMAND, 'win32', RULES_CLOCK);
     assert.match(pack, /^11\. A hand-run change or delete of stored data needs the owner's OK after counts or a preview\. Code that writes data/m);
     assert.match(pack, /a parity run explaining each differing row; archive history and audit data before any TTL\. A hand step for the human/);
-    assert.match(pack, /Never print secrets; bind local services to 127\.0\.0\.1, never 0\.0\.0\.0\.$/m);
+    assert.match(pack, /Never print secrets; bind local services to 127\.0\.0\.1, never 0\.0\.0\.0\. Report a security hole/);
   });
 
   it('hands the human a hand step only as a file the security reviewer audited, pinned by its sha256', () => {
@@ -369,9 +297,9 @@ describe('renderCorePack', () => {
     assert.doesNotMatch(pack, /node_modules|worktree remove/);
   });
 
-  it('has a comment say why plainly and name no path outside the repo (T1869)', () => {
+  it('has a comment say why and name no path outside the repo (T1869)', () => {
     const pack = renderCorePack(testConfig(), COMMAND, 'linux', RULES_CLOCK);
-    assert.match(pack, /^16\. .* Comments say why plainly, no path outside the repo, and change with their code or go; verify/m);
+    assert.match(pack, /^16\. .* Comments say why, no path outside the repo, and change with their code or go; verify/m);
   });
 
   it('tags a stopgap with the task that replaces it, in the form check reads', () => {

@@ -4,6 +4,7 @@ import { addedTasks, type AddedTask, type RepoFailure } from '../../github/auto.
 import { importRules } from '../../github/map.ts';
 import { importedTasks, linkedRefs, planSync, type SyncPlan, type SyncStep } from '../../github/plan.ts';
 import { applySteps, closedSince, type StepOutcome } from '../../github/sync.ts';
+import { autoPushWrites, sessionLogins } from '../../issues/status-push.ts';
 import { priorityText } from '../../register/model.ts';
 import { GITHUB_ACTOR } from '../../register/policy.ts';
 import { noPositionals, type ParsedArgs } from '../args.ts';
@@ -11,7 +12,11 @@ import { hostOf, reposOf } from '../issue-hosts.ts';
 import { openTeamKit, requireConfig } from '../kit.ts';
 import { EXIT, RefusedError, type CliRuntime, type ExitCode } from '../runtime.ts';
 import { teamRegister } from '../team-register.ts';
-import { issuePush } from './issue-push.ts';
+import type { Thread } from '../../github/clock.ts';
+import type { HostIssue } from '../../issues/issue.ts';
+import { claimBudget, recordClaims } from './issue-claim.ts';
+import { recordClocks, repoThreads } from './issue-clock.ts';
+import { issuePush, pushEndLine, pushRepos } from './issue-push.ts';
 import { GITHUB_OFF, githubOff, reportAutoSync } from './issue-sync-auto.ts';
 
 /** The rows of steps a repository prints; the rest are counted. */
@@ -31,7 +36,7 @@ type RepoEnd = 'ok' | 'failed' | 'refused';
  * instead. A sync only lists issues, and the
  * register's import writes (register.ts) touch only the tasks it added, as `github`. Without `--yes` it
  * shows what it would write and writes nothing. Either way a LEFT OUT line names, by number only, the open
- * issues of a repository that the trust rule kept out (github/trust.ts). `--auto`, which the Stop hook starts (issue-sync-auto.ts), writes as
+ * issues of a repository that the trust rule kept out (github/trust.ts). `--auto`, which the watch runs when GitHub changed (issue-watch.ts), writes as
  * `--yes` does and tells each owner's inbox its new tasks, and the lead's when the failing repositories change or
  * an issue is newly left out. Exit 1 when a repository could not be read (its tasks stay
  * as they are), 2 when the register refused a step, else 0.
@@ -59,7 +64,11 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   }
   const register = teamRegister(runtime, kit.paths, config);
   const rules = importRules(config);
-  const since = closedSince(new Date(runtime.clock.now()), config.github.closedDays);
+  const started = runtime.clock.now();
+  const since = closedSince(new Date(started), config.github.closedDays);
+  const pushing = auto && config.github.statusPush;
+  /** The issues of each repository read, for the claim pass, which writes to GitHub only when the run pushes. */
+  const claimRead = new Map<string, readonly HostIssue[]>();
   // github.repos is GitHub's list, so every repository it names is GitHub's.
   const host = hostOf('github', runtime, new SecretScanner(config.register.secretPatterns));
   const told = new Set<string>();
@@ -67,13 +76,18 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   const added: AddedTask[] = [];
   const failures: RepoFailure[] = [];
   const leftOut = new Map<string, readonly number[]>();
+  const unread = new Set<string>();
   let written = 0;
+  /** The open threads of the repositories read, for the response clock, and those repositories. */
+  const threads: Thread[] = [];
+  const clocked = new Set<string>();
   for (const repo of reposOf(config.github.repos, args.flags.get('repo'))) {
     const reach = await host.reach(repo, 'read');
     if (reach.kind === 'unreachable') {
       say(`FAILED ${repo}: ${reach.reason}; its tasks stay as they are`);
       ends.push('failed');
       failures.push({ repo, reason: reach.reason });
+      unread.add(repo);
       continue;
     }
     if (!told.has(reach.scope)) {
@@ -85,6 +99,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       say(`FAILED ${repo}: ${read.reason}; its tasks stay as they are`);
       ends.push('failed');
       failures.push({ repo, reason: read.reason });
+      unread.add(repo);
       continue;
     }
     read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
@@ -98,6 +113,10 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       continue;
     }
     const outcomes = await applySteps(register, plan.steps);
+    // Against the tasks as written, so an issue the import just took is held by its new task.
+    threads.push(...repoThreads(read.issues, [...(await register.snapshot()).state.tasks.values()], rules));
+    clocked.add(repo);
+    claimRead.set(repo, read.issues);
     [...resultLines(repo, plan, outcomes), ...leftOutText].forEach(say);
     written += outcomes.filter((outcome) => outcome.result.ok).length;
     added.push(...addedTasks(outcomes));
@@ -107,12 +126,45 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
     }
     ends.push(refused === undefined ? 'ok' : 'refused');
   }
+  if (write) {
+    (await recordClocks(runtime, kit, config, clocked, threads)).forEach(say);
+  }
+  if (pushing) {
+    const writesPerRun = autoPushWrites(config.github.probeSeconds);
+    // Before the push, so it plans against the assignees the claims set; the claims' writes share the run's budget.
+    const claimed = await recordClaims(runtime, kit, config, { host, read: claimRead, started, writes: claimBudget(writesPerRun) });
+    claimed.lines.forEach(say);
+    // The import's tasks are in the register now, so the push plans against them. A repository the import could
+    // not read is not pushed: it would fail the same way, and its failure is already told.
+    const pushed = await pushRepos(
+      {
+        host,
+        repos: config.github.repos.filter((repo) => !unread.has(repo)),
+        since,
+        tasks: async () => (await register.snapshot()).state.tasks.values(),
+        send: true,
+        // No closes: the automatic push sends labels and assignees only (security verdict F1 on T2876); it prints each close held.
+        limits: { writesPerRun: Math.max(0, writesPerRun - claimed.writes), closes: false },
+        logins: sessionLogins(config.github.owners),
+        told,
+      },
+      say,
+    );
+    say(pushEndLine(true, pushed, writesPerRun));
+    for (const failure of pushed.failures) {
+      ends.push('failed');
+      // One failure per repository, so the lead is told a repository fails once; the first reason stands.
+      if (!failures.some((known) => known.repo === failure.repo)) {
+        failures.push({ repo: failure.repo, reason: `status push: ${failure.reason}` });
+      }
+    }
+  }
   if (auto) {
     (await reportAutoSync(runtime, kit, config, { added, failures, leftOut })).forEach(say);
   }
   say(
     write
-      ? `WROTE ${written} change(s) to the task list as ${GITHUB_ACTOR}; GitHub was only read`
+      ? `WROTE ${written} change(s) to the task list as ${GITHUB_ACTOR}${pushing ? '' : '; GitHub was only read'}`
       : `PREVIEW nothing was written; ${KIT_NAME} issue sync --yes writes the above as ${GITHUB_ACTOR}`,
   );
   return ends.includes('failed') ? EXIT.failed : ends.includes('refused') ? EXIT.refused : EXIT.ok;
@@ -160,7 +212,7 @@ function leftOutLines(repo: string, leftOut: readonly number[], acceptLabel: str
 }
 
 /** The first SHOWN_STEPS lines, then how many more there are. */
-function shown(lines: readonly string[]): string[] {
+export function shown(lines: readonly string[]): string[] {
   const more = lines.length - SHOWN_STEPS;
   return more > 0 ? [...lines.slice(0, SHOWN_STEPS), `... and ${more} more`] : [...lines];
 }

@@ -63,7 +63,8 @@ Flags:
 - `--critical`: marks a bug in a critical area, whose review asks `--harden` too; its line shows `critical bug`.
   Only with `--type bug`.
 - `--class <name>`: the work class, one of the team's `focus.classes` (`Roadmap`, `Maintenance`, `Improvements` by
-  default); any other name is refused. A task without one counts as `focus.defaultClass`.
+  default), matched in any case and stored as the config spells it; any other name is refused. A task without one
+  counts as `focus.defaultClass`.
 - `--team <team>`: asks another team of your tree for the work: the task lands in that team's register from you,
   owned by `--owner` (a session of that team, by id or name) or else that team's lead. The owner gets an inbox line
   and the team's lead, when it is not the owner, a copy. A team of a separate tree is refused. Its one `--source`
@@ -148,7 +149,8 @@ Flags:
   stays waiting until every reason has cleared. A new decision or approval wait posts the lead one inbox line
   (`T1 waits on your approval: <the card's question, else the note>`; an owner wait too, since the lead keeps the
   owner's queue), unless the lead set it. A task wait (or an `--ask`) that would close a loop is refused with the fix
-  ([errors](errors.md)).
+  ([errors](errors.md)). `--waits none` clears a verifying task's waits; with `register.requireProofOnVerifying` on, its
+  proof must still name when it runs.
 - `--question "<what is decided>"`: the decision card's question. The card (this flag, `--options`, `--recommend`
   and `--default`) is required on a wait on the owner's decision or approval (`register.requireDecisionCard`),
   allowed on any decision or approval wait, refused otherwise. Each part says at least 3 plain words besides task
@@ -330,7 +332,7 @@ Flags:
 - `--size <pct>|none`: a new size, in percent of the weekly usage limit, or `none` to clear it.
 - `--type task|bug`: makes the item a task or a bug (`--type task` also quiets the hint); the lead may type any
   task. A critical bug made a task loses its critical mark.
-- `--class <name>|none`: a new work class, one of `focus.classes`, or `none` to clear it (it then counts as
+- `--class <name>|none`: a new work class, one of `focus.classes` in any case, or `none` to clear it (it then counts as
   `focus.defaultClass`); a leader above the owner may set it too. A class the team since renamed out of
   `focus.classes` stays on the task until changed.
 - `--critical`: marks a bug critical; only on a bug.
@@ -482,6 +484,9 @@ the answer is a wake ask too, as `inbox add --wake now` posts, so an idle owner 
 one is reopened by the idle pass with it quoted; an ask that cannot be posted is a `WARN` naming that by-hand wake.
 An approved task shows `· lead approved`
 in its waiting text and `check` flags it `READY` until its owner sets the next status, which clears the answer.
+To hold an approved task until another task lands or a time comes, set it waiting again with the approval wait and the
+new one (`--waits approval:<lead>,task:T<id>`): that keeps the approval, and `check` flags the task `READY` once the
+new wait clears, so merge then. Restating the same waits, or adding a decision or another approval, asks anew.
 Only the lead answers (or a sub-lead above the task's owner, or the security reviewer, `roles.securityReviewer`, on
 a task not its own), only a task waiting on its approval, always with a note; an approval of the owner's stays the
 owner's. The same answer clears a review hold or a gate hold that `teamrig merge` made on the task's branch
@@ -716,7 +721,9 @@ run under (the user's, the project folder's, each `delivery.repos` repository's 
 window has reached 80% [budget.fiveHourWarnPct] or rises fast enough to fill before it resets, and at 100% every
 session stalls until that reset; it is raised once a window, and a plan with no such window never shows it,
 RESET-EXPIRING: a reset grant in [budget.resets] with uses left expires within 14 days, and one not spent by then is
-lost; it is raised once a grant and again after each use, and from
+lost; it is raised once a grant and again after each use, GH-LATE: a GitHub issue has waited past its answer target
+(security 4 h, bug or a comment on an issue a task tracks 24 h, else 72 h) for an answer of ours, by the clocks the
+last writing `teamrig issue sync` kept; it is raised once a wait, and from
 the restore's record (`<kit home>/bin/launchers.json`, written by [restore install](#teamrig-restore-install),
 `uninstall` and a newer version's first session start) RESTORE-DEAD: a logon entry or shortcut teamrig set up that
 starts a Node or launcher that is gone, such as one left on a Node an upgrade removed, and RESTORE-STRAY: a `Restore
@@ -898,6 +905,11 @@ With none, the first line says what writes them.
   of these lines. W is raw, before `budget.subagentWeight`. A damaged rollup file is named on stderr and its day left
   out, so the range reads a day short, never a low day.
 
+A GITHUB line follows them when any of the team's tasks tracking a GitHub issue (ref `gh:<repo>#<n>`) has W on the
+meter: those tasks and their W, costliest first, at most six named. It reads the meter's stored use, whatever the
+range, and only the caller's team, `--session` narrowing it to that session's tasks. It is internal: nothing is posted
+to GitHub.
+
 Flags:
 
 - `--range 7d|30d|90d|180d|1y|all`: the days counted on the team's clock, today included (default `7d`): the last 7,
@@ -933,6 +945,7 @@ USE planned 64% of task W, target 70%, gap -6: planned 26.40M W, 201 min; unplan
 USE Roadmap 58% of task W, target 60%, gap -2: planned 19.60M W, 150 min; unplanned 4.30M W, 31 min
 USE Maintenance 30% of task W, target 25%, gap +5: planned 5.20M W, 38 min; unplanned 7.20M W, 52 min
 USE Improvements 12% of task W, target 15%, gap -3: planned 1.60M W, 13 min; unplanned 3.30M W, 28 min
+GITHUB 2 linked task(s) used 4.10M W as metered: T42 gh:acme/web#7 3.20M, T51 gh:acme/api#3 900k; internal, never posted
 ```
 
 ### teamrig report done
@@ -1180,7 +1193,8 @@ Imports GitHub issues into the task list, inbound only. For each repository in `
 issues and those closed in the last `github.closedDays` days (14 by default) through the GitHub CLI, `gh`. It only
 ever lists issues: it never creates, edits, comments on, labels, assigns or closes anything on GitHub, and a task
 added with `teamrig add` stays in the task list and never goes to GitHub. Only commands run by hand write:
-`teamrig issue migrate` opens issues, `teamrig issue comment` and `teamrig issue close` comment on and close them.
+`teamrig issue migrate` opens issues, `teamrig issue comment`, `teamrig issue edit` and `teamrig issue close`
+comment on, rewrite and close them, and `teamrig issue links` links them as the task tree does.
 Its old name, gh sync, is refused with this one (exit 64). Setup, tokens and every failure's fix:
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md).
 
@@ -1224,29 +1238,52 @@ machine, and with no `github.repos` it prints an `OFF` line; neither reads nor w
 repository could not be read (its tasks stay as they are, and the `FAILED` line says why), 2 when the
 register refused a step (a `SKIPPED` line each), else 0.
 
-On its own: with `github.repos` listed and `github.everyMinutes` above 0 (15 by default), the Stop hook of any team
-session starts `teamrig issue sync --auto` hidden in the background once per that many minutes for the whole team (one
-state file under a lock; nothing keeps running between syncs). A new issue so reaches its owner while sessions work;
-a run by hand still works at any time.
+On its own: with `github.repos` listed and `github.probeSeconds` above 0 (60 by default), the team's
+`teamrig issue watch` runs `teamrig issue sync --auto` within a probe of a change on GitHub. A new issue so reaches its
+owner while sessions work; a run by hand still works at any time.
+
+A run that writes also times each open issue's wait for an answer of ours (the targets are in
+[GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md#answer-times)): at 75% of its target
+the session that answers it gets one unwoken inbox line from `github` (a `REMINDED` line), and past it `teamrig check`
+shows the lead GH-LATE. A preview times nothing.
 
 Flags:
 
 - `--repo <owner/name>`: only that repository, one of `github.repos`.
 - `--yes`: writes. Without it the command shows what it would write and writes nothing.
-- `--auto`: what the hooks start. It writes as `--yes` does, then posts one inbox line, from `github`, to each owner
+- `--auto`: what `teamrig issue watch` runs. It writes as `--yes` does, then posts one inbox line, from `github`, to each owner
   naming the tasks added for it, and one to the lead when a repository starts failing (once, not at every run) or
   when every repository reads again, and one when it leaves out an outsider's issue it did not leave out before (by
-  ref only, at most ten named). It reads every repository, so it refuses `--repo`.
+  ref only, at most ten named). It reads every repository, so it refuses `--repo`. With `github.statusPush` on it
+  then sends the status push (`--push --yes`) too, labels only: a close it plans is printed as a `HELD` line and
+  sent only by a session's `--push --yes`. Its writes per run are lowered so an hour of runs sends at most 250
+  (4 a run at the default `github.probeSeconds` of 60, 20 at 300); a failed write is told to the lead like a
+  repository that fails.
+  With the push on it also handles claims: an outside person's comment starting `/take`, "I'll take", "I'm working
+  on" or "I can take", on an open issue with no assignee that is not `design` or `security` and is the repository's
+  own or accepted, gets them assigned, `status:claimed` and one reply (`CLAIMED` line); a claim it made with no
+  linked pull request after 7 days loses that assignee and gets `status:open` back (`RELEASED`). It never takes off
+  an assignee a person set, makes at most 5 claims a day per repository, reads only comments posted since its
+  previous run, and counts the claims' writes in the run's writes first (`HELD`: made on the next run), raised to
+  one whole claim's 5 writes on a run whose share of the hour is fewer.
 - `--push`: plans the other way, from the task list to the issues: for each issue a task holds by its
   `gh:<owner>/<name>#<number>` ref, the writes that make the issue show the task's status. An active task gives its
-  issue one label (`open` `status:triaged`, `in-progress` `status:in-progress`, `waiting` `status:waiting`,
-  `verifying` `status:in-review`) and any other `status:` label comes off; a done task closes it as completed, a
+  issue one label (`open` `status:open` while no one scheduled or took it, `status:claimed` once it has a due date
+  or an assignee, `in-progress` `status:in progress`, `waiting` `status:waiting`, `verifying` `status:in review`)
+  and any other `status:` label comes off; a goal, a task planned after its parts, shows none, as its parts' issues
+  carry theirs, and so does a design issue (labelled `design`: talk, not work to take until agreed), which is also
+  assigned to no one; a done task closes it as completed, a
   dropped one as not planned. It plans against the issues as GitHub lists them now, so a label someone changed by
   hand is set back and a run that stopped half way is planned again whole. It never reopens an issue a person
   closed: a `KEPT` line names it, and an `UNLISTED` line an active task's issue that is not open on GitHub. A run
-  sends at most 40 writes (half GitHub's limit of 80 a minute) and leaves the rest for the next. This version only
-  plans: it reads the issues and writes nothing, and refuses `--yes` and `--auto`. When a team task and an imported
-  one hold the same issue, the team task speaks for it.
+  sends at most 40 writes (half GitHub's limit of 80 a minute), shared by the repositories in order, and leaves the
+  rest for the next. On its own it only
+  plans: it reads the issues and writes nothing. With `--yes` a session on the team sends the plan, a `SET` line for
+  each change and a `PUSHED` line with the counts. A `status:` label the repository lacks is made first, with a `MADE`
+  line, so a new repository needs no hand step; the push makes no other label. The first failed write
+  stops that repository, and the next run plans it again from GitHub as it is. It refuses `--auto`: the hooks' sync
+  sends the push itself when `github.statusPush` is on. When a team task
+  and an imported one hold the same issue, the team task speaks for it.
 
 Example:
 
@@ -1270,15 +1307,51 @@ Without `--yes` the counts read `to add` and `to change`, a new task's id is `ne
 `PREVIEW nothing was written; teamrig issue sync --yes writes the above as github`. Each repository shows its first
 10 rows, then `... and <n> more`.
 
+### teamrig issue watch
+
+The team's one watch on its GitHub repositories. The SessionStart and Stop hooks start it hidden in the background
+when none runs, so you do not run it yourself. Every `github.probeSeconds` (60 by default) it asks GitHub whether each
+repository's issues, pull requests or Actions runs changed, sending the answer it got last time: when nothing
+changed GitHub answers "not modified", which costs no rate limit. Only when something changed does it run
+`teamrig issue sync --auto`. After a sync that failed it waits 15 minutes for the next, and a repository it cannot
+ask is synced every 15 minutes, so its failure still reaches the lead.
+
+It holds `state/github-watch.json` with its process id and kit version and renews it each round, so one runs per
+team: a second prints `HELD` and stops. A hook of a newer kit takes an older watch's lease over and starts the new
+code, so an update reaches the watch at the next turn's end. It stops on its own (a `STOP` line says why) once no
+session of the team ran for 10 minutes, after 24 hours (the next hook starts a fresh one), and when `github.repos`
+is empty or `github.probeSeconds` is 0, read again each round: setting `probeSeconds` to 0 is how to stop a
+running watch. `TEAMRIG_GITHUB=off` only keeps a new watch from starting, since a running one keeps the
+environment it started with. Exit 0.
+
+Flags: none.
+
+Example:
+
+```sh
+teamrig issue watch
+```
+
+Output (when it stops, the last session closed 10 minutes before):
+
+```text
+ACCESS acme: read with the gh login; no token saved
+REPO acme/web: 1 added, 0 changed, 4 unchanged
+WROTE 1 change(s) to the task list as github; GitHub was only read
+STOP no session of the team ran for 10 minutes; the next one starts the watch again
+```
+
 ### teamrig issue migrate
 
 Its old name, gh migrate, is refused with this one (exit 64).
 Moves the team's tasks to GitHub issues once, from a row file you write: JSON lines, one row per task. An issue row
 is `{"id", "decision": "issue", "repo", "type": "bug"|"task", "priority": "p1"-"p3", "title", "body"}`, with the
-task's public wording, since an issue is open to anyone who can read the repository; a local row is `{"id",
+task's public wording, since an issue is open to anyone who can read the repository: a task about a security hole
+stays local until its fix is released ([security skill](../security/SKILL.md#a-security-hole)); a local row is `{"id",
 "decision": "local", "reason"}` and keeps the task off GitHub. A bad line, one that looks like it holds a secret,
 or an issue row whose title or body names a task id (`T12`, `bravo/T12`: ids are the team's own, so an issue links
-others by `#number`), refuses the whole file, naming the line.
+others by `#number`), refuses the whole file, naming the line. Write each body by the
+[write-issue skill](../write-issue/SKILL.md), so a contributor can take the issue alone.
 
 Without `--yes` it writes nothing. It prints a `REPLACES` line for each task whose ref is not an issue (the issue
 takes the ref's place; the update's note keeps `ref was: <old>`), a `SKIPPED` line for each row it will not act on
@@ -1325,7 +1398,8 @@ PREVIEW nothing was written; teamrig issue migrate <file> --yes opens the issues
 
 ### teamrig issue comment
 
-Posts one comment on an issue or pull request of the team's repositories, named as `owner/name#number`. GitHub is
+Posts one comment on an issue or pull request of the team's repositories, named as `owner/name#number`. A security
+hole is never its subject: that goes only to private reporting ([security skill](../security/SKILL.md#a-security-hole)). GitHub is
 the only host so far: the repository must be in `github.repos`, and the comment goes through `gh api` with the
 token saved for the owner as `teamrig-gh-<owner>`, else the `gh auth login` account (an `ACCESS` line says which).
 The token needs Issues and Pull requests: Read and write. It refuses, posting nothing, a caller not on the team, a
@@ -1354,6 +1428,35 @@ ACCESS acme: writes with the token saved as teamrig-gh-acme
 COMMENTED acme/web#7
 ```
 
+### teamrig issue edit
+
+Replaces the body (the description) of one issue or pull request of the team's repositories with the text of a file,
+with the same access and checks as `teamrig issue comment`: the text is refused, changing nothing, when it is empty,
+past 65,536 characters, looks like it holds a secret, holds private data or names a task id. The title, state,
+labels and assignees stay, and GitHub keeps the old body in the issue's edit history. The text comes from a file, as
+a full description runs to many lines a shell argument would mangle; a byte-order mark at its start is dropped, and a
+relative path is read from the working folder. A file the secret guard keeps (`secretGuard.paths`, such as `.env` or
+a key file) is refused before it is read. It prints `EDITED <target>: its body is now <n> characters`, or
+`FAILED <target>: <reason>; the body is as it was`. Exit 1 when it failed, 2 when refused, else 0.
+
+Flags:
+
+- `--session <id|name>`: the caller, a session of the team.
+- `--body-file <path>`: the file holding the new body, required.
+
+Example:
+
+```sh
+teamrig issue edit acme/web#7 --body-file spec.md
+```
+
+Output:
+
+```text
+ACCESS acme: writes with the token saved as teamrig-gh-acme
+EDITED acme/web#7: its body is now 1832 characters
+```
+
 ### teamrig issue close
 
 Closes one issue or pull request of the team's repositories (a pull request closes unmerged), first posting
@@ -1365,6 +1468,11 @@ Flags:
 
 - `--session <id|name>`: the caller, a session of the team.
 - `--comment <text>`: a comment posted before the close.
+- `--reason <completed|not-planned|duplicate>`: why it closes, which the host shows beside it (GitHub keeps it on an
+  issue only, not on a pull request); refused when it is none of the three.
+- `--duplicate-of <owner/name#n>`: closes it as a duplicate of that issue, which GitHub links as the original;
+  implies `--reason duplicate`. Refused with another reason, for the issue itself or one of another repository. The
+  original is read before anything is written: when the host has no such issue, nothing is written.
 
 Example:
 
@@ -1378,6 +1486,37 @@ Output:
 ACCESS acme: writes with the token saved as teamrig-gh-acme
 COMMENTED acme/web#12
 CLOSED acme/web#12
+```
+
+### teamrig issue label
+
+Adds labels to and takes labels off one issue or pull request of the team's repositories, with the same access as
+`teamrig issue comment`. `--add` and `--remove` are comma-separated lists; give at least one, and no label in both.
+Each label to add must already be one of the repository's, read before any change, so a typo never makes a new
+label: make it on the host first. The one exception is `design`, the label of a design issue (talk about how
+something should work, not work to take until agreed): a repository that lacks it gets it made first, with a `MADE`
+line. Labels to add go in one call, then each label to remove comes off in turn; the
+first failure stops it, and a `FAILED` line after a change says what it already did. Exit 1 when it failed, 2 when
+refused, else 0.
+
+Flags:
+
+- `--session <id|name>`: the caller, a session of the team.
+- `--add <label,...>`: the labels to add, each already one of the repository's, or `design`.
+- `--remove <label,...>`: the labels to take off.
+
+Example:
+
+```sh
+teamrig issue label acme/web#12 --add "type: bug,p1" --remove "needs triage"
+```
+
+Output:
+
+```text
+ACCESS acme: writes with the token saved as teamrig-gh-acme
+LABELED acme/web#12: "type: bug", "p1"
+UNLABELED acme/web#12: "needs triage"
 ```
 
 ### teamrig pr conflicts
@@ -1408,6 +1547,37 @@ CONFLICTS acme/web#7 (head d00d5ee) against origin/main (b4e2a91): 2 files
 To land it: rebase its branch onto origin/main and resolve these files.
 ```
 
+### teamrig issue links
+
+Puts the task tree on the issues of `github.repos`. A task planned after another or waiting on it (a `task:` wait),
+both mirrored in one repository (their `ref`s are `gh:owner/name#n`), becomes blocked by it on GitHub; a part of
+exactly one whole (a task planned after its parts) becomes its sub-issue too. Without `--yes` it reads the links
+GitHub has and shows what it would add, writing nothing. It only adds: a link a person set, or a part under another
+parent, stays as it is, and an edge to another repository is left for a person (the `LEFT` line counts them). It
+stops a repository at its first failed link; a rerun reads again and adds only what is still missing. The task list
+is only read. Exit 1 when a repository could not be read or a link not added, 2 when refused, else 0.
+
+Flags:
+
+- `--repo <owner/name>`: only that repository, one of `github.repos`.
+- `--yes`: add the links shown.
+
+Example:
+
+```sh
+teamrig issue links --yes
+```
+
+Output:
+
+```text
+ACCESS acme: writes with the token saved as teamrig-gh-acme
+REPO acme/web: 1 issue(s) to change, 2 link(s) to add, 0 already there
+BLOCKED-BY #9 by #10
+SUB-ISSUE #10 under #9
+WROTE 2 link(s) on GitHub; the task list was only read
+```
+
 ## Inbox
 
 ### teamrig inbox read
@@ -1415,6 +1585,13 @@ To land it: rebase its branch onto origin/main and resolve these files.
 Prints your unread inbox lines and marks them read. Lines the prompt hook already showed this Claude Code session
 are marked read too, without being printed again (a line the hook cut is printed whole). It also ties this Claude
 Code session to the area, so the hooks know you: run it at the start of every work block and after every `/clear`.
+A tab keeps the session it was first bound to: from a tool call, a script or a hook (wherever Claude Code set
+`$CLAUDECODE`), a read as another session of the team is REFUSED (exit 2) and writes nothing, as the guards take who
+runs a command from the tab's session. The person moves a tab by typing `/teamrig inbox read --session <id>` in it,
+or by reading in a terminal; a restarted tab binds afresh, and so does one bound to a session that left the team.
+[The exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses such a read from a tool call before it runs,
+through any client, and a line that changes `$CLAUDECODE`. A script, or a line the guard does not read, that clears
+the variable is not covered: these are checks against mistakes.
 
 Flags:
 
@@ -2226,6 +2403,88 @@ DEMOTED backend leads no one; importer, search go back to lead; the old config i
 NOTE backend has an inbox line: lead took back the sessions you led (importer, search); you lead no one now
 ```
 
+### teamrig roles grant
+
+Service roles (`teamrig roles grant`, `revoke` and `list`) let a named session run a few teamrig commands for an outside
+service past every permission check, from its own tab only: the team's `serviceRoles` config [serviceRoles] maps
+each role to its holders and its commands. The commands come from teamrig's table, each a reviewed shape
+(`issue close`, `issue comment`); a name outside it fails the config load. `team` holds a role for every session
+only where each command checks its caller itself; the others name their sessions. `hook route-allow` lets the
+holder's own tab run them with no permission check, up to `prompts.serviceRoleDailyCap` calls a role in 24 hours
+([the service-role allow](hooks.md#before-a-shell-command-the-service-role-allow)). See also
+[the service-role guard](hooks.md#before-a-write-or-a-shell-command-the-service-role-guard).
+
+A grant or a revoke changes a permission, an owner gate: teamrig's guard asks the owner before any session's call
+of either, whatever `--yes` says, and refuses a session's direct edit of `serviceRoles`, so the owner runs them
+from their own terminal or prompt. Without `--yes` each shows the change and writes nothing. With it, the old
+config goes into the backups folder and `serviceRoles` is rewritten; the next call reads it.
+
+`roles grant <role> --holder <id|name|team> [--commands <a,b>]` creates the role (it needs `--commands`), or adds
+the holder and any new commands to it. It refuses a grant that changes nothing. Its preview and its result add a
+`REACH` line for each command of the role, saying what it acts on: GitHub numbers issues and pull requests as one,
+so `issue close` and `issue comment` reach every pull request of `github.repos` too, an outside author's included.
+
+Flags:
+
+- `--holder <id|name|team>`: the session that holds the role, or `team` for every session.
+- `--commands <a,b>`: the commands the role runs, from teamrig's table.
+- `--yes`: write it.
+
+Example:
+
+```sh
+teamrig roles grant github --holder backend --commands "issue close,issue comment" --yes
+```
+
+Output:
+
+```text
+GRANTED github: held by backend; runs issue close, issue comment; the old config is at ~/.teamrig/teams/shop/backups/config.roles-grant.json
+REACH issue close: closes any issue or pull request of github.repos, an outside author's too (a pull request closes unmerged), posting its --comment first
+REACH issue comment: posts a comment on any issue or pull request of github.repos, an outside author's too
+```
+
+### teamrig roles revoke
+
+Takes a service role off one holder (`teamrig roles revoke <role> --holder <id|name>`), or the whole role off the
+team without `--holder`; the last holder's leaving drops the role. A session cannot be taken off a role `team`
+holds: revoke the role. The owner runs it, as for a grant (see `teamrig roles grant`).
+
+Flags:
+
+- `--holder <id|name>`: the session to take the role off.
+- `--yes`: write it.
+
+Example:
+
+```sh
+teamrig roles revoke github --holder backend --yes
+```
+
+Output:
+
+```text
+REVOKED github: no role; the old config is at ~/.teamrig/teams/shop/backups/config.roles-revoke.json
+```
+
+### teamrig roles list
+
+Prints each service role [serviceRoles], who holds it and what it runs, one line each. It only reads.
+
+Flags: none.
+
+Example:
+
+```sh
+teamrig roles list
+```
+
+Output:
+
+```text
+github: held by backend; runs issue close, issue comment
+```
+
 ### teamrig rules
 
 Prints the team rules and who the session is, exactly as a session start injects them. Run it when you did
@@ -2434,6 +2693,8 @@ sessions that need one of your unfinished tasks or wait on your decision or appr
 then `+N more`),
 when some do. The lead gets every flag, as `teamrig check` prints them; any other session gets the
 flags of the tasks and skills it owns, and a sub-lead also those of its group's tasks. Run it at the start of every work block and after every `/clear`.
+It binds the tab as `inbox read` does, so a tab bound to a session starts only as that session: the exec guard
+refuses a tool call's start as another (see [inbox read](#teamrig-inbox-read)).
 
 When the checkout you run it in lacks commits of origin's default branch, a `BEHIND` line after the time says how
 many: rebase before you edit. It counts against that branch as last fetched and never fetches itself; every worktree
@@ -2530,8 +2791,10 @@ lead runs it. A start counts as asking the owner the decisions it lists: `teamri
 waits set since and the asked ones past due (since 0.126.0). `teamrig decisions` has no batch: it still lists a
 decision the agenda holds for the Improvements day.
 
-In a tree of teams only the root team's lead holds it; a child team's lead is refused: `REFUSED team web meets no
-owner: the owner's daily meeting is app/lead's, whose agenda lists web's waits on the owner`. The root lead's
+In a tree of teams each team's lead holds its own, in its own tab, at its own scope: a child team's lead's agenda
+covers its team and every team under it, holds messages to it alone and its `end` tells their sessions; a card it
+records `--decided` or `--later` there (`teamrig update ui/T3 --decided`, a lead above noting a task below) leaves the
+waits on the owner, so the root's meeting never asks it again (T2985). The root lead's
 `DECISIONS` ranks its own team's waits and those of each team under it in one list, a tie keeping its own first, then
 the teams depth first, named `<team>/<id>` (`web/T2`), each carded by its own team's rule; its hints add `--team
 <team>` to ask a question of a team under it and `<team>/<id>` to record an answer there. `GOALS` counts every team's
@@ -2558,7 +2821,25 @@ no restart), unless a context reaches `refresh.compactCeilingTokens`.
 
 Flags:
 
+With `--about`, `meeting start --about "<what>"` is the owner's meeting on the spot, unplanned, with any session, a
+worker as well as a lead (T2985): the caller's own, as when the owner asks the session in its tab for a meeting now,
+else the one `--meets` names (the lead or that session runs it). It is booked and started at once under the next id,
+so it lists, notifies and ends as a booked one does; it is refused while that session is in a meeting already.
+Started in the session met's own tab, the opening prompt prints there (`MEETING in this tab: ...`) and no line is
+posted to it; else it goes to its tab as above. While any booked or on-the-spot meeting is on, its session's tab is
+in meeting mode, as the lead's is in the daily one: messages to it are held but a `CRITICAL` one (the cold-send
+hook), its question picker is refused with the reason to ask in plain text and record the answer
+([the picker guard](hooks.md#before-a-question-the-picker-guard)), its status line leads with `Meeting: <title>` in
+teamrig's purple ([statusline](#teamrig-statusline)), its context refresh waits and a tab opened meanwhile keeps the
+focus where it was. A session that is not the lead and runs `meeting start` with no id is refused with this form.
+
 - `--session <area>`: who you are: the lead, or for a scheduled meeting any session.
+- `--about "<one line>"`: with no id, start a meeting on the spot about it.
+- `--meets <id|name>`: with `--about`, the session the owner meets; the caller by default.
+- `--minutes <n>`: with `--about`, how long it runs, as in `meeting schedule`.
+- `--with a,b`: with `--about`, the sessions joining, as in `meeting schedule`.
+- `--tasks T1,T2`: with `--about`, the tasks it is about, as in `meeting schedule`.
+- `--brief <path>`: with `--about`, the brief the session met reads first, as in `meeting schedule`.
 
 Example:
 
@@ -2665,8 +2946,10 @@ no more.
 
 With a meeting id, `meeting end M3` ends a scheduled meeting instead: one booked with
 `meeting schedule`, scheduled or started, is done; `--note` records what came of it. The lead or the session met
-runs it, and the session met and those joining, but the caller, are told by one inbox line with the note. The daily
-meeting takes no `--note`: its decisions are recorded on their tasks.
+runs it, and the session met and those joining, but the caller, are told by one inbox line with the note. With no id,
+`meeting end` ends the meeting on in the caller's tab, booked or on the spot, `--note` included (T2985); the lead with
+its daily meeting open ends that one first. The daily meeting takes no `--note`: its decisions are recorded on their
+tasks.
 
 Flags:
 
@@ -2974,7 +3257,8 @@ Flags:
   `x-terminal-emulator` or `print`; default the config's `open.terminal` (`auto`). With [open.teamWindow] on, a
   Windows Terminal tab opens in the team's own window, `teamrig-<team>`.
 - `--project <dir>`: the folder to open in; default the config's `launch.<id>.project`, else `team.project`, else
-  the folder holding the team's `.teamrig.json`.
+  the folder holding the team's `.teamrig.json`. A closed session whose last Claude Code session ran in another folder
+  opens fresh in this one, since Claude Code resumes a transcript only in its own folder.
 
 Example:
 
@@ -3293,7 +3577,7 @@ restore now, which teamrig check reads`): each part it set up with the Node and 
 of that name it left as it was. `teamrig check` reads it to warn the lead when one of those files is gone
 (RESTORE-DEAD) or a part starts something else (RESTORE-STRAY).
 macOS and Linux have no logon entry or shortcut yet: there it is `REFUSED`, and `teamrig restore run` after a crash
-or reboot does the same by hand.
+or reboot does the same by hand. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig restore install --yes` in a tab, or runs it in their own terminal.
 
 Flags:
 
@@ -3526,7 +3810,10 @@ are idle, or asks the user to type /clear` instead.
 Reads the team's names, rename log, inboxes, `rules.md` and tree of teams, weighs the text every call of a session
 re-reads, checks what would silently override the model or effort a session or helper is given, and prints each
 problem with its fix. `rules-long` weighs the team's `rules.md` after those of the teams above, which share its
-budget, and names the file that reaches sessions only as a pointer.
+budget, and names the file that reaches sessions only as a pointer. `lead-start` renders the lead's start as the
+SessionStart hook gives it after a compaction, its live tasks too: it warns when that start is past the 10,000
+characters Claude Code shows, or when a `rules.md` the budget holds still reaches the lead only as a pointer, because
+the core rules, the lead's lines and its notes leave too little room.
 It only reads.
 
 Flags: none.
@@ -3546,7 +3833,7 @@ DOCTOR clean, team shop
 Otherwise `DOCTOR N finding(s)` and one `WARN <kind> <detail and fix>` line each. Kinds: `requirement` (git,
 Claude Code or Node.js, [the check](requirements.md#the-requirements-check)), `name-gone`,
 `name-shared`, `name-config`, `name-reserved` (a name Claude Code keeps for itself: `main`, `team-lead`, `user`,
-`system`), `rename-log`, `inbox-orphan`, `inbox-unread`, `rules-long`, `context-size`,
+`system`), `rename-log`, `inbox-orphan`, `inbox-unread`, `rules-long`, `lead-start`, `context-size`,
 `context-lists`, `tree-id`, `tree-parent`, `tree-loop`, `tree-depth`, `tree-children`, `tree-role` (a
 `roles.securityReviewer` or `roles.deliveryOwner` of `<team>/<id>` whose team is not above this one, or whose
 session does not hold that role there), `name-two-teams`, `effort-env`, `model-env`, `settings-json`, `launch-effort`,
@@ -3773,7 +4060,7 @@ It refuses a key the config does not have, and a config it cannot read.
 
 ### teamrig config migrate
 
-Shows an older config rewritten in the current format; `--yes` writes it and keeps the old file in `backups/`.
+Shows an older config rewritten in the current format; `--yes` writes it and keeps the old file in `backups/`. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig config migrate --yes` in a tab, or runs it in their own terminal.
 
 Flags:
 
@@ -3820,8 +4107,9 @@ are. With no list yet, the new one starts with `"$defaults"`, so Claude Code's b
 already have is left without it if it has none. Run it again after a config change or a teamrig upgrade: it
 rewrites only lines that differ. Without `--yes` it shows the change and writes nothing; with `--yes` it first keeps
 the old settings file in the kit's `backups` folder. It changes your settings, not a team's, so it takes no
-`--session`. Claude Code's auto mode refuses a session that edits its own settings, so type
-`! teamrig automode install --yes` in Claude Code.
+`--session`. Claude Code's auto mode refuses a session that edits its own settings, and teamrig
+refuses `--yes` where Claude Code runs it, a `!` line too, so type `/teamrig automode install --yes` in a tab, or run
+it in your own terminal.
 
 Flags:
 
@@ -3855,7 +4143,7 @@ object and an `autoMode.environment` that is not a list of strings are `REFUSED`
 Takes the team's tagged lines back out of `autoMode.environment`, leaving every other line. A list left as only
 `"$defaults"` is dropped, and so is an `autoMode` left empty; a list left empty stays, since dropping it would turn
 Claude Code's built-in entries back on. Like `install`, it shows the change without `--yes` and keeps the old
-settings file first.
+settings file first. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig automode uninstall --yes` in a tab, or runs it in their own terminal.
 
 Flags:
 
@@ -3893,7 +4181,7 @@ stays (`:*` and ` *` read the same, a kept `Bash(x *)` keeps `Bash(x)` too, and 
 `MSYS_NO_PATHCONV=1 ` reads as absent); by default only the rules off it that approve a whole tool or program or
 hold a credential (text in a secret's shape: the built-in shapes and [register.secretPatterns]) go, and with `--all`
 every rule off it goes. A committed `.claude/settings.json` is only reported: change it by a commit
-in its repo.
+in its repo. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig permissions trim --yes` in a tab, or runs it in their own terminal.
 
 It never prints a rule, since a rule can hold a value such as a password: each file shows its counts before and
 after, and the rules it removes or keeps off the list as counts by class (the tool, `mcp`, `other` or
@@ -4074,7 +4362,7 @@ Without a stamp, lists the setup backups: `BACKUPS <n> in <folder>`, then each b
 writes: each file changed since the backup (`RESTORE`), deleted since (`RECREATE`), and each file in the setup's
 places made since (`NEW`, kept unless `--remove-new`); the files that match count as one `UNCHANGED` line. A copy in
 the backup that no longer matches its sha256 in the manifest is `DAMAGED` and never written. It writes only where the
-backup's files came from: a manifest edited to name any other path is refused, and nothing is written.
+backup's files came from: a manifest edited to name any other path is refused, and nothing is written. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig setup restore --yes` in a tab, or runs it in their own terminal.
 
 Without `--yes` it writes nothing. With `--yes` it first backs the setup up as `setup backup` does, then writes each
 file from the backup, checking the copy's sha256 again as it writes and reading each file back, and prints
@@ -4474,9 +4762,11 @@ turn, and a line that wakes the session, `queue <id> ended: <what>: <last line>;
 `<delivery dir>/detached/<id>.run.json`, until its end line; a run whose process ended with no end of its own (killed
 while it waited or ran) is told by the next `teamrig start` of any session of the team or the next idle pass: a `DIED`
 line in its log and a waking line, `queue <id> died while it waited for its turn|while its step ran: <what>: ...; re-run
-it; log <path>`, told once. From the cutoff on, `--detach` is REFUSED at
-once, as a plain step is. It is refused (exit 64) with `--pre-push`, whose push waits on the checks' result, and under
-a live host lock, where the parent step waits for it. `--detached-run` is set by `--detach` and the hand-over only.
+it; log <path>`, told once. One that died while its step ran also gets its step's ledger record closed: an end
+record under its id at the time the death was seen, exit 1 (unless the ledger already has its end). From the
+cutoff on, `--detach` is REFUSED at once, as a plain step is. It is refused (exit 64) with `--pre-push`, whose push
+waits on the checks' result, and under a live host lock, where the parent step waits for it. `--detached-run` is set
+by `--detach` and the hand-over only.
 
 Everything after `--` is the command, read as `teamrig test` reads it. Run a test run as
 `teamrig queue ... -- teamrig test -- <command>`: it then gets both the lock and the short summary.
@@ -5809,6 +6099,12 @@ Starts a burst, the lead only. Without `--yes` it shows the burst and writes not
   `--task` and `--by` are refused.
 - `deadline`: for work due by a time. The owners of its `--task` tasks (or `--sessions`), until `--by`, at the
   latest the reset; it needs `--stop-pct`. Its tasks must still be open: open, in progress, verifying or waiting.
+- `rush`: for a goal the team works at full speed. The whole team (or `--sessions`) until `--by`, at the latest the
+  reset; it needs `--goal` (a goal of the team or of a team above it) and `--stop-pct`, and `--task` is refused. Its
+  models work the goal's tasks, and the tasks under them, first. While it runs the team's budget holds only report:
+  `budget.overAction` and quiet hours' action read as `warn`, no session is paused by priority, and the WIP rule
+  warns. The config file is not changed, so nothing needs restoring when it ends. The stop %, queue cutoffs, CPU
+  gates and owner gates still hold. `teamrig budget` and every tab's status line show `RUSH <goal> to <end>`.
 
 Each session in it gets a daily budget of at least an even share of today's part of what is left to the stop %,
 recomputed at every reading over the active time to the burst's end, as the week's daily budget is; the preview
@@ -5830,9 +6126,10 @@ Flags:
 - `--sessions <ids>`: the sessions in it, comma-separated, instead of the whole team or its tasks' owners.
 - `--helpers <n>`: the most helpers each of its sessions runs at once; at most `burst.maxHelpers`.
 - `--hires <n>`: the most sessions the lead may hire for it; at most `burst.maxHires`.
-- `--stop-pct <pct>`: the week's use at which it ends; required for a deadline burst, else `budget.targetPct`.
-- `--by <HH:MM|date>`: a deadline burst's deadline: `HH:MM` today or `"YYYY-MM-DD HH:MM"`, on the team's clock unless marked `UTC`.
+- `--stop-pct <pct>`: the week's use at which it ends; required for a deadline burst and a rush, else `budget.targetPct`.
+- `--by <HH:MM|date>`: a deadline burst's deadline or a rush's end: `HH:MM` today or `"YYYY-MM-DD HH:MM"`, on the team's clock unless marked `UTC`.
 - `--task <ids>`: a deadline burst's tasks, comma-separated; worked first.
+- `--goal <tag>`: a rush's goal; required for a rush, refused on the other kinds.
 - `--approved-by "<who>"`: who approved it; needed under `burst.policy` `owner`.
 - `--yes`: start it.
 
@@ -5850,10 +6147,17 @@ STARTED a surplus burst until Mon 01-14 02:00 IST or 99.5% of the week: shop-lea
 NEXT its sessions read it at their next turn; end it early: teamrig burst end --reason "<why>"; hire for it: teamrig hire <id> --burst --scope "<its job>" --reason "<why>"
 ```
 
+A rush for a goal due on Friday, ending at 90% of the week at the latest:
+
+```sh
+teamrig burst start rush --goal PROD --by "2027-01-18 18:00" --stop-pct 90 --reason "PROD due Friday" --approved-by "the owner" --session lead --yes
+```
+
 A caller who is not the lead, a burst the policy refuses, another burst in force, a surplus burst outside its
-window or with too little projected unused, a deadline burst without a stop % or a deadline ahead, a task that is
-not open, caps above the team's, or an unknown week is `REFUSED` (exit 2). An unknown kind, a bad count or time,
-or `--task` on a surplus burst is a usage error (exit 64).
+window or with too little projected unused, a deadline burst or a rush without a stop % or a time ahead, a rush
+without a goal or with a goal the team does not have, a task that is not open, caps above the team's, or an
+unknown week is `REFUSED` (exit 2). An unknown kind, a bad count or time, `--task` on a surplus burst or a rush, or
+`--goal` on a kind other than a rush is a usage error (exit 64).
 
 ### teamrig burst end
 
@@ -5891,11 +6195,16 @@ the team's `budget.targetPct`, `budget.paceEndHoursBeforeReset` and `budget.quie
 team's hooks last said the week's use counts from (`usage/team.week.json`), after a reset inside the week from that
 reset, and over the seven days before the week's reset only until those hooks name a start for this week. Outside a
 team, or once the reading's week reset, no pace is shown. The team config's `statusLine` turns `folder`, `branch` and `pace` off one by one (each is
-on by default; with `branch` off, git is never asked). While the owner's daily meeting is open on the root team
-(`teamrig meeting start`, until `meeting end` or its lapse), the lead's tab that started it prints its whole line
-in `meeting.statusLine.colour` (`#d75fd7` by default) and every other tab, a sub-team's too, adds
-`meeting.statusLine.heldText` (`meeting on: held`) last; `meeting.statusLine.enabled: false` turns both off. The
-tab is known by `$TEAMRIG_SESSION` or its inbox mark, and the root team's meeting file is read once a tick. To go on in a session by hand,
+on by default; with `branch` off, git is never asked). While the owner's meeting is open on a team or a team above
+it (`teamrig meeting start`, until `meeting end` or its lapse), the lead's tab that started it leads its line with
+`Meeting: daily | ` and every other tab, a sub-team's too, adds `meeting.statusLine.heldText` (`meeting on: held`)
+last; only that mark takes `meeting.statusLine.colour` (`#8b57e3`, teamrig's purple, by default), and
+`meeting.statusLine.enabled: false` turns both off. The tab of a session the owner meets in a booked or on-the-spot
+meeting, any session's, a worker's too, leads its line with `Meeting: <its title> | `, what the meeting is about cut
+to 24 characters, in the same colour, until `meeting end` or its lapse (T2985); those joining keep their line. While
+a rush is in force ([teamrig burst start](#teamrig-burst-start)), every tab of the team adds `RUSH <goal> to <end>`
+after the five-hour use. The tab is known by `$TEAMRIG_SESSION` or its inbox mark, and the meeting files of its team
+and the teams above are read once a tick. To go on in a session by hand,
 [teamrig restore](#teamrig-restore) brings it back by its recorded Claude session. It also removes the folder's snapshots written more than
 8 days ago, which hold no reading of the current week, and the temporary files over an hour old that a status line
 stopped before its rename left, sweeping the folder at most once an hour (its `.pruned` file says when it last did),
@@ -5957,8 +6266,8 @@ hands the same input on, so your status line runs and shows as before. A status 
 it in a script, make the script the status line, and run install again. Without `--yes` it shows the change and
 writes nothing; with `--yes` it first keeps the old settings file in the kit's `backups` folder
 (`claude-settings.json`, or with a timestamp when that name is taken). It changes your settings, not a team's, so
-it takes no `--session`. When Claude may not change its own settings from its Bash tool, type
-`! teamrig statusline install --yes` in Claude Code. When it writes the launcher and `<kit home>/bin/launchers.json`
+it takes no `--session`. Its `--yes` is refused where Claude Code runs it (a tool call, a `!` line,
+a script or a hook), so type `/teamrig statusline install --yes` in a tab, or run it in your own terminal. When it writes the launcher and `<kit home>/bin/launchers.json`
 names a newer teamrig than this one, an older teamrig on the PATH, its first step lowers that record to this version,
 as [restore install](#teamrig-restore-install) does, so the newer one's next session start writes its own launcher
 back. With `--yes`, install and uninstall first wait for a session start's refresh in progress, at most 2 minutes, so
@@ -6017,7 +6326,8 @@ WROTE the changes below; the old settings file is at /home/me/.teamrig/backups/c
 ## Hooks
 
 Claude Code runs these from the plugin's `hooks/hooks.json`, with the hook's JSON on stdin. You never run them
-by hand. What each does: [hooks.md](hooks.md).
+by hand. What each does: [hooks.md](hooks.md). A session's tool call that runs one is refused by
+[the exec guard](hooks.md#before-a-shell-command-the-exec-guard), as a hook takes the tab it runs for from its stdin.
 
 ### teamrig hook session-start
 
@@ -6208,6 +6518,25 @@ teamrig hook pass-record-guard < pre-tool-use.json
 Output: nothing for a call that does not reach the records, outside a team's projects, or for input that is not a
 hook payload; otherwise a JSON permission decision `deny` with the reason naming the file or the line.
 
+### teamrig hook service-role-guard
+
+Before a Bash or PowerShell call, asks the owner when the line runs `teamrig roles grant` or `revoke`, and refuses one
+naming the team config file; before a Write, Edit, MultiEdit or NotebookEdit of the team config, refuses one that
+changes `serviceRoles` or that it cannot work out. See
+[Hooks and permissions](hooks.md#before-a-write-or-a-shell-command-the-service-role-guard).
+
+Flags: none.
+
+Example:
+
+```sh
+teamrig hook service-role-guard < pre-tool-use.json
+```
+
+Output: nothing for a call that neither changes a role nor reaches the team config, outside a team's projects, or for
+input that is not a hook payload; otherwise a JSON permission decision, `ask` for a grant or revoke (`deny` with asks
+off) and `deny` for a write of `serviceRoles`, with the reason.
+
 ### teamrig hook readonly-allow
 
 Before a Bash or PowerShell command, with `readonlyShell.enabled` in the team config, lets a line whose every
@@ -6261,7 +6590,7 @@ request`, `worktree remove`, a register or inbox command, a `git commit` with it
 you own) runs; a line that provably only reads runs; a Bash line teamrig's rules give a rerun form (after a leading
 `cd D &&`, or a plain `git worktree remove`) is refused quoting the line to run instead; anything else is refused with
 the tool's name and the note to record the step as waiting for the owner and take the next task. Each answer is a line
-in `state/prompt-answers.jsonl`, its command redacted, a route's by its route alone; lines over 7 days old move to the
+in `state/prompt-answers.jsonl`, its command masked of every secret value, a route's by its route alone; lines over 7 days old move to the
 archive (see
 [teamrig compact](#teamrig-compact)). The question picker (`AskUserQuestion`) and plan mode's exit (`ExitPlanMode`)
 still open. See [Hooks and permissions](hooks.md#asks-off-a-refusal-instead-of-a-prompt).
@@ -6285,7 +6614,7 @@ into a dead end: `teamrig merge`, `teamrig deploy --repo <name>`, `teamrig exec 
 (no `--base`) and a `git commit` with its hooks running (only `-a -s -q -m -F` and paths). The line must be one plain
 command through this install's own `teamrig`, or a bare `git`: no `;`, `&`, `|`, `<`, `>` but a lone `2>&1`, no
 substitution, variable, `$'`, `$"` or `#`, inside quotes too. It answers only once the push, package, secret,
-db-write, exec and pass-record guards all passed the same call; when one asks or refuses, that answer stands. Each allow is a line in
+db-write, exec, pass-record and service-role guards all passed the same call; when one asks or refuses, that answer stands. Each allow is a line in
 `state/prompt-answers.jsonl` naming the route, never the command. `prompts.routeAllow: off` takes the allow away. See
 [Hooks and permissions](hooks.md#asks-off-a-refusal-instead-of-a-prompt).
 
@@ -6312,6 +6641,8 @@ inbox line if the receiver need not act now, or to put every ask for it in one m
 
 While the owner's daily meeting is open (`teamrig meeting start`), it holds every message to the lead from another
 session, a resend too, unless the message starts with `CRITICAL`; the note says to leave an inbox line instead.
+So does a booked or on-the-spot meeting for the session met, any session, from `meeting start` to its end or lapse
+(T2985): its note names the meeting, what it is about and its start; those joining are not held.
 This hold works with `messages.coldAfterMinutes` at 0 too.
 
 With `open.idle.mode: on`, a message to a team session teamrig closed (its last close in `state/session-log.jsonl`,
@@ -6901,6 +7232,9 @@ the line the person agreed to run. It runs the line through the CLI, in the tab'
 - A command Claude Code or teamrig runs itself (`hook ...`, `launch`, `restart`, `statusline`) is refused with
   exit 64.
 - Nothing typed prints the short help and these rules.
+- Wherever Claude Code set `$CLAUDECODE` (a tool call, a script it runs, a hook), any line is REFUSED (exit 2) and
+  nothing runs: its stdin says who typed the line, and the caller writes that stdin. The mod runs it with Claude
+  Code's own environment, which lacks the variable.
 
 Flags: none.
 

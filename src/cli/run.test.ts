@@ -99,7 +99,7 @@ describe('runCli: help, version and usage errors', () => {
     const head = USAGE.split('\n')[0] ?? '';
     const setLines = [
       '  set <id> --status open|in-progress|verifying|waiting|done|dropped [--note "<what/why>"] [--evidence <proof>]',
-      '      [--skill <name>|none] [--followups T<id>,...|none] [--waits decision:<who>,approval:<who>,task:T<id>,time:<date>]',
+      '      [--skill <name>|none] [--followups T<id>,...|none] [--waits decision:<who>,approval:<who>,task:T<id>,time:<date>|none]',
       '      [--question ".." --options "<a> | <b>" --recommend ".." --default ".." --why-ask ".." --gate ".." --affects ".."]',
       '      [--proof "<what proves it>"] [--watch "<what a sighting shows>"] [--met "<what shows it>"] [--due <date>]',
       '      [--ask <session> --text "<the work>"] [--one-commit] [--run <path>] [--security]',
@@ -121,7 +121,7 @@ describe('runCli: help, version and usage errors', () => {
       "      --ask (with waiting only): adds the work as that session's task and waits on it; --due is then the",
       "      asked task's due date",
       '      verifying needs --waits for when its proof runs: a time, or a task in progress or verifying (the',
-      "      owner's approval may stand beside one); set verifying again without --waits keeps them",
+      "      owner's approval may stand beside one); set verifying again without --waits keeps them, --waits none clears them",
       "      a wait on the owner's decision or approval needs a card the owner decides from alone",
       '      (register.requireDecisionCard): --question "<what is decided>" --options "<a, its numbers> | <b>"',
       '      --recommend "<which, and why>" --default "<what happens with no answer>"; each part at least 3 words',
@@ -903,6 +903,29 @@ describe('runCli: hook pass-record-guard', () => {
   it("prints nothing outside a team's projects or for input that is not a hook payload", async () => {
     assert.deepEqual(await new CliHarness(null, null).run(['hook', 'pass-record-guard'], { stdin: write(record) }), { code: EXIT.ok, stdout: [], stderr: [] });
     assert.deepEqual(await new CliHarness().run(['hook', 'pass-record-guard'], { stdin: 'not json' }), { code: EXIT.ok, stdout: [], stderr: [] });
+  });
+});
+
+describe('runCli: hook service-role-guard', () => {
+  const edit = (old_string: string, new_string: string): string => JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: CONFIG_PATH, old_string, new_string }, cwd: APP });
+
+  it('asks before a roles grant, refuses asks-off, and refuses an edit adding serviceRoles, on a broken config too', async () => {
+    assert.equal(decisionOf(await new CliHarness().run(['hook', 'service-role-guard'], { stdin: bash('teamrig roles grant github --holder alpha --yes') })), 'ask');
+    const off = new CliHarness({ ...TEAM, prompts: { hookAsks: 'refuse' } });
+    assert.equal(decisionOf(await off.run(['hook', 'service-role-guard'], { stdin: bash('teamrig roles revoke github --yes') })), 'deny');
+    const kit = new CliHarness();
+    const text = kit.files.get(CONFIG_PATH) ?? '';
+    const added = edit(text.slice(0, 1), `{"serviceRoles": {"github": {"holders": ["alpha"], "commands": ["issue close"]}},`);
+    assert.equal(decisionOf(await kit.run(['hook', 'service-role-guard'], { stdin: added })), 'deny');
+    const broken = new CliHarness('{ not json');
+    assert.equal(decisionOf(await broken.run(['hook', 'service-role-guard'], { stdin: edit('{ not json', '{"serviceRoles": {}}') })), 'deny');
+  });
+
+  it("lets other calls run, and prints nothing outside a team's projects or for input that is not a hook payload", async () => {
+    const kit = new CliHarness();
+    assert.deepEqual(await kit.run(['hook', 'service-role-guard'], { stdin: bash('teamrig roles list') }), { code: EXIT.ok, stdout: [], stderr: [] });
+    assert.deepEqual(await new CliHarness(null, null).run(['hook', 'service-role-guard'], { stdin: bash('teamrig roles grant github --holder alpha') }), { code: EXIT.ok, stdout: [], stderr: [] });
+    assert.deepEqual(await new CliHarness().run(['hook', 'service-role-guard'], { stdin: 'not json' }), { code: EXIT.ok, stdout: [], stderr: [] });
   });
 });
 

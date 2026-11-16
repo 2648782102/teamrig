@@ -72,6 +72,12 @@ describe('RegisterPolicy.add', () => {
     assert.equal(error(own.add({ ...INPUT, workClass: 'Roadmap' }, EMPTY)), 'class Roadmap is not one of focus.classes (Product, Upkeep)');
   });
 
+  it('matches a class in any case and keeps the configured spelling (GeneralA6/teamrig#845)', () => {
+    const verdict = policy.add({ ...INPUT, workClass: 'maintenance' }, EMPTY);
+    assert.equal(verdict.ok ? verdict.value.workClass : error(verdict), 'Maintenance');
+    assert.equal(error(policy.add({ ...INPUT, workClass: 'chores' }, EMPTY)), 'class chores is not one of focus.classes (Roadmap, Maintenance, Improvements)');
+  });
+
   it("takes teamrig's p0 beside the configured levels, a team with its own levels included", () => {
     const verdict = policy.add({ ...INPUT, priority: 0 }, EMPTY);
     assert.equal(verdict.ok ? verdict.value.priority : undefined, 0);
@@ -118,6 +124,12 @@ describe('RegisterPolicy.add', () => {
     assert.match(error(policy.setStatus(TASK, 'alpha', { status: 'waiting', waits: OWNER_DECISION, card: TEST_OWNER_CARD, note: `key ${token}` }, CTX)), /^note looks like it holds a secret/);
     assert.match(error(policy.setStatus(TASK, 'alpha', { status: 'done', note: 'ok', evidence: token, skill: 'none', followups: [] }, CTX)), /^evidence looks like it holds a secret/);
     assert.match(error(policy.update(TASK, 'alpha', { title: 'Add two health checks' }, `see ${token}`, EMPTY)), /^note looks like it holds a secret/);
+  });
+
+  it("takes a description that names a key word and a colon in plain prose (GeneralA6/teamrig#852)", () => {
+    const description = `Move the ${['api', '_key'].join('')}: to the vault, then rotate it`;
+    assert.equal(error(policy.add({ ...INPUT, description }, EMPTY)), 'allowed');
+    assert.match(error(policy.add({ ...INPUT, description: `${['pass', 'word'].join('')}: hunter2` }, EMPTY)), /^description looks like it holds a secret/);
   });
 
   it('checks goals and extra secret patterns from the config', () => {
@@ -701,6 +713,15 @@ describe('RegisterPolicy.setStatus to verifying', () => {
     assert.deepEqual(kept.ok ? kept.value.waits : undefined, passed.waits);
   });
 
+  it("clears a verifying task's waits on --waits none, unless its proof must name when it runs (GeneralA6/teamrig#682)", () => {
+    const held: Task = { ...VERIFYING, waits: [{ kind: 'approval', who: 'lead' }, ...RUN_TONIGHT] };
+    const none = { status: 'verifying' as const, note: 'approval dropped', waits: [], followups: [] };
+    const relaxed = new RegisterPolicy(testConfig({ register: { requireProofOnVerifying: false } }));
+    const cleared = relaxed.setStatus(held, 'alpha', none, CTX);
+    assert.equal(cleared.ok ? cleared.value.waits : 'refused', undefined, 'a verifying line with no waits clears them (fold.ts)');
+    assert.equal(error(policy.setStatus(held, 'alpha', none, CTX)), PROOF_RUN_NEEDED);
+  });
+
   it('refuses putting the proof off to other waits past register.maxReparks, and lets the same waits or a reopen through', () => {
     const parked: Task = { ...VERIFYING, waits: [{ kind: 'time', at: '2030-01-09 02:00' }], reparks: 2 };
     const later = { status: 'verifying' as const, note: 'the run moved', waits: [{ kind: 'time' as const, at: '2030-01-10 02:00' }], followups: [] };
@@ -1027,6 +1048,11 @@ describe('RegisterPolicy.update', () => {
     assert.equal(policy.update(stale, 'alpha', { workClass: 'Roadmap' }, undefined, EMPTY).ok, true, 'one of the classes');
   });
 
+  it('matches a class in any case on update and keeps the configured spelling (GeneralA6/teamrig#845)', () => {
+    const verdict = policy.update(TASK, 'alpha', { workClass: 'ROADMAP' }, undefined, EMPTY);
+    assert.deepEqual(verdict.ok ? verdict.value.changes : error(verdict), { workClass: 'Roadmap' });
+  });
+
   it('refuses a critical mark on a task, and clears the mark when a critical bug becomes a task (T1252)', () => {
     assert.equal(error(policy.update(TASK, 'alpha', { critical: true }, undefined, EMPTY)), 'critical marks only a bug: give --type bug too');
     assert.equal(error(policy.update(testTask({ ...TASK, type: 'task' }), 'alpha', { critical: true }, undefined, EMPTY)), 'critical marks only a bug: give --type bug too');
@@ -1171,6 +1197,10 @@ describe('RegisterPolicy.triage (T2086)', () => {
 
   it('lets the owner write class, goals and size', () => {
     assert.deepEqual(policy.triage(TASK, 'alpha', ROW, EMPTY), { ok: true, value: { changes: ROW, note: null } });
+  });
+
+  it('matches a row class in any case and keeps the configured spelling (GeneralA6/teamrig#845)', () => {
+    assert.deepEqual(policy.triage(TASK, 'alpha', { ...ROW, workClass: 'roadmap' }, EMPTY), { ok: true, value: { changes: ROW, note: null } });
   });
 
   it("lets the lead write goals, which a leader's update may not", () => {

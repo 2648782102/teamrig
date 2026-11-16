@@ -1,5 +1,6 @@
+import { packagedStartOf } from "../package-guard/packaged.js";
 import { isAssignment, launch, programName, staticWord } from "./launchers.js";
-import { Location, resolveDir } from "./location.js";
+import { bashNativeWord, Location, resolveDir } from "./location.js";
 import { splitGitAlias } from "./program-split.js";
 import { redirectsInput, stdinUse } from "./stdin.js";
 import { parseHeldText, parseShell } from "./tokenizer.js";
@@ -185,6 +186,7 @@ function splitOption(text) {
 class GitInvocationFinder {
     invocations = [];
     doubts = [];
+    readings = [];
     mentionsPush = false;
     /** Aliases a `git config alias.x value` earlier in the line sets; undefined marks one only known when it runs. */
     lineAliases = new Map();
@@ -203,7 +205,7 @@ class GitInvocationFinder {
     }
     find(command) {
         this.visitScript(staticWord(command), this.context.dialect, new Location(this.context.cwd, this.context.home), 0);
-        return { invocations: this.invocations, doubts: this.doubts, mentionsPush: this.mentionsPush };
+        return { invocations: this.invocations, doubts: this.doubts, mentionsPush: this.mentionsPush, readings: this.readings };
     }
     doubt(reason, gated) {
         this.doubts.push({ reason, gated });
@@ -301,7 +303,7 @@ class GitInvocationFinder {
                 break;
             case 'script': {
                 const inner = location.child();
-                launched.chdirs.forEach((chdir) => inner.moveTo(chdir));
+                launched.chdirs.forEach((chdir) => inner.moveTo(chdir, dialect));
                 if (launched.script.dynamic && launched.dialect !== dialect) {
                     this.doubt(`it hands ${DIALECT_NAMES[launched.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true);
                 }
@@ -313,18 +315,66 @@ class GitInvocationFinder {
             }
             case 'program': {
                 const name = programName(launched.program.text);
+                const packaged = packagedStartOf(name, launched.args, launched.env);
+                if (packaged.length > 0) {
+                    this.visitPackaged(packaged, launched, dialect, location, depth, stdin);
+                    break;
+                }
                 const subcommand = name.startsWith('git-') ? name.slice(4) : undefined;
                 if (name !== 'git' && (subcommand === undefined || !BUILTINS.has(subcommand))) {
                     break;
                 }
                 const inner = location.child();
-                launched.chdirs.forEach((chdir) => inner.moveTo(chdir));
-                const args = subcommand === undefined ? launched.args : [staticWord(subcommand), ...launched.args];
+                launched.chdirs.forEach((chdir) => inner.moveTo(chdir, dialect));
+                const words = dialect === 'bash' ? launched.args.map((word) => bashNativeWord(word, location.home)) : launched.args;
+                const args = subcommand === undefined ? words : [staticWord(subcommand), ...words];
                 const tail = launched.stdinArgs ? [...args, { text: '<stdin>', dynamic: true }] : args;
                 this.visitGit(tail, this.gitState(inner.dir, launched.env), depth, 0);
             }
         }
         return launched;
+    }
+    /**
+     * Visits what a package runner or a version manager starts (T3069): `git push` in `npx -c "git push"` or
+     * `volta run git push` runs as surely as a line's own. It runs one script level deeper, in the runner's folder,
+     * with its variables and stdin. Each reading of it is visited in turn, and kept as a {@link ReadingSpan} when
+     * there are several; a shell the line names for it that the guard cannot read always asks.
+     */
+    visitPackaged(starts, runner, dialect, location, depth, stdin) {
+        if (depth >= MAX_SCRIPT_DEPTH) {
+            this.doubt('package runners nest too deep to read', false);
+            return;
+        }
+        const start = this.invocations.length;
+        const ends = [];
+        for (const packaged of starts) {
+            const inner = location.child();
+            runner.chdirs.forEach((chdir) => inner.moveTo(chdir, dialect));
+            this.visitPackagedReading(packaged, runner, dialect, inner, depth, stdin);
+            ends.push(this.invocations.length);
+        }
+        if (ends.length > 1) {
+            this.readings.push({ start, ends });
+        }
+    }
+    /** Visits one reading of what a package runner starts, in `inner`, its folder. */
+    visitPackagedReading(start, runner, dialect, inner, depth, stdin) {
+        switch (start.kind) {
+            case 'script':
+                if (start.script.dynamic && start.dialect !== dialect) {
+                    this.doubt(`it hands ${DIALECT_NAMES[start.dialect]} a command line built from ${DIALECT_NAMES[dialect]} variables`, true);
+                }
+                this.inheriting(hooksVariableOf(runner.env), false, () => this.visitScript(start.script, start.dialect, inner, depth + 1));
+                return;
+            case 'foreign-shell':
+                this.doubt(start.shell.dynamic ? 'a package runner hands its command line to a shell only known when it runs' : `a package runner hands its command line to ${programName(start.shell.text)}, a shell the guard cannot read`, false);
+                return;
+            case 'words': {
+                // The runner's variables reach the program it starts, so `GIT_DIR=x npx git push` still moves git.
+                const env = runner.env.map(({ name, value }) => ({ text: `${name}=${value.text}`, dynamic: value.dynamic }));
+                this.visitCommand(env.length === 0 ? start.words : [staticWord('env'), ...env, ...start.words], dialect, inner, depth + 1, stdin);
+            }
+        }
     }
     /**
      * Runs `visit`, a read of a script whose shell inherits `hooksOverride` (from its launcher's variables or the git

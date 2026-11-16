@@ -55,6 +55,7 @@ export const CONFIG_LIMITS = {
     dbWriteNodeClients: { maxItems: 16 },
     dbWriteClientReceivers: { maxItems: 8, maxLength: 40 },
     packageCooldownDays: { min: 0, max: 365 },
+    serviceRoleDailyCap: { min: 0, max: 200 },
     searchNudgeAt: { min: 0, max: 50 },
     turnLogKeepHours: { min: 1, max: 168 },
     meetingBeforeMinutes: { min: 0, max: 120 },
@@ -65,7 +66,7 @@ export const CONFIG_LIMITS = {
     maxFailureChars: { min: 500, max: 50_000 },
     githubRepos: { maxItems: 20, maxLength: 140 },
     closedDays: { min: 1, max: 365 },
-    githubEveryMinutes: { min: 0, max: 1440 },
+    githubProbeSeconds: { min: 0, max: 3600 },
     similarThreshold: { min: 0, max: 1 },
     budgetTargetPct: { min: 1, max: 100 },
     budgetReservePct: { min: 0, max: 50 },
@@ -98,6 +99,7 @@ export const CONFIG_LIMITS = {
     burstMinSparePct: { min: 0.1, max: 100 },
     burstMaxHelpers: { min: 0, max: 20 },
     burstMaxHires: { min: 0, max: 20 },
+    rushPokeAfterMinutes: { min: 1, max: 120 },
     queueLockTtlMinutes: { min: 11, max: 1440 },
     queueMaxRunMinutes: { min: 1, max: 1430 },
     queueSmallMaxRunMinutes: { min: 1, max: 1430 },
@@ -173,6 +175,14 @@ export const CLIENT_RECEIVER_PATTERN = /^[A-Za-z_$][\w$]*$/;
 export const BUDGET_ACCOUNT_MAX_LENGTH = 100;
 /** The longest `github.acceptLabel`: GitHub caps a label name at 50 characters. */
 export const GITHUB_LABEL_MAX_LENGTH = 50;
+/**
+ * Bounds on `serviceRoles` (T2984): how many roles a team declares, and the shape of a role's name, which a log line
+ * and the classifier's briefing line name it by.
+ */
+export const SERVICE_ROLE_LIMITS = {
+    maxRoles: 16,
+    namePattern: /^[a-z][a-z0-9-]{0,31}$/,
+};
 /** Bounds on the fields of one review gate entry (`pushGuard.reviewPaths`). */
 export const REVIEW_PATH_LIMITS = {
     globMaxLength: 200,

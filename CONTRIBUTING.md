@@ -28,6 +28,8 @@ the rules that apply on every turn, and the project skills in `.claude/skills/` 
 | [`dev-add-config-key`](.claude/skills/dev-add-config-key/SKILL.md) | a new key in the team config |
 | [`dev-update-docs`](.claude/skills/dev-update-docs/SKILL.md) | the docs a change must update, and the checks that hold them to the code |
 | [`dev-ship-change`](.claude/skills/dev-ship-change/SKILL.md) | from the last commit to the merge: dist, version raise, checks, push, pull request |
+| [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.md) | joining a design issue: a reasoned comment, nothing taken until it is agreed, no sensitive data |
+| [`dev-github-intake`](.claude/skills/dev-github-intake/SKILL.md) | a maintainer taking in issues and pull requests: labels, best fix first, landing with credit, design issues |
 
 - **One branch per change**, cut from the newest `origin/main` (see [Branches and releases](#branches-and-releases)).
 - **One logical change per commit**: a fix with its tests, a refactor apart from what it enables, a mechanical change
@@ -41,6 +43,30 @@ the rules that apply on every turn, and the project skills in `.claude/skills/` 
   template's `## Alternatives` (the options weighed and why this one won). There is no decisions folder: the reasons
   live in the code, its issues and its pull requests, and [how it works](docs/how-it-works.md) shows how the parts fit.
 - When a step in a skill turns out wrong, fix the skill in the same pull request.
+- **Generic first**: every change has a reach, decided before it is built and stated in its task and its pull request
+  (see [Where a change lives](#where-a-change-lives)).
+
+## Where a change lives
+teamrig is its own main user: its own sessions build it with it, so a fix they need is most often one every team
+needs. Each change has one of three reaches, and generic is the default:
+
+| Reach | Where it lives | Such as |
+| --- | --- | --- |
+| **all users** | the plugin: a command or flag (`src/`), a config key with a default, a hook, a plugin skill (`plugins/teamrig/skills/`), the core rules | a check flag, a guard, a step of the guide |
+| **teamrig development** | this repository's own tooling: `.claude/skills/dev-*`, `tools/`, `.github/`, CONTRIBUTING.md, CLAUDE.md | the ship tool, the docs checks, a CI gate |
+| **one team** | that team's own files: its team rules, its sessions' skills and memory, outside this repository | a team's repository names, its owner's decisions |
+
+Decide it by asking, in order:
+
+1. Would a team that never touches teamrig's code need this, maybe with values of its own? Then it is for **all
+   users**: ship it in the plugin, and put any value that differs per team in a config key with a default, never
+   hard-coded.
+2. Is it about building, testing, documenting or releasing teamrig itself? Then it is **teamrig development**.
+3. Only what neither answers is for **one team**. A one-team stopgap for a need that is really generic names the
+   all-users task that replaces it (`stopgap T<id>`).
+
+A task says its reach in its description, an approval request in its note, and a pull request in its `## Reach`
+section. A reviewer who reads a one-team or teamrig-development reach on what is really generic asks for it to move.
 
 ## Sign-off (DCO)
 Every commit must carry a `Signed-off-by:` line that matches the commit author, certifying the
@@ -99,12 +125,12 @@ then the pane counts each line of the new format as one from a newer teamrig and
 (`scripts/sync-core.ts --formats`) fails while its copy trails `main`, so the pane cannot ship behind it.
 
 ## The local gate
-CI (`.github/workflows/ci.yml`) runs on each pull request and each push to `main`, but every job skips while the
-repository is private, where GitHub Actions minutes bill, so it checks only once the repository is public. Its
-`every check passed` job passes only when every other job did: the one check `main` requires (see
-[Pull requests](#pull-requests)). Whether CI runs or not, the `pre-push` hook that `npm ci` sets runs every check CI
-runs on the commit being pushed (`tools/ci/local.ts`; the list is `tools/ci/local-checks.ts`), all but the
-dependency review, which reads GitHub's dependency graph ([Security checks](#security-checks)):
+CI (`.github/workflows/ci.yml`) runs on each pull request and each push to `main` (every job would skip if the
+repository were made private again, where GitHub Actions minutes bill). Its `every check passed` job passes only when
+every other job did: the one check `main` requires (see [Pull requests](#pull-requests)). Before that, the
+`pre-push` hook that `npm ci` sets runs every check CI runs on the commit being pushed (`tools/ci/local.ts`; the list
+is `tools/ci/local-checks.ts`), all but the dependency review, which reads GitHub's dependency graph
+([Security checks](#security-checks)):
 - It refuses a push to `main`, before any check: every change lands through a pull request. On GitHub,
   the `main` ruleset refuses the same push from a clone without the hooks: it has no bypass actor, so no one can
   change main outside a pull request (see [Rules on `main`](#pull-requests)).
@@ -115,8 +141,8 @@ dependency review, which reads GitHub's dependency graph ([Security checks](#sec
   session's own write of one (`hook pass-record-guard`).
 - It cannot be skipped: never push with `--no-verify`.
 
-It runs on one machine and one Node, so a failure that only another OS or Node version shows goes unseen until
-the repository is public.
+It runs on one machine and one Node, so a failure that only another OS or Node version shows waits for CI's test
+matrix.
 
 ## Security checks
 - **Dependency review**: CI's `dependency review` job fails a pull request that adds or changes a dependency (an
@@ -135,7 +161,7 @@ the repository is public.
 
 ## Branches and releases
 - Every change is its own branch off `main` and lands through a pull request once every check
-  passes on its head (the local gate until the repository is public); it is rebase-merged and the branch is deleted.
+  passes on its head (the local gate before the push, CI after it); it is rebase-merged and the branch is deleted.
 - A branch is named `<type>/<id>-<slug>` (Conventional Branch): `feat`, `fix`, `docs`, `chore`, `refactor`,
   `hotfix` or `release`, the task or issue id, then a short lowercase kebab slug, such as `fix/t12-login-loop`.
   `teamrig worktree add --task <id>` names it so. To ship a branch again after its commits reached origin, rename
@@ -152,16 +178,62 @@ the repository is public.
   fails a pull request that does not, and one that gives the marketplace entry a version of its own,
   which Claude Code ignores. How users update: [Updating the plugin](docs/how-it-works.md#updating-the-plugin).
 
+## Issues
+Each issue becomes a task teamrig tracks, so an issue carries the task's fields. Open one through a form: a blank issue
+is turned off.
+
+| Form | Its type label | Sections (all required unless marked) |
+| --- | --- | --- |
+| Bug report | `bug` | What happened, What was expected, Steps, Version (`teamrig --version`), OS |
+| Task | `task` | What, Why, Done when |
+| Feature request | `feature` | Problem, Proposal, Alternatives (optional) |
+| Design | `design` | Question, Context, Options, Proposal (optional); talk, not work, until agreed ([Design issues](#design-issues)) |
+
+- **Title**: `<area>: <a plain sentence>`, such as `budget: the week line counts a retired session`.
+- **Labels** are listed in `.github/labels.json`. The form sets the type. Maintainers and the GitHub watcher set
+  the priority (`p1` to `p3`), the area (`area:cli`, `area:hooks`, ...) and the state (`needs-format`,
+  `duplicate`, `teamrig`), which need triage rights.
+- **Security problems** go through a private advisory, never a public issue: the issue chooser links it, and
+  [SECURITY.md](SECURITY.md) says what to send.
+- `tools/ci/github-format.ts` lists each form's sections and the pull request template's, and
+  `tools/ci/github-format.test.ts` holds the forms, `labels.json` and the template to it.
+
+## Design issues
+
+A design issue, labelled `design`, is where we talk about how something should work before anyone builds it, in
+place of a discussion forum. Open one with the Design form. Every contributor, and the agent working for them, may
+join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.md).
+
+- **Give your side with reasons**: a comment saying what you would do and why, what it costs and what it gives up,
+  answering the earlier comments you disagree with. One comment per point, not a running log.
+- **Nothing to take yet**: no claim, no assignee, no branch, no code and no pull request until the maintainer marks
+  it agreed. teamrig shows no status label on a design issue and assigns it to no one.
+- **Agreed**: the maintainer posts a comment starting `Agreed:` that sums up the decision, updates the issue body to
+  it and takes the `design` label off, or opens the work as new issues linked to it. From then on it is work, taken
+  like any other issue.
+- **Never post sensitive data**, here or anywhere public (an issue, a comment, a pull request, a commit): no secret,
+  token or key, no private path, host name or e-mail address, no private log, and no security hole. A security hole
+  goes through a private report, as [SECURITY.md](SECURITY.md) says; a log goes in cut to the lines that matter, with
+  every private value taken out.
+
 ## Pull requests
+- **The description**: the template asks for What, Why, Reach (see [Where a change lives](#where-a-change-lives)), Changes, Old-code proof (for a fix, the regression test that
+  fails on the old code), Tests and Issue (`Fixes #<n>` or `Refs #<n>`), then the checklist.
 - **From a fork**: fork the repository, branch off its `main`, and open the pull request against this repository's
   `main`. CI runs it with no secrets and a read-only token, and an outside contributor's run waits for the
   maintainer to approve it.
 - **Your commit e-mail**: the `Signed-off-by:` line carries your commit e-mail, and the scrub refuses an e-mail
   address in a commit message unless it is one of GitHub's no-reply addresses. Before your first commit, set the
   no-reply address GitHub shows under Settings, Emails: `git config user.email <id>+<user>@users.noreply.github.com`.
-- **A version clash**: when `main` moves on with a version raise of its own, rebase onto it. `plugin.json`,
-  `src/core/version.ts` and the dist clash: take `main`'s side, raise the version above it again and rebuild the dist
-  (`npm run build`), each in its own commit as before.
+- **A version clash**: when `main` moves on with a version raise of its own, the maintainer's merge
+  (`tools/ship/merge.ts`) catches the pull request up: it drops its version and dist commits, replays its other
+  commits on `main`, raises the version again above `main`'s with the same commit message and rebuilds the dist. The
+  review holds while the work's diff stays the same. It works only when the raise and the dist each sit in a commit
+  of their own; a commit that mixes them with work, a conflict, or work that writes the raised version down (a doc's
+  "since 0.4.0") is rebased by hand: take `main`'s side of `plugin.json`, `src/core/version.ts` and the dist, raise
+  the version above it again and rebuild the dist (`npm run build`), each in its own commit as before.
+- **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
+  failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
   new push dismisses an approval given before it. A change to the git hooks, CI, the scrub or teamrig's guards
   (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,

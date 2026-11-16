@@ -1,8 +1,12 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
-import { realSleep } from '../../src/core/lock.ts';
+import { realSleep, systemClock } from '../../src/core/lock.ts';
 import { type ClearMerge, clearMergeFrom } from './approval.ts';
+import { buildScriptOf, buildSteps } from './build-steps.ts';
+import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
@@ -16,7 +20,7 @@ import { describeCredential } from './token-check.ts';
 /**
  * `ship.ts merge`, the only merge route the auto-mode briefing grants for these repos.
  * Merges a pushed change branch (by default the one checked out in the repo dir, never main itself) into
- * a repo's main through a pull request: refuse a branch that main moved past, find or open the PR, prove the
+ * a repo's main through a pull request: catch up a branch that main moved past (runMerge), find or open the PR, prove the
  * PR's head sha by the repo's gate in repos.json, refuse again if main moved meanwhile, then rebase-merge
  * pinned to that sha and confirm main's new tree is the tree the checks ran on. The gate is `ci` (wait until
  * every listed check passed on GitHub; a failed one stops at once, a missing or running one at the deadline
@@ -43,16 +47,39 @@ export interface Polling {
 
 export type ChecksResult = { verdict: 'passed' | 'failed' | 'timeout'; outcomes: CheckOutcome[] };
 
+const awaitsRerun = (outcome: CheckOutcome): boolean => outcome.state === 'unstarted' || outcome.state === 'flaky';
+
 /** The checks that wait on a re-run, failed for the re-run call's error: nothing else can prove them. */
 const rerunRefused = (outcomes: readonly CheckOutcome[], message: string): ChecksResult => ({
   verdict: 'failed',
-  outcomes: outcomes.map(outcome => (outcome.state === 'unstarted' ? { ...outcome, state: 'failed', detail: `${outcome.detail}; the re-run failed: ${message}`, reruns: [] } : outcome)),
+  outcomes: outcomes.map(outcome => (awaitsRerun(outcome) ? { ...outcome, state: 'failed', detail: `${outcome.detail}; the re-run failed: ${message}`, reruns: [] } : outcome)),
 });
+
+/** Why a run is re-run: what its checks that wait on it show. */
+const rerunWhy = (outcomes: readonly CheckOutcome[]): string =>
+  outcomes.some(outcome => outcome.state === 'flaky') ? 'failed on a check listed as flaky (repos.json), so the same sha goes once more' : 'cancelled before any step ran (no runner came)';
+
+/**
+ * The required checks of `sha`, or the error of a read GitHub gave no answer to (a 5xx, a timeout, a reset: T2988),
+ * which the wait reads once more at its next poll, so one bad read does not end a wait of up to 45 minutes. GitHub's
+ * own refusal (a 4xx) and a second bad read in a row throw.
+ */
+function readOnceMore(read: () => CheckOutcome[], failedBefore: boolean, log: (line: string) => void): CheckOutcome[] | Error {
+  try {
+    return read();
+  } catch (error) {
+    const message = messageOf(error);
+    if (failedBefore || REFUSAL.test(message)) throw error;
+    log(`reading the checks got no answer from GitHub (${message}): reading them once more at the next poll`);
+    return error instanceof Error ? error : new Error(message);
+  }
+}
 
 /**
  * Polls the required checks until they pass, one fails, or the deadline. A run whose required jobs GitHub cancelled
- * before any step ran (no runner came) is re-run once, then waited on again; `evaluate` fails the same in a later
- * attempt, and a run already re-run here is not re-run again while GitHub starts the new attempt.
+ * before any step ran (no runner came), or whose only failures are checks listed as flaky (T2532, T2988), is re-run
+ * once, then waited on again; `evaluate` fails the same in a later attempt, and a run already re-run here is not
+ * re-run again while GitHub starts the new attempt. A read with no answer from GitHub is tried once more (readOnceMore).
  */
 export async function waitForChecks(
   gh: Gh,
@@ -66,21 +93,30 @@ export async function waitForChecks(
 ): Promise<ChecksResult> {
   const deadline = waiter.now() + polling.timeoutMs;
   const rerun = new Set<number>();
+  let readFailed = false;
   for (;;) {
-    const outcomes = readChecks(gh, repo, sha, branch, required);
+    const read = readOnceMore(() => readChecks(gh, repo, sha, branch, required), readFailed, log);
+    readFailed = read instanceof Error;
+    if (read instanceof Error) {
+      if (waiter.now() >= deadline) throw read;
+      await waiter.sleep(Math.min(polling.intervalMs, Math.max(deadline - waiter.now(), 0)));
+      continue;
+    }
+    const outcomes = read;
     const verdict = verdictOf(outcomes);
     if (verdict === 'passed' || verdict === 'failed') return { verdict, outcomes };
     if (verdict === 'rerun') {
       for (const runId of new Set(outcomes.flatMap(outcome => outcome.reruns))) {
         if (rerun.has(runId)) continue;
         rerun.add(runId);
-        const names = outcomes.filter(outcome => outcome.reruns.includes(runId)).map(outcome => outcome.name);
+        const waiting = outcomes.filter(outcome => outcome.reruns.includes(runId));
+        const names = waiting.map(outcome => outcome.name);
         try {
           rerunFailedJobs(gh, repo, runId);
         } catch (error) {
           return rerunRefused(outcomes, error instanceof Error ? error.message : String(error));
         }
-        log(`re-ran run ${runId}: ${names.join(', ')} cancelled before any step ran (no runner came); waiting again, once`);
+        log(`re-ran run ${runId}: ${names.join(', ')} ${rerunWhy(waiting)}; waiting again, once`);
       }
     }
     if (waiter.now() >= deadline) return { verdict: 'timeout', outcomes };
@@ -121,7 +157,7 @@ export function ciProof(gh: Gh, repo: string, branch: string, required: Required
       for (const outcome of checks.outcomes) log(`check ${outcome.state}: ${outcome.name} (${outcome.detail})`);
       if (checks.verdict === 'failed') return `failed: ${listed(checks.outcomes, 'failed')}`;
       if (checks.verdict === 'timeout') {
-        const open = [listed(checks.outcomes, 'pending'), listed(checks.outcomes, 'missing'), listed(checks.outcomes, 'unstarted')].filter(part => part !== '').join('; ');
+        const open = [listed(checks.outcomes, 'pending'), listed(checks.outcomes, 'missing'), listed(checks.outcomes, 'unstarted'), listed(checks.outcomes, 'flaky')].filter(part => part !== '').join('; ');
         return `not green after ${Math.round(polling.timeoutMs / 60_000)} min: ${open}`;
       }
       return null;
@@ -353,6 +389,8 @@ export interface MergeDeps {
   sweep: (merged: MergedHead, profile: RepoProfile, gh: Gh) => void;
   /** Whether the caller may merge the branch at its head on the approval it names (approval.ts, T2788). */
   clearMerge: ClearMerge;
+  /** A head main moved past, rebased onto main's tip and pushed as a new branch when its diff stays the same (catch-up.ts). */
+  catchUp: (request: CatchUpRequest) => CatchUp;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -378,22 +416,60 @@ export type MergeGate = (head: string, sha: string) => Promise<string | null>;
 /** The gate of a ship's own merge: the ship cleared the head and checked its change before it pushed (ship-commits.ts). */
 const CLEARED_BY_SHIP: MergeGate = () => Promise.resolve(null);
 
-/** The gate of `ship.ts merge`: the caller's clearance of the head on the approval `args` names. */
+/**
+ * The gate of `ship.ts merge`: the caller's clearance of the first head on the approval `args` names. runMerge calls
+ * it again only for a head catch-up.ts made from that cleared head, which carries the same diff with its context
+ * lines (a rebase onto main's tip, nothing else), so that head merges on the first one's clearance: the approval
+ * names the first sha, and asking again for a sha nobody could approve beforehand would stop every caught-up merge
+ * (T2809). A refused first head never reaches a catch-up, since mergeRun returns its refusal as done.
+ */
 function approvalGate(args: MergeArgs, deps: MergeDeps): MergeGate {
+  let cleared: { head: string; sha: string; by: string } | null = null;
   return async (head, sha) => {
+    if (cleared !== null) {
+      deps.out(`merge of ${head} ${sha.slice(0, 9)}: caught up from ${cleared.head} ${cleared.sha.slice(0, 9)}, ${cleared.by}`);
+      return null;
+    }
     const clearance = await deps.clearMerge(head, sha, args.approved);
     if (clearance.kind === 'refused') return clearance.reason;
-    deps.out(clearance.kind === 'self' ? `merge of ${head} ${sha.slice(0, 9)}: the caller's own, a root team's lead` : `merge of ${head} ${sha.slice(0, 9)}: approved by ${clearance.by}`);
+    const by = clearance.kind === 'self' ? "the caller's own, a root team's lead" : `approved by ${clearance.by}`;
+    deps.out(`merge of ${head} ${sha.slice(0, 9)}: ${by}`);
+    cleared = { head, sha, by };
     return null;
   };
 }
 
-/** `ship.ts merge` as a run: a move of main comes back unsaid, so a ship can rebase and go again (T2696). */
+/** How many heads a `ship.ts merge` tries in all when main keeps moving past them (T2809). */
+export const MERGE_ATTEMPTS = 3;
+
+/**
+ * `ship.ts merge` as a command. A merge waits in the queue behind other heavy steps, often past another merge, so a
+ * head main moved past is caught up (catch-up.ts: rebased onto main as `<head>-N` when clean with the same diff,
+ * pushed) and merged in its place, at most MERGE_ATTEMPTS heads in all; anything else main's move does is refused
+ * (T2809). A ship's own merge (mergeBranch) gets the move back instead and goes again from its plan (T2696).
+ */
 export async function runMerge(args: MergeArgs, deps: MergeDeps): Promise<number> {
-  const exit = await mergeRun(args, deps, approvalGate(args, deps));
-  if (exit.kind === 'done') return exit.code;
-  deps.err(`REFUSED ${exit.reason}`);
-  return 1;
+  let stem: string | null = null;
+  let current = args;
+  const gate = approvalGate(args, deps);
+  for (let attempt = 1; ; attempt++) {
+    const exit = await mergeRun(current, deps, gate);
+    if (exit.kind === 'done') return exit.code;
+    if (attempt === MERGE_ATTEMPTS) {
+      deps.err(`REFUSED ${exit.reason} (main moved past ${MERGE_ATTEMPTS} heads during this merge)`);
+      return 1;
+    }
+    // The checkout has not changed since the run read it.
+    const head = current.head ?? checkedOutBranch(deps.git);
+    stem ??= head;
+    const { main, regenerated } = profileFor(deps.profiles, slugOf(deps.git('remote', 'get-url', 'origin')));
+    const caught = deps.catchUp({ head, stem, tip: exit.tip, main, regenerated });
+    if (caught.kind === 'refused') {
+      deps.err(`REFUSED ${caught.reason}`);
+      return 1;
+    }
+    current = { ...current, head: caught.head };
+  }
 }
 
 /** The merge itself; prints every outcome but a move of main past the head, which it returns to the caller. */
@@ -429,7 +505,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   const gh = deps.ghFor(credential.secret);
   const proof =
     profile.gate === 'ci'
-      ? ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 })
+      ? ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 })
       : localProof(args.dir, profile.local, deps.gate);
   const result = await mergeThroughPull(
     { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, note) },
@@ -467,7 +543,22 @@ export function realMergeDeps(dir: string): MergeDeps {
     gate: realGateDeps(dir, out),
     renamedCallers: (base, tip, repo) => renamedCallersRefusal({ base, tip, repo }, { env: process.env, userHome: homedir() }, realRenamedCallersDeps(dir, out)),
     sweep: (merged, profile, gh) => sweepAfterMerge(merged, profile, { git, pullsOf: pullsOfHead(gh, merged.repo), out, err }),
-    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep) }),
+    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }),
+    catchUp: request =>
+      catchUp(
+        {
+          git,
+          log: out,
+          readText: (path) => readFileSync(join(dir, path), 'utf8'),
+          writeText: (path, text) => writeFileSync(join(dir, path), text),
+          build: () => {
+            for (const step of buildSteps(buildScriptOf(readFileSync(join(dir, 'package.json'), 'utf8')))) {
+              execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', ...step], { cwd: dir, stdio: 'inherit' });
+            }
+          },
+        },
+        request,
+      ),
     out,
     err,
   };

@@ -6,7 +6,7 @@ import { FIRST_IN_LINE_POLL_MS } from '../delivery/host-lock.ts';
 import type { QueuedStepRecord, RefusalOutcome, RefusalRecord } from '../delivery/ledger.ts';
 import { recordPass } from '../delivery/push-pass.ts';
 import { KIT_VERSION } from '../core/version.ts';
-import { APP, CliHarness, KIT, TEAM, TEAM_HOME, type CliResult } from '../testing/cli-harness.ts';
+import { APP, CliHarness, CONFIG_PATH, KIT, TEAM, TEAM_HOME, type CliResult } from '../testing/cli-harness.ts';
 import { BUSY_HOLDERS, BUSY_HOLDERS_TEXT, FakeHostMemory } from '../testing/fake-host-memory.ts';
 import { cleanTree, FakeTrees, GIT_DIR } from '../testing/fake-trees.ts';
 import { CLAUDE, FakeStarterWatch, SHELL } from '../testing/fake-starter-watch.ts';
@@ -115,6 +115,33 @@ describe('teamrig queue', () => {
     assert.equal(kit.files.get(`${SHARED}/id-1.json`), undefined, 'the share is released');
     const start = { type: 'heavy', id: 'id-2', session: 'alpha', what: 'build api', kind: 'build', kit: KIT_VERSION, queuedAt: '2030-01-08T10:00:00.000Z', queueFreeMb: ROOMY_FREE_MB, startedAt: '2030-01-08T10:00:02.000Z', endedAt: null, exitCode: null };
     assert.deepEqual(ledgerOf(kit), [start, { ...start, endedAt: '2030-01-08T10:05:02.000Z', exitCode: 0 }], 'a heavy share is not recorded as shared: that marks a small step');
+  });
+
+  it('reads the heavy cap again at each look, so a step waiting on it is let in once the team raises maxHeavyParallel (T2942)', async () => {
+    const capped = (maxHeavyParallel: number): Readonly<Record<string, unknown>> => ({ ...TEAM, delivery: { queue: { maxHeavyParallel } } });
+    const { kit, steps } = harness(capped(1));
+    const share = { id: 'other', pid: OTHER, session: 'po', purpose: 'heavy: specs', kit: KIT_VERSION, acquiredAt: '2030-01-08T09:50:00.000Z', expiresAt: '2030-01-08T12:20:00.000Z', reserveMb: 2048, heavy: true };
+    await kit.files.write(`${SHARED}/other.json`, JSON.stringify(share));
+    let raised = false;
+    const sleep = async (ms: number): Promise<void> => {
+      if (!raised) {
+        raised = true;
+        await kit.files.write(CONFIG_PATH, JSON.stringify(capped(2)));
+      }
+      await kit.clock.sleep(ms);
+    };
+    const result = await kit.run(BUILD, { steps, sleep, sessionProcesses: otherRuns() });
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: [
+        '2030-01-08 10:00:00 UTC waiting for the host lock: 1 heavy step running, the cap 1: po (heavy: specs) since 2030-01-08 09:50 UTC',
+        '2030-01-08 10:00:06 UTC sharing the host as a heavy step: 2048 MB held for it (16000 MB free, 1 other heavy step)',
+        '2030-01-08 10:00:06 UTC running: build api (killed after 45m)',
+        'DONE exit 0',
+      ],
+      stderr: [],
+    });
+    assert.equal(steps.ran.length, 1);
   });
 
   it('runs the command under the host lock with delivery.queue.admission serial, records its start and end, and prints DONE', async () => {
@@ -565,7 +592,7 @@ describe('teamrig queue', () => {
   });
 
   for (const [flag, value, message] of [
-    ['--kind', 'tests', /--kind is one of build, test, lint, push, merge, deploy, other/],
+    ['--kind', 'tests', /--kind is one of build, test, lint, push, merge, deploy, other, ship/],
     ['--task', 'merge', /--task is a register task id, such as T12/],
     ['--task', 'T0', /--task is a register task id, such as T12/],
     ['--memory-mb', '0', /--memory-mb is a whole number of MB from 1/],
@@ -1040,14 +1067,15 @@ describe('teamrig queue --detached-run (T2227)', () => {
     assert.equal(kit.files.get(DETACHED_RECORD), undefined, 'a refused run ends its record too');
   });
 
-  it('keeps its run record from its start, marked running once its step runs, and removes it before its end line (T2742)', async () => {
+  it('keeps its run record from its start, marked running with its ledger step once its step runs, and removes it before its end line (T2742, T2942)', async () => {
     const { kit, steps } = harness();
     const seen: unknown[] = [];
     steps.ends(0, MINUTE).whileRunning(async () => {
       seen.push(JSON.parse(kit.files.get(DETACHED_RECORD) ?? 'null'));
     });
     assert.equal((await kit.run(DETACHED_BUILD, { steps })).code, 0);
-    assert.deepEqual(seen, [{ v: 1, id: DETACHED_ID, team: 'app', session: 'alpha', what: 'build api', log: DETACHED_LOG, pid: 4242, startedAt: '2030-01-08T10:00:00.000Z', runningAt: '2030-01-08T10:00:02.000Z' }]);
+    const step = { ledger: LEDGER, start: ledgerOf(kit)[0] };
+    assert.deepEqual(seen, [{ v: 2, id: DETACHED_ID, team: 'app', session: 'alpha', what: 'build api', log: DETACHED_LOG, pid: 4242, startedAt: '2030-01-08T10:00:00.000Z', runningAt: '2030-01-08T10:00:02.000Z', step }]);
     assert.equal(kit.files.get(DETACHED_RECORD), undefined);
     assert.equal((await kit.run(['start'], { env: { TEAMRIG_SESSION: 'bravo' } })).code, 0);
     assert.equal((await alphaWakes(kit)).length, 1, 'a sweep after its own end tells nothing more');
@@ -1058,7 +1086,7 @@ describe('teamrig queue --detached-run (T2227)', () => {
     const files = new FaultyFiles(kit.files).fail('write', DETACHED_RECORD, systemError('EACCES', 'EACCES: permission denied'));
     const result = await kit.run(DETACHED_BUILD, { steps: steps.ends(0), files });
     const unwritten = (at: string): string => `2030-01-08 ${at} UTC its run record was not written, so a death of this run goes untold: EACCES: permission denied`;
-    assert.deepEqual([result.code, result.stdout.filter((line) => line.includes('run record'))], [0, [unwritten('10:00:00'), unwritten('10:00:02')]], 'at its start and when its step runs');
+    assert.deepEqual([result.code, result.stdout.filter((line) => line.includes('run record'))], [0, [unwritten('10:00:00'), unwritten('10:00:02'), unwritten('10:00:02')]], 'at its start, when its step runs and when its ledger step opens (T2942)');
   });
 });
 

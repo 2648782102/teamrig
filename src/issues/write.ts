@@ -1,17 +1,141 @@
 import { KIT_NAME } from '../core/home.ts';
 import { privateShapeIn } from '../core/private-shapes.ts';
 import type { SecretScanner } from '../core/secrets.ts';
-import { targetText, type IssueHost, type IssueTarget } from './host.ts';
+import { targetText, type CloseReason, type IssueHost, type IssueTarget } from './host.ts';
+import type { LabelSpec } from './host.ts';
+import { managedLabel } from './managed-labels.ts';
 import { taskIdIn } from './posted.ts';
 
 /** The longest comment GitHub takes; another host's limit is checked by the host itself. */
 export const MAX_COMMENT = 65_536;
 
-/** What to write on one issue or pull request: a comment, a close, or a comment and then a close. */
+/** The longest label name GitHub takes. */
+export const MAX_LABEL = 50;
+
+/**
+ * What to write on one issue or pull request: a comment, a close (with its reason when given), or a comment and then a
+ * close. A duplicate close may name the issue it duplicates, which the host links.
+ */
 export interface IssueWrite {
   readonly target: IssueTarget;
   readonly comment?: string;
   readonly close: boolean;
+  readonly reason?: CloseReason;
+  readonly duplicateOf?: IssueTarget;
+}
+
+/** The new body (the description) of one issue or pull request. */
+export interface BodyWrite {
+  readonly target: IssueTarget;
+  readonly body: string;
+}
+
+/**
+ * Replaces the body of one issue or pull request through `host`, one line said for each step: ACCESS, then EDITED,
+ * or FAILED with the host's reason. The host is reached before the write, so a key that cannot be read changes
+ * nothing. True when the body was replaced.
+ */
+export async function editIssueBody(host: IssueHost, write: BodyWrite, say: (line: string) => void): Promise<boolean> {
+  const shown = targetText(write.target);
+  const reach = await host.reach(write.target.repo, 'write');
+  if (reach.kind === 'unreachable') {
+    say(`FAILED ${shown}: ${reach.reason}; nothing was changed`);
+    return false;
+  }
+  say(`ACCESS ${reach.access}`);
+  const edited = await host.editBody(write.target, write.body);
+  if (edited.kind === 'failed') {
+    say(`FAILED ${shown}: ${edited.reason}; the body is as it was`);
+    return false;
+  }
+  say(`EDITED ${shown}: its body is now ${write.body.length} characters`);
+  return true;
+}
+
+/** The labels to add to one issue or pull request and those to take off it. */
+export interface LabelWrite {
+  readonly target: IssueTarget;
+  readonly add: readonly string[];
+  readonly remove: readonly string[];
+}
+
+/** Why `label` is no label name a host takes, or undefined when it is one: holding a control character, empty, padded or too long. */
+export function labelRefusal(label: string): string | undefined {
+  if (/\p{Cc}/u.test(label)) {
+    return `the label ${JSON.stringify(label)} holds a control character`;
+  }
+  if (label.trim() === '') {
+    return 'a label name is empty';
+  }
+  if (label.trim() !== label) {
+    return `the label ${JSON.stringify(label)} starts or ends with a space`;
+  }
+  return label.length > MAX_LABEL ? `the label ${JSON.stringify(label)} is ${label.length} characters, over the ${MAX_LABEL} a label may hold` : undefined;
+}
+
+/** The labels as a line shows them: each quoted, as a label is outside text and may hold a comma or a space. */
+function labelsText(labels: readonly string[]): string {
+  return labels.map((label) => JSON.stringify(label)).join(', ');
+}
+
+/**
+ * Adds and takes off labels through `host`, one line said for each step: ACCESS, then LABELED and UNLABELED, or
+ * FAILED with the reason. Every label to add must already be one of the repository's, read before any write, so a
+ * typo never makes a new label; the first failure stops it, and a failure after a write says what was done. True
+ * when every step was done.
+ */
+export async function labelIssue(host: IssueHost, write: LabelWrite, say: (line: string) => void): Promise<boolean> {
+  const shown = targetText(write.target);
+  const reach = await host.reach(write.target.repo, 'write');
+  if (reach.kind === 'unreachable') {
+    say(`FAILED ${shown}: ${reach.reason}; nothing was changed`);
+    return false;
+  }
+  say(`ACCESS ${reach.access}`);
+  const toMake: LabelSpec[] = [];
+  for (const label of write.add) {
+    const found = await host.labelExists(write.target.repo, label);
+    const managed = managedLabel(label);
+    if (found.kind === 'missing' && managed !== undefined) {
+      toMake.push(managed);
+    } else if (found.kind !== 'found') {
+      const why = found.kind === 'failed' ? found.reason : `${write.target.repo} has no label ${JSON.stringify(label)}: make it there first, as adding it here would make a new one`;
+      say(`FAILED ${shown}: ${why}; nothing was changed`);
+      return false;
+    }
+  }
+  // A label made stays in the repository, so a later failure names it rather than saying nothing changed.
+  const done: string[] = [];
+  const failed = (reason: string): false => {
+    say(`FAILED ${shown}: ${reason}${done.length === 0 ? '; nothing was changed' : `; it already ${done.join(', ')}`}`);
+    return false;
+  };
+  for (const label of toMake) {
+    const made = await host.createLabel(write.target.repo, label);
+    if (made.kind === 'failed') {
+      return failed(made.reason);
+    }
+    say(`MADE ${write.target.repo}: the label ${JSON.stringify(label.name)}, one teamrig makes`);
+    done.push(`made the label ${JSON.stringify(label.name)}`);
+  }
+  if (write.add.length > 0) {
+    const added = await host.addLabels(write.target, write.add);
+    if (added.kind === 'failed') {
+      return failed(added.reason);
+    }
+    say(`LABELED ${shown}: ${labelsText(write.add)}`);
+    done.push(`added ${labelsText(write.add)}`);
+  }
+  for (const label of write.remove) {
+    const removed = await host.removeLabel(write.target, label);
+    if (removed.kind === 'failed') {
+      say(`FAILED ${shown}: ${removed.reason}${done.length === 0 ? '' : `; it already ${done.join(', ')}`}`);
+      return false;
+    }
+    say(`UNLABELED ${shown}: ${JSON.stringify(label)}`);
+    done.push(`took off ${JSON.stringify(label)}`);
+  }
+  return true;
 }
 
 /**
@@ -41,8 +165,9 @@ export function postRefusal(subject: string, text: string, scanner: SecretScanne
 /**
  * Writes `write` through `host`, one line said for each step: ACCESS (how the host is reached), then COMMENTED
  * and CLOSED, or FAILED with the host's reason. The host is reached before any write, so a key that cannot be
- * read writes nothing; a failed comment closes nothing, and a close that fails after its comment says so, so a
- * rerun does not post the comment twice. True when every step was done.
+ * read writes nothing; so does an issue the duplicate close names that the host has not, read before the comment.
+ * A failed comment closes nothing, and a close that fails after its comment says so, so a rerun does not post the
+ * comment twice. True when every step was done.
  */
 export async function writeIssue(host: IssueHost, write: IssueWrite, say: (line: string) => void): Promise<boolean> {
   const shown = targetText(write.target);
@@ -52,6 +177,11 @@ export async function writeIssue(host: IssueHost, write: IssueWrite, say: (line:
     return false;
   }
   say(`ACCESS ${reach.access}`);
+  const duplicate = write.close && write.duplicateOf !== undefined ? await duplicateIdOf(host, write.duplicateOf) : undefined;
+  if (duplicate?.kind === 'refused') {
+    say(`FAILED ${shown}: ${duplicate.reason}; nothing was written`);
+    return false;
+  }
   if (write.comment !== undefined) {
     const commented = await host.comment(write.target, write.comment);
     if (commented.kind === 'failed') {
@@ -63,12 +193,23 @@ export async function writeIssue(host: IssueHost, write: IssueWrite, say: (line:
   if (!write.close) {
     return true;
   }
-  const closed = await host.close(write.target);
+  const closed = await host.close(write.target, write.reason, duplicate?.id);
   if (closed.kind === 'failed') {
     const rerun = write.comment === undefined ? '' : `; the comment was posted: rerun ${KIT_NAME} issue close ${shown} without --comment`;
     say(`FAILED ${shown}: ${closed.reason}${rerun}`);
     return false;
   }
-  say(`CLOSED ${shown}`);
+  const of = write.duplicateOf === undefined ? '' : ` of ${targetText(write.duplicateOf)}`;
+  say(`CLOSED ${shown}${write.reason === undefined ? '' : ` as ${write.reason}${of}`}`);
   return true;
+}
+
+/** The host's id of the issue a duplicate close names, or why it cannot be named: the host has no such issue, or the read failed. */
+async function duplicateIdOf(host: IssueHost, original: IssueTarget): Promise<{ readonly kind: 'found'; readonly id: number } | { readonly kind: 'refused'; readonly reason: string }> {
+  const read = await host.issueId(original);
+  if (read.kind === 'found') {
+    return read;
+  }
+  const reason = read.kind === 'failed' ? read.reason : `${targetText(original)} is no issue the access can see: name an existing one as the original`;
+  return { kind: 'refused', reason };
 }

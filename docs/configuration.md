@@ -41,7 +41,8 @@ Team settings for the teamrig plugin. Only the roster (sessions, roles.lead) is 
 | `loops` | [object](#loops) |  | Loop discipline inside a turn. |
 | `wake` | [object](#wake) |  | Waking a session idle at its prompt when work is handed to it, instead of at its next prompt. Only work the session can go on with wakes (open or started past every task it comes after, or waiting with every wait cleared or answered), tasks handed together wake once, and each wake says what it costs. |
 | `tests` | [object](#tests) |  | What teamrig test prints of a failed run. |
-| `github` | [object](#github) |  | The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-\<owner> in the system's credential store, else the gh login; a saved token that cannot be read stops a write, never the gh login in its place (docs/github-sync.md). |
+| `github` | [object](#github) |  | The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment, teamrig issue label, teamrig issue edit and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-\<owner> in the system's credential store, else the gh login; a saved token that cannot be read stops a write, never the gh login in its place (docs/github-sync.md). |
+| `serviceRoles` | map (at most 16 keys) from string (matching `^[a-z][a-z0-9-]{0,31}$`) to [object](#serviceroles) | `{}` | Service roles, by name: each lets the sessions that hold it run a few teamrig commands for an outside service past every permission check, Claude Code's auto mode included, from their own tab only. Commands are names from teamrig's fixed table, never free text; an unknown name, a holder not on the team or a misspelt key fails the load. Written by teamrig roles grant and teamrig roles revoke, which the owner runs; a session's own edit of it is refused. |
 | `alerts` | [object](#alerts) |  | The alerting rule the core rules state, and where a page to the owner goes. |
 | `decisions` | [object](#decisions) |  | When the lead asks the owner the decisions waiting on them (tasks waiting on the owner's decision or approval), together in one batch instead of one at a time. A batch holds the waits not yet asked and the asked ones now past their due date; `teamrig decisions` prints it and `teamrig decisions asked` records it asked, as a meeting's start does. The lead's check says when one is due. |
 | `tabStatus` | [object](#tabstatus) |  | A colored circle before each terminal tab's title for what its session is doing: green ready, yellow working (or a helper still running), orange waiting on the user, blue waiting on the user's decision (a turn whose last message has a `Decision needed:` line), red an API error, purple compacting. |
@@ -59,6 +60,7 @@ Team settings for the teamrig plugin. Only the roster (sessions, roles.lead) is 
 | `refresh` | [object](#refresh) |  | Context refresh: when a session finishes a task (teamrig set \<id> --status done) with its context at or over contextTokens, or with everyTasks tasks finished since its context was last fresh and the context at everyTasksMinTokens or more, or after the lead ran teamrig refresh \<session>, it writes a handover; then the user types /clear, or teamrig starts it fresh on its own (autoRestart). A relative handoverDir is resolved against the team's folder; unset, it is \<team folder>/handover. |
 | `hiring` | [object](#hiring) |  | Hiring sessions with teamrig hire, each a worker the leader is sure the team needs: who decides. No cap counts hires: the host's room bounds who is at the office, and the leader decides who is hired. A hire is written into sessions, names and launch, and logged with its reason and review date; its part of the team's daily budget follows its share and queued work, like any session's. |
 | `burst` | [object](#burst) |  | Bursts with teamrig burst: a time-boxed scale-out onto helpers and hired sessions that spends more of the week, for a surplus the week would leave unused at the reset or for a deadline. A person always starts one by command; nothing starts one on its own. |
+| `rush` | [object](#rush) |  | Rushes (teamrig burst start rush): a team works one goal at full speed until a set time; the owner starts each one. |
 | `paths` | [object](#paths) |  | Folders moved from their defaults; a relative path is resolved against the team's folder (\<kit home>/teams/\<team>). Unset, state and inbox stay under the team's folder and skills is the skills folder of Claude Code's folder ($CLAUDE\_CONFIG\_DIR, else \~/.claude). |
 
 ## `team`
@@ -253,7 +255,8 @@ The permission prompts teamrig's own hooks raise.
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `hookAsks` | one of `"ask"`, `"refuse"` | `"ask"` | A call a teamrig hook would ask the human about (a push to a protected branch or one it cannot read, an ad-hoc package run, a git command without hooks, a call that would print a secret, a helper over the budget, as their own keys set): ask raises the permission prompt; refuse refuses it instead, its reason telling the session to record the step as waiting for the owner's approval and take its next task, so no prompt holds a session while nobody is there to answer it. |
-| `routeAllow` | one of `"on"`, `"off"` | `"on"` | While hookAsks is refuse: on lets a Bash line that runs a sanctioned route marked for it (teamrig merge, deploy, exec request, worktree remove, git commit) run with no permission check at all, once every teamrig guard passed it, logged by its route alone; off takes that allow away without a release. It only takes allows away: no config adds a route. Inert while hookAsks is ask. |
+| `routeAllow` | one of `"on"`, `"off"` | `"on"` | While hookAsks is refuse: on lets a Bash line that runs a sanctioned route marked for it (teamrig merge, deploy, exec request, worktree remove, git commit) run with no permission check at all, once every teamrig guard passed it, logged by its route alone; off takes that allow away without a release. It only takes allows away: no config adds a route. Inert for routes while hookAsks is ask. Whatever hookAsks says, on also lets a service role's holder run the role's calls from its own tab, up to serviceRoleDailyCap a day; off takes that away too. |
+| `serviceRoleDailyCap` | integer (0 to 200) | `10` | How many calls one service role (serviceRoles) lets run with no permission check in 24 hours, so a holder steered by text from outside closes or comments only so much; past it, the role's next call asks the owner (refused with hookAsks refuse). 0 lets none through. Each allowed call is a line of state/prompt-answers.jsonl naming the role, command and target, never the text. |
 
 ## `secretGuard`
 
@@ -401,7 +404,7 @@ The host lock and the limits of one queued step.
 | `memoryFloorMb` | integer (0 to 1048576) | `4096` | A queued step, a merge or a deploy starts only while the host keeps this many MB free besides those held for it and for the small steps sharing the host. |
 | `smallReserveMb` | integer (0 to 1048576) | `2048` | The MB held for a small step whose need is neither learned from its past runs in the ledger nor declared with --memory-mb. |
 | `heavyReserveMb` | integer (0 to 1048576) | `2048` | The least MB held for a heavy queued step, a merge or a deploy besides memoryFloorMb: it takes the host lock only while free memory covers both (at most half the host's RAM). A heavy step whose need, learned from its past runs in the ledger or declared with --memory-mb, is more holds that instead. |
-| `admission` | one of `"pipeline"`, `"serial"` | `"pipeline"` | How the host lock's line is ordered: pipeline lets the most urgent step in first (a p0 step at once, then by class turn, priority raised by agingMinutes waited, and arrival), with at most perSessionRunning steps of one session running and maxHeavyParallel heavy steps sharing the host at once, and is the default; serial keeps the line in arrival order with no cap and one heavy step at a time, for a team whose own deploy tool takes the lock file without first waiting for the shares to end. |
+| `admission` | one of `"pipeline"`, `"serial"` | `"pipeline"` | How the host lock's line is ordered: pipeline lets the most urgent step in first (a p0 step at once, then by class turn, priority raised by agingMinutes waited, and arrival), with at most perSessionRunning steps of one session running and maxHeavyParallel heavy steps sharing the host at once, and is the default; serial keeps the line in arrival order with no cap and one heavy step at a time, for a team whose own deploy tool takes the lock file without first waiting for the shares to end. A step in line reads this key and the four after it again at each look, so an edit reaches the steps already waiting. |
 | `agingMinutes` | integer (0 to 1440) | `15` | In pipeline admission, a waiting step's priority rises one level per this many minutes waited, never to p0; 0 ages nothing. |
 | `memoryPassMinutes` | integer (0 to 1440) | `15` | In pipeline admission, a later step may pass one waiting on the host's memory or commit charge, as a step that fits need not wait behind one that does not: always while no queued step runs (only memory outside the queue holds it then), and for this many minutes of its memory wait while queued steps run; past them it holds the line so that the room they free goes to it; 0 passes no one. |
 | `perSessionRunning` | integer (0 to 64) | `2` | In pipeline admission, a session with this many steps running (the host lock or a share of the host) waits for one to end, and later steps pass it; 0 caps nothing. |
@@ -595,7 +598,7 @@ What teamrig test prints of a failed run.
 
 ## `github`
 
-The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-\<owner> in the system's credential store, else the gh login; a saved token that cannot be read stops a write, never the gh login in its place (docs/github-sync.md).
+The team's GitHub repositories. teamrig issue sync reads their issues into the register as tasks of source github, and never writes to GitHub; local tasks stay local. teamrig issue migrate, teamrig issue comment, teamrig issue label, teamrig issue edit and teamrig issue close, run by hand, write only to these repositories. Each owner's repositories are reached with the token saved as teamrig-gh-\<owner> in the system's credential store, else the gh login; a saved token that cannot be read stops a write, never the gh login in its place (docs/github-sync.md).
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -603,9 +606,19 @@ The team's GitHub repositories. teamrig issue sync reads their issues into the r
 | `owners` | map from string (matching `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`) to [session name](#shared-types) | `{}` | The session that owns an issue assigned to each GitHub login; matched without case. An issue with no listed assignee goes to its repository's session in sessions, else the lead. |
 | `sessions` | map from string (matching `^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$`) to [session name](#shared-types) | `{}` | The session that owns the issues of each repository (owner/name, one of repos; matched without case) when none of their assignees is in owners. Without one, they go to the lead. |
 | `closedDays` | integer (1 to 365) | `14` | How many days back closed issues are read, to finish the tasks they were imported as. |
-| `everyMinutes` | integer (0 to 1440) | `15` | How often the hooks start a sync on their own, in minutes, once for the whole team; 0 leaves it to teamrig issue sync --yes. |
+| `probeSeconds` | integer (0 to 3600) | `60` | How often teamrig issue watch asks GitHub whether a listed repository changed, in seconds: a conditional read that costs no rate limit when nothing changed, the sync running only when something did. One watch runs for the whole team, started by the hooks. 0 runs no watch and leaves the sync to teamrig issue sync --yes; otherwise at least 30. It replaced everyMinutes, which is reported until deleted. |
+| `statusPush` | boolean | `false` | Whether the automatic sync also sends the status push (teamrig issue sync --push --yes), so each issue a task holds shows the task's status without a session running it, and assigns an outside person who claims an open issue by a /take comment, for 7 days unless a pull request links it. It sends labels, assignees and the claim replies only: a close waits for a session's teamrig issue sync --push --yes. Off by default: read the push's dry run (teamrig issue sync --push) first. |
 | `similarThreshold` | number (0 to 1) | `0.35` | The score, from 0 to 1, at which a mirrored issue counts as a duplicate candidate of a new one: the cosine of their TF-IDF word vectors. Higher lists fewer, closer candidates. |
 | `acceptLabel` | string (1 to 50 characters, matching `^[^\r\n]+$`) | `"teamrig"` | The label that lets an issue by an author outside the repository (not its owner, an organization member or a collaborator) become a task: it counts when someone other than the author added it last and the title and body were not edited after that. Matched without case. |
+
+## `serviceRoles.*`
+
+Service roles, by name: each lets the sessions that hold it run a few teamrig commands for an outside service past every permission check, Claude Code's auto mode included, from their own tab only. Commands are names from teamrig's fixed table, never free text; an unknown name, a holder not on the team or a misspelt key fails the load. Written by teamrig roles grant and teamrig roles revoke, which the owner runs; a session's own edit of it is refused.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `holders` (required) | one of `"team"` or array (at least 1 item, unique) of [session name](#shared-types) |  | The sessions of this team that hold the role, by id, or team for every session of it, which only a role whose every command checks its own caller may name. |
+| `commands` (required) | array (at least 1 item, unique) of one of `"issue close"`, `"issue comment"` |  | The commands the role holds: issue close (teamrig issue close on a repository of github.repos), issue comment (teamrig issue comment on one). |
 
 ## `alerts`
 
@@ -689,7 +702,7 @@ The status line while a meeting is open: the lead's tab shows its line in the me
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Marks the status lines while the owner's daily meeting is open; they go back as they were at meeting end, or when the meeting lapses. On unless a team sets it false. |
-| `colour` | string (matching `^#[0-9a-fA-F]{6}$`) | `"#d75fd7"` | The lead's status line colour while a meeting is open, as #rrggbb; the terminal must show 24-bit colour. |
+| `colour` | string (matching `^#[0-9a-fA-F]{6}$`) | `"#8b57e3"` | The colour of the meeting marks in the status lines while a meeting is open, as #rrggbb: the meeting tab's leading Meeting title and every other tab's held text; the terminal must show 24-bit colour. |
 | `heldText` | string (1 to 40 characters, matching `^[^\r\n]+$`) | `"meeting on: held"` | The words every other tab's status line adds while a meeting is open, on one line. |
 
 ## `turnLog`
@@ -898,6 +911,14 @@ Bursts with teamrig burst: a time-boxed scale-out onto helpers and hired session
 | `minSparePct` | number (0.1 to 100) | `5` | The least share of the week, in %, projected unused at the pace end (at the week's mean rate so far) for a surplus burst; with other teams on the Claude account, the team's part of it (split by weight, as the daily budget is). |
 | `maxHelpers` | integer (0 to 20) | `3` | The most helpers each burst session runs at once; the burst's model line states it. |
 | `maxHires` | integer (0 to 20) | `2` | The most sessions one burst may hire (teamrig hire --burst). |
+
+## `rush`
+
+Rushes (teamrig burst start rush): a team works one goal at full speed until a set time; the owner starts each one.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `pokeAfterMinutes` | integer (1 to 120) | `5` | The poke: while a rush is on, a tab idle this many minutes since its last turn, with a task of its own it can go on with (open or in progress, not waiting) and no queued step of its own running, is woken once to start or continue its top task. A step only waiting in the queue counts as idle. One poke per idle stretch; none once the rush ends. |
 
 ## `paths`
 

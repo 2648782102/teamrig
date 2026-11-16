@@ -1,12 +1,16 @@
 import type { HookAsks } from '../config/types.ts';
 import { toolCommandReadings } from '../core/bash-tool-readings.ts';
 import { isRecord, recordField, stringField } from '../core/guards.ts';
+import { ENV } from '../core/home.ts';
+import { SETTINGS_WRITERS, settingsWriteRefusal, WRITE_SWITCH } from '../core/settings-writers.ts';
 import type { ClientCheck } from '../exec/client-integrity.ts';
 import { placeProgram, placeScript, type ClientFile, type ClientInstalls, type ClientSearch, type WordAt } from '../exec/client-launch.ts';
+import { PACKAGE_STARTERS } from '../package-guard/packaged.ts';
 import { runsOf, type LineRuns, type OpaqueRun, type ProgramRun, type ProgramsContext } from '../package-guard/programs.ts';
 import { programName } from '../push-guard/launchers.ts';
 import type { ShellWord } from '../push-guard/tokenizer.ts';
 import { holdBackOutput } from './permission.ts';
+import { changesVariable } from './variable-change.ts';
 
 /**
  * The exec guard (T755, spec §7): an agent tab may run a `teamrig exec` review (approve, refuse, escalate) only as
@@ -29,6 +33,10 @@ import { holdBackOutput } from './permission.ts';
  * owner (register.ownerSource) whoever runs them, so only the owner's own routes run them: the pane, their own terminal, or
  * `/teamrig owner ...` typed in a tab, which the mod runs as a write only when the person types it. Like the review
  * check, it reads only a Bash or PowerShell tool call: a script the agent writes that starts the CLI is no such call.
+ *
+ * And it refuses every `teamrig hook <name>` call (T3081): a hook takes who it runs for, and which tab, from the
+ * stdin whoever runs it writes, so only Claude Code's hooks and the teamrig mod run them; a hook is proved in a test,
+ * or by a script on a scratch kit home.
  */
 
 /** The `teamrig exec` commands that decide a request. */
@@ -39,6 +47,53 @@ export const EXEC_COMMANDS: ReadonlySet<string> = new Set(['request', 'dry-run',
 
 /** Every `teamrig owner` command, by which a call through an unknown program reads as a teamrig call. */
 export const OWNER_COMMANDS: ReadonlySet<string> = new Set(['note', 'next', 'wake']);
+
+/** Every `teamrig hook` command, by which a call through an unknown program reads as a teamrig call, not as `git hook run`. */
+export const HOOK_COMMANDS: ReadonlySet<string> = new Set([
+  'clear-claim',
+  'clear-dir',
+  'cold-send',
+  'compact-check',
+  'db-write-guard',
+  'effort-writeback',
+  'exec-guard',
+  'failed-send',
+  'helper-gate',
+  'inbox-reminder',
+  'loop-nudge',
+  'meeting-due',
+  'meeting-panel',
+  'missing-cli',
+  'needs-you',
+  'needs-you-focus',
+  'package-guard',
+  'pass-record-guard',
+  'picker-guard',
+  'pre-compact',
+  'prompt-refuse',
+  'push-guard',
+  'readonly-allow',
+  'refresh-mid',
+  'refresh-wake',
+  'restore-track',
+  'route-allow',
+  'route-reminder',
+  'secret-guard',
+  'secret-redact',
+  'service-role-guard',
+  'session-start',
+  'slash-command',
+  'stop',
+  'subagent-start',
+  'subagent-stop',
+  'tab-status',
+  'tool-end',
+  'update-apply',
+  'update-check',
+  'update-dismiss',
+  'wake-check',
+  'wake-dropped',
+]);
 
 /** Who the tab runs as, read only once a line holds a review. */
 export type TabIdentity =
@@ -93,25 +148,49 @@ interface OwnerCall {
   readonly action: string | undefined;
 }
 
-type GuardedCall = ReviewCall | PlainCall | UnreadableCall | OwnerCall;
+/** A settings writer's write (src/core/settings-writers.ts): a permission only the owner changes, refused whatever its client. */
+interface SettingsCall {
+  readonly kind: 'settings';
+  /** Its words, `permissions trim`, or only the group when the action is only known when it runs. */
+  readonly command: string;
+}
 
-/** teamrig's own entry point when a line runs it through node: `node <plugin>/dist/cli/main.js exec ...`. */
-const CLI_ENTRY = /[\\/]cli[\\/]main\.[jt]s$/i;
+/** A `teamrig hook` call, which takes who it runs for from the stdin its caller writes: refused whatever its client. */
+interface HookCall {
+  readonly kind: 'hook';
+  /** Its hook when the line names one the CLI has, else undefined. */
+  readonly name: string | undefined;
+}
 
-/** The word that names a call's client: a program word (`teamrig`, `C:/kit/bin/teamrig`), node's script, or a word only known when it runs. */
-interface ClientWord {
-  readonly kind: 'program' | 'script' | 'opaque';
+type GuardedCall = ReviewCall | PlainCall | UnreadableCall | OwnerCall | SettingsCall | HookCall;
+
+/**
+ * teamrig's entry scripts when a line runs one, through node or any other script host (`tsx`, `bun`, `npx tsx`): the
+ * CLI (`<plugin>/dist/cli/main.js exec ...`) and the guard entry beside it (`cli/guard-main.js`), which hands its words
+ * to the same CLI (T3069). The extension is optional, as Node finds `cli/main` as `cli/main.js` (T3069).
+ */
+const CLI_ENTRY = /[\\/]cli[\\/](?:guard-)?main(?:\.[cm]?[jt]s)?$/i;
+
+/** A word that names the teamrig CLI, a package runner's version spec included: `teamrig`, `teamrig@latest`. */
+const TEAMRIG_SPEC = /^teamrig(?:@[^\\/]*)?$/;
+
+/**
+ * The word that names a call's client: a program word (`teamrig`, `C:/kit/bin/teamrig`), the entry script a program
+ * runs, a word only known when it runs, or a package runner that finds teamrig itself.
+ */
+export interface ClientWord {
+  readonly kind: 'program' | 'script' | 'opaque' | 'runner';
   readonly word: ShellWord;
 }
 
 /** How a run starts the teamrig CLI: the word naming its client, and the words it hands the CLI. */
-interface TeamrigLaunch {
+export interface TeamrigLaunch {
   readonly client: ClientWord;
   readonly words: readonly ShellWord[];
 }
 
 /** True when the words a program only known when it runs takes read as a command of the teamrig group: `exec approve`, `exec "$CMD"`. */
-function startsGroup(words: readonly ShellWord[], name: string, commands: ReadonlySet<string>): boolean {
+export function startsGroup(words: readonly ShellWord[], name: string, commands: ReadonlySet<string>): boolean {
   const [group, command] = words;
   return group !== undefined && !group.dynamic && group.text === name && command !== undefined && (command.dynamic || commands.has(command.text));
 }
@@ -126,41 +205,188 @@ function startsOwner(words: readonly ShellWord[]): boolean {
   return startsGroup(words, 'owner', OWNER_COMMANDS);
 }
 
-/** The owner command the words name after `owner`, or undefined when they name none the CLI has, or one only known when it runs. */
-function ownerActionOf(words: readonly ShellWord[]): string | undefined {
-  const action = words[1];
-  return action === undefined || action.dynamic || !OWNER_COMMANDS.has(action.text) ? undefined : action.text;
+/**
+ * The settings writer the words write with, or undefined when they run none or only its preview: its group, an action
+ * of it or one only known when it runs, and `--yes` or a word only known when it runs after them.
+ */
+function settingsWriteOf(words: readonly ShellWord[]): string | undefined {
+  const [group, action, ...tail] = words;
+  const actions = group === undefined || group.dynamic ? undefined : SETTINGS_WRITERS.get(group.text);
+  if (group === undefined || actions === undefined || action === undefined || !(action.dynamic || actions.has(action.text))) {
+    return undefined;
+  }
+  const writes = tail.some((word) => word.dynamic || word.text === `--${WRITE_SWITCH}`);
+  return writes ? (action.dynamic ? group.text : `${group.text} ${action.text}`) : undefined;
 }
 
-/** How a run starts the teamrig CLI, or undefined when it does not: by name, by node and teamrig's entry, or by node and a script only known when it runs. */
-function teamrigLaunchOf(run: ProgramRun): TeamrigLaunch | undefined {
-  if (run.name === 'teamrig' || run.name === 'teamrig.ps1') {
-    return { client: { kind: 'program', word: run.program }, words: run.args };
-  }
-  if (run.name !== 'node') {
+/** True when the words read as a settings writer's write. */
+function writesSettings(words: readonly ShellWord[]): boolean {
+  return settingsWriteOf(words) !== undefined;
+}
+
+/** True when the words read as a teamrig hook command. */
+function startsHook(words: readonly ShellWord[]): boolean {
+  return startsGroup(words, 'hook', HOOK_COMMANDS);
+}
+
+/** True when the words read as a command this guard checks, so a call through node and a script only known when it runs is one. */
+function startsGuarded(words: readonly ShellWord[]): boolean {
+  return startsExec(words) || startsOwner(words) || writesSettings(words) || startsHook(words);
+}
+
+/** The command of `group` the words name after it, or undefined when they name none the CLI has, or one only known when it runs. */
+function commandOf(words: readonly ShellWord[], commands: ReadonlySet<string>): string | undefined {
+  const command = words[1];
+  return command === undefined || command.dynamic || !commands.has(command.text) ? undefined : command.text;
+}
+
+/** The owner command the words name after `owner`. */
+function ownerActionOf(words: readonly ShellWord[]): string | undefined {
+  return commandOf(words, OWNER_COMMANDS);
+}
+
+/** The hook the words name after `hook`. */
+function hookNameOf(words: readonly ShellWord[]): string | undefined {
+  return commandOf(words, HOOK_COMMANDS);
+}
+
+/**
+ * True when the words start a command that binds the tab to a session, `start` or `inbox read`: the CLI marks the
+ * tab with the session it names, by `--session` or `$TEAMRIG_SESSION`. It finds them after any program's words.
+ */
+function startsBind(words: readonly ShellWord[]): boolean {
+  const [group, command] = words;
+  return group?.dynamic === false && (group.text === 'start' || (group.text === 'inbox' && command?.dynamic === false && command.text === 'read'));
+}
+
+/** A bind call a line runs: its command, every `--session` value it names, and whether a word of it is only known when it runs. */
+interface BindCall {
+  readonly command: string;
+  readonly sessions: readonly string[];
+  readonly unread: boolean;
+}
+
+/**
+ * The bind call a teamrig call's words run, read as the CLI reads them (only `--session <name>` names a session), or
+ * undefined when they run none. An `inbox` command only known when it runs may be `read`, so it counts as one.
+ */
+function bindCallOf(words: readonly ShellWord[]): BindCall | undefined {
+  const [group, command] = words;
+  const start = group?.dynamic === false && group.text === 'start';
+  const inbox = group?.dynamic === false && group.text === 'inbox' && command !== undefined && (command.dynamic || command.text === 'read');
+  if (!start && !inbox) {
     return undefined;
+  }
+  const sessions = words.flatMap((word, index) => {
+    const value = words[index + 1];
+    return word.text === '--session' && value !== undefined ? [value.text] : [];
+  });
+  return { command: start ? 'teamrig start' : 'teamrig inbox read', sessions, unread: words.some((word) => word.dynamic) };
+}
+
+/**
+ * Why the guard refuses a bind call from a bound tab, or undefined when it binds the tab to its own session (T3081):
+ * a tab reads its inbox and starts only as itself, so a tool call can never move it to another session, whichever
+ * client runs it. `steered` is true when the line changes a variable the CLI binds by (`$TEAMRIG_SESSION`, the Claude
+ * Code session id). A tab no mark binds yet binds freely: that is how it first binds.
+ */
+function bindRefusalOf(call: BindCall, identity: TabIdentity, steered: boolean): string | undefined {
+  if (identity.kind === 'unbound') {
+    return undefined;
+  }
+  const command = `\`${call.command}\``;
+  const own = `--session ${identity.session}`;
+  if (call.unread) {
+    return `${command} here has a word only known when it runs, so the guard cannot tell which session it binds this tab to; write it out (${own}).`;
+  }
+  const other = call.sessions.find((named) => {
+    const id = identity.idOf(named);
+    return id !== undefined && id !== identity.session;
+  });
+  if (other !== undefined) {
+    return `${command} names --session ${other}, but this tab is ${identity.session}'s; a tab reads its inbox and starts only as its own session (${own}).`;
+  }
+  if (steered) {
+    return `${command} runs on a line that sets the session the CLI binds the tab by ($${ENV.session} or $${ENV.claudeSession}); name this tab's own (${own}) and leave those as they are.`;
+  }
+  return undefined;
+}
+
+/** A guarded command's words in a command, and the word before them, which names the client that runs them. */
+interface GuardedStart {
+  readonly client: ShellWord;
+  readonly words: readonly ShellWord[];
+  /** True when the client is the command's own program word. */
+  readonly own: boolean;
+}
+
+/**
+ * Where a command `guarded` reads starts in a command's words, given as its program word and arguments, from the
+ * argument `from` on (T3069): any program may be the CLI, so a renamed copy (`./x exec approve`), a script of any
+ * name (`node C:/tmp/x.js exec approve`) or a package of any name (`npx git+https://... exec status`) is a call. A
+ * command written out only when the word naming the client is the teamrig CLI or only known when it runs, so
+ * `kubectl exec "$POD"` and `docker compose exec "$SERVICE"` are none; a renamed copy given a command only known when
+ * it runs goes unread.
+ */
+function guardedStartOf(program: ShellWord, args: readonly ShellWord[], from: number, guarded: (words: readonly ShellWord[]) => boolean): GuardedStart | undefined {
+  const all = [program, ...args];
+  for (let index = from + 1; index < all.length; index += 1) {
+    const client = all[index - 1];
+    const words = all.slice(index);
+    const writtenOut = words[1]?.dynamic === false;
+    if (client !== undefined && guarded(words) && (writtenOut || client.dynamic || TEAMRIG_SPEC.test(programName(client.text)))) {
+      return { client, words, own: index === 1 };
+    }
+  }
+  return undefined;
+}
+
+/** The guarded command's words in a command whose program is only known when it runs, anywhere they start (T3069). */
+export function opaqueGuardedWords(run: OpaqueRun, guarded: (words: readonly ShellWord[]) => boolean): readonly ShellWord[] | undefined {
+  return guardedStartOf(run.program, run.args, 0, guarded)?.words;
+}
+
+/**
+ * How a run starts the teamrig CLI, or undefined when it does not: by name; by any program and teamrig's entry script;
+ * or by any program, its words read from wherever a command `guarded` reads starts (`guardedStartOf`). A package
+ * runner or a version manager, or a program one starts, finds its program on a PATH of its own or fetches it (`npx
+ * teamrig`, `npx -c "teamrig ..."`, `volta run teamrig`), so its teamrig may be no install of this plugin (T3069):
+ * its client is the runner.
+ */
+export function teamrigLaunchOf(run: ProgramRun, guarded: (words: readonly ShellWord[]) => boolean): TeamrigLaunch | undefined {
+  const starter = PACKAGE_STARTERS.has(run.name) ? run.program : undefined;
+  const runner = run.packageRunner ?? starter;
+  if (run.name === 'teamrig' || run.name === 'teamrig.ps1') {
+    return { client: runner === undefined ? { kind: 'program', word: run.program } : { kind: 'runner', word: runner }, words: run.args };
   }
   const entry = run.args.findIndex((word) => CLI_ENTRY.test(word.text));
-  const script = entry === -1 ? run.args.find((word) => !word.text.startsWith('-')) : run.args[entry];
-  if (script === undefined) {
+  const script = entry === -1 ? undefined : run.args[entry];
+  if (script !== undefined) {
+    return { client: { kind: script.dynamic ? 'opaque' : 'script', word: script }, words: run.args.slice(entry + 1) };
+  }
+  // A runner's own first words are its subcommand (`npm exec "$X"`), never a CLI call.
+  const start = guardedStartOf(run.program, run.args, starter === undefined ? 0 : 1, guarded);
+  if (start === undefined) {
     return undefined;
   }
-  const words = run.args.slice(run.args.indexOf(script) + 1);
-  if (!script.dynamic) {
-    return entry === -1 ? undefined : { client: { kind: 'script', word: script }, words };
+  if (start.client.dynamic) {
+    return { client: { kind: 'opaque', word: start.client }, words: start.words };
   }
-  return entry !== -1 || startsExec(words) || startsOwner(words) ? { client: { kind: 'opaque', word: script }, words } : undefined;
+  if (runner !== undefined) {
+    return { client: { kind: 'runner', word: runner }, words: start.words };
+  }
+  return { client: { kind: start.own ? 'program' : 'script', word: start.client }, words: start.words };
 }
 
 /** True for a teamrig call whose subcommand is only known when it runs (`teamrig "$G" approve R1`), which the walker leaves unread. */
-function hidesSubcommand(run: OpaqueRun): boolean {
+export function hidesSubcommand(run: OpaqueRun): boolean {
   return !run.program.dynamic && programName(run.program.text) === 'teamrig';
 }
 
 /**
  * The guarded call the words run, read as the CLI reads them (src/cli/args.ts): the first two words are the command,
- * and each flag of a review takes the word after it as its value. Undefined when they run no `teamrig exec` or
- * `teamrig owner` command.
+ * and each flag of a review takes the word after it as its value. Undefined when they run no `teamrig exec`,
+ * `teamrig owner` or `teamrig hook` command.
  */
 function guardedCallOf(words: readonly ShellWord[]): GuardedCall | undefined {
   const [group, action] = words;
@@ -172,6 +398,13 @@ function guardedCallOf(words: readonly ShellWord[]): GuardedCall | undefined {
   }
   if (group.text === 'owner') {
     return { kind: 'owner', action: ownerActionOf(words) };
+  }
+  const settings = settingsWriteOf(words);
+  if (settings !== undefined) {
+    return { kind: 'settings', command: settings };
+  }
+  if (group.text === 'hook') {
+    return { kind: 'hook', name: hookNameOf(words) };
   }
   if (group.text !== 'exec') {
     return undefined;
@@ -209,6 +442,12 @@ const UNREADABLE =
 
 const FED_SHELL =
   'a shell here reads its commands from a pipe, so the guard cannot tell whether they review a request or act as the owner; run them directly, or hand the shell a heredoc, which the guard reads.';
+
+const CLAUDE_CODE_CHANGED =
+  `this line changes $${ENV.claudeCode}, which Claude Code sets so teamrig knows a command runs under it and keeps the checks that hold there; leave it as Claude Code set it.`;
+
+const FOREIGN_SHELL =
+  'a package runner here hands its command line to a shell the line names (--script-shell, npm_config_script_shell or ComSpec) that the guard cannot read, so it cannot tell whether the line reviews a request or acts as the owner; leave the runner its own shell, or run the commands directly.';
 
 /** At most this many changed files are named in a refusal; the rest are counted. */
 const NAMED_FILES = 5;
@@ -249,6 +488,15 @@ function ownerRefusalOf(action: string | undefined): string {
   return `\`${command}\` acts as the owner; the owner runs it from the pane or their own terminal, or types \`/${command} ...\` in a tab, never through a tool call.`;
 }
 
+/** Why the guard refuses a `teamrig hook` call: only Claude Code and the teamrig mod run hooks. */
+function hookRefusalOf(name: string | undefined): string {
+  const command = name === undefined ? 'teamrig hook' : `teamrig hook ${name}`;
+  return (
+    `\`${command}\` takes the tab and who typed the line from its stdin, which a tool call writes, so only Claude Code's hooks ` +
+    `and the teamrig mod run it, never a tool call; prove a hook in a test, or by a script on a scratch kit home.`
+  );
+}
+
 /** Why the guard refuses a call through a program only known when it runs. */
 function opaqueRefusalOf(word: ShellWord): string {
   return `\`teamrig exec\` here starts a program only known when it runs (${word.text}), so the guard cannot tell which client runs it; write it out: \`teamrig\`, or its full path.`;
@@ -261,6 +509,12 @@ type ClientRoot = { readonly kind: 'root'; readonly root: string } | { readonly 
 async function clientRootOf(client: ClientWord, at: WordAt, env: ExecGuardEnv): Promise<ClientRoot> {
   if (client.kind === 'opaque') {
     return { kind: 'refused', why: opaqueRefusalOf(client.word) };
+  }
+  if (client.kind === 'runner') {
+    return {
+      kind: 'refused',
+      why: `\`teamrig exec\` here runs through a package runner (${client.word.text}), which may find or fetch a teamrig other than this plugin's install; write \`teamrig\`, or its full path.`,
+    };
   }
   const file = client.kind === 'program' ? await placeProgram(client.word.text, at, env.search) : placeScript(client.word.text, at);
   switch (file.kind) {
@@ -309,13 +563,15 @@ function reviewRefusalOf(call: ReviewCall, identity: TabIdentity): string | unde
  * What every reading of a tool call runs, reading after reading. Joining them is safe, unlike the push guard's
  * checkouts: each run carries its own folder and shell, and the guard refuses a run whatever else the line runs.
  */
-function runsOfReadings(readings: readonly string[], context: ProgramsContext): LineRuns {
+export function runsOfReadings(readings: readonly string[], context: ProgramsContext): LineRuns {
   const each = readings.map((text) => runsOf(text, context));
   return {
     programs: each.flatMap((runs) => runs.programs),
     bare: each.flatMap((runs) => runs.bare),
     opaque: each.flatMap((runs) => runs.opaque),
     fedShells: each.flatMap((runs) => runs.fedShells),
+    foreignShells: each.flatMap((runs) => runs.foreignShells),
+    envEdits: each.flatMap((runs) => runs.envEdits),
   };
 }
 
@@ -324,10 +580,17 @@ function runsOfReadings(readings: readonly string[], context: ProgramsContext): 
  * but the tab's own session, named by `--session` (the flag wins over `$TEAMRIG_SESSION` in the CLI, so a variable
  * set on the line changes nothing), when the guard cannot read who it reviews as, or when it runs any `teamrig exec`
  * command through a client that is no install of this plugin, one only known when it runs, or one whose files differ
- * from its build; whenever the line runs a `teamrig owner` command, through any client, as it acts as the owner; and
- * when a shell on the line takes its commands from a pipe the guard cannot read. Else nothing, so the normal permission flow decides. It checks each install a line's `teamrig exec` calls start
- * once, and reads the tab's session only for a line that holds a review. A Bash line on Windows is read in each
- * reading bash may run (`toolCommandReadings`), so a call the line as written escapes is still refused.
+ * from its build; whenever the line runs a `teamrig owner` command, through any client, as it acts as the owner, or a
+ * settings writer's write (`permissions trim --yes` and the rest of SETTINGS_WRITERS), as it changes a permission, or
+ * a `teamrig hook` command, as it trusts the stdin the line gives it; whenever a bound tab's `teamrig start` or `teamrig
+ * inbox read`, through any client, binds it to another session (`bindRefusalOf`); whenever the line changes
+ * `$CLAUDECODE`, which tells teamrig a command runs under Claude Code; and when a shell on the line takes its commands
+ * from a pipe the guard cannot read, or a package runner hands its line to a shell the line names that the guard
+ * cannot read. Else nothing, so the normal permission flow decides. It checks each install a line's `teamrig exec`
+ * calls start once, and reads the tab's session only for a line that holds a review, or a bind that names a session
+ * or runs where the line changes one. A Bash line on Windows is read in each reading bash may run
+ * (`toolCommandReadings`), so a call the line as written escapes is still refused. It reads only the line's own words:
+ * a script the line runs is not covered, so these are checks against mistakes.
  */
 export async function execGuardOutput(payload: unknown, env: ExecGuardEnv): Promise<string> {
   if (!isRecord(payload)) {
@@ -345,22 +608,51 @@ export async function execGuardOutput(payload: unknown, env: ExecGuardEnv): Prom
   };
   const runs = runsOfReadings(toolCommandReadings(tool, command, env.platform), context);
   const calls = runs.programs.flatMap((run) => {
-    const launch = teamrigLaunchOf(run);
+    const launch = teamrigLaunchOf(run, startsGuarded);
     const call = launch === undefined ? undefined : guardedCallOf(launch.words);
     const at: WordAt = { dialect: run.dialect, dir: run.dir, home: env.home };
     return launch === undefined || call === undefined ? [] : [{ call, client: launch.client, at }];
   });
-  const opaque = runs.opaque.filter((run) => startsExec(run.args));
-  const opaqueOwner = runs.opaque.filter((run) => startsOwner(run.args));
+  const opaque = runs.opaque.filter((run) => opaqueGuardedWords(run, startsExec) !== undefined);
+  const opaqueOwner = runs.opaque.flatMap((run) => {
+    const words = opaqueGuardedWords(run, startsOwner);
+    return words === undefined ? [] : [words];
+  });
+  const opaqueSettings = runs.opaque.flatMap((run) => settingsWriteOf(opaqueGuardedWords(run, writesSettings) ?? []) ?? []);
+  const opaqueHook = runs.opaque.flatMap((run) => {
+    const words = opaqueGuardedWords(run, startsHook);
+    return words === undefined ? [] : [words];
+  });
+  const binds = [
+    ...runs.programs.flatMap((run) => {
+      const launch = teamrigLaunchOf(run, startsBind);
+      const call = launch === undefined ? undefined : bindCallOf(launch.words);
+      return call === undefined ? [] : [call];
+    }),
+    ...runs.opaque.flatMap((run) => {
+      const words = opaqueGuardedWords(run, startsBind);
+      const call = words === undefined ? undefined : bindCallOf(words);
+      return call === undefined ? [] : [call];
+    }),
+  ];
   const unread = runs.opaque.some(hidesSubcommand) || calls.some(({ call }) => call.kind === 'unreadable');
   const fed = runs.fedShells.length > 0;
-  if (calls.length === 0 && opaque.length === 0 && opaqueOwner.length === 0 && !unread && !fed) {
+  const foreign = runs.foreignShells.length > 0;
+  const cleared = changesVariable(runs, ENV.claudeCode);
+  const steered = changesVariable(runs, ENV.session) || changesVariable(runs, ENV.claudeSession);
+  const checkedBinds = binds.filter((call) => call.unread || call.sessions.length > 0 || steered);
+  const quiet =
+    calls.length === 0 && opaque.length === 0 && opaqueOwner.length === 0 && opaqueSettings.length === 0 && opaqueHook.length === 0 && checkedBinds.length === 0;
+  if (quiet && !unread && !fed && !foreign && !cleared) {
     return '';
   }
-  const reasons: string[] = [...(unread ? [UNREADABLE] : []), ...(fed ? [FED_SHELL] : [])];
+  const reasons: string[] = [...(unread ? [UNREADABLE] : []), ...(fed ? [FED_SHELL] : []), ...(foreign ? [FOREIGN_SHELL] : []), ...(cleared ? [CLAUDE_CODE_CHANGED] : [])];
   reasons.push(...opaque.map((run) => opaqueRefusalOf(run.program)));
-  reasons.push(...calls.flatMap(({ call }) => (call.kind === 'owner' ? [ownerRefusalOf(call.action)] : [])));
-  reasons.push(...opaqueOwner.map((run) => ownerRefusalOf(ownerActionOf(run.args))));
+  reasons.push(...calls.flatMap(({ call }) => (call.kind === 'owner' ? [ownerRefusalOf(call.action)] : call.kind === 'hook' ? [hookRefusalOf(call.name)] : [])));
+  reasons.push(...opaqueOwner.map((words) => ownerRefusalOf(ownerActionOf(words))));
+  reasons.push(...calls.flatMap(({ call }) => (call.kind === 'settings' ? [settingsWriteRefusal(call.command)] : [])));
+  reasons.push(...opaqueSettings.map(settingsWriteRefusal));
+  reasons.push(...opaqueHook.map((words) => hookRefusalOf(hookNameOf(words))));
   const roots = new Set<string>();
   for (const { call, client, at } of calls) {
     if (call.kind === 'review' || call.kind === 'plain') {
@@ -379,9 +671,10 @@ export async function execGuardOutput(payload: unknown, env: ExecGuardEnv): Prom
     }
   }
   const reviews = calls.map(({ call }) => call).filter((call) => call.kind === 'review');
-  if (reviews.length > 0) {
+  if (reviews.length > 0 || checkedBinds.length > 0) {
     const identity = await env.identity();
     reasons.push(...reviews.map((call) => reviewRefusalOf(call, identity)).filter((reason) => reason !== undefined));
+    reasons.push(...checkedBinds.map((call) => bindRefusalOf(call, identity, steered)).filter((reason) => reason !== undefined));
   }
   return reasons.length === 0 ? '' : holdBackOutput('deny', `teamrig exec guard: ${[...new Set(reasons)].join(' ')}`, env.hookAsks);
 }

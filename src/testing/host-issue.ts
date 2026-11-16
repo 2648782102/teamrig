@@ -20,6 +20,9 @@ export function testHostIssue(number: number, overrides: Partial<HostIssue> = {}
     authorKind: 'User',
     labelEvents: [],
     renamedAt: undefined,
+    createdAt: undefined,
+    comments: [],
+    linkedPulls: 0,
     ...overrides,
   };
 }

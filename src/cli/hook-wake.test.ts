@@ -332,6 +332,33 @@ describe('hook wake-check', () => {
     assert.deepEqual(answerOf(await check(kit)), { kind: 'wait', watch: watchOf(), recheckAt: null }, 'never twice for one line');
   });
 
+  it('wakes for an unread urgent line, but never lists one already read through the inbox', async () => {
+    for (const read of [false, true]) {
+      const kit = await teamWithAlphaTab();
+      await check(kit);
+      const asks = new WakeAsks(kit.files, ASKS);
+      // Several urgent lines posted as `inbox add --wake now` does: the inbox line, then a plain ask.
+      for (const text of ['Merge T6.', 'Deploy T7.']) {
+        assert.equal((await kit.run(['inbox', 'add', '--to', 'alpha', '--text', text, '--session', 'bravo'])).code, EXIT.ok);
+        await asks.post('alpha', { from: 'bravo', text, at: kit.clock.now() });
+        kit.clock.advance(MINUTE);
+      }
+      if (read) {
+        // Read in an earlier turn; the session is then resumed, and only the idle wake is evaluated.
+        assert.equal((await kit.run(['inbox', 'read', '--session', 'alpha'])).code, EXIT.ok);
+      }
+      kit.clock.advance(120 * SECOND);
+      const answer = answerOf(await check(kit));
+      if (read) {
+        assert.deepEqual(answer, { kind: 'wait', watch: watchOf(), recheckAt: null });
+      } else {
+        assert.ok(typeof answer === 'object' && answer !== null && 'text' in answer);
+        assert.match(String(answer.text), /bravo: Merge T6\.\n- \d\d:\d\d \w+ bravo: Deploy T7\./);
+      }
+      assert.deepEqual(await asks.read('alpha'), [], `read: ${read}`);
+    }
+  });
+
   it('wakes for an urgent line and the work handed with it in one wake, and for the next line with no gap since', async () => {
     const kit = await teamWithAlphaTab({ ...TEAM, wake: { batchSeconds: 0 } });
     await check(kit);
@@ -623,6 +650,89 @@ describe('hook wake-check at the day start and a burst', () => {
   });
 });
 
+describe('hook wake-check rush poke (T2865)', () => {
+  const BURSTS = join(TEAM_HOME, 'state', 'usage', 'bursts.jsonl');
+  const LEDGER = join(TEAM_HOME, 'state', 'deploys', 'ledger.jsonl');
+  const ALPHA_TRANSCRIPT = join(USER_HOME, '.claude', 'projects', 'work-app', `${ALPHA_TAB}.jsonl`);
+  const waitTill = (recheckAt: number | null) => ({ kind: 'wait', watch: watchOf(), recheckAt });
+
+  function turnAt(at: number): MemoryTranscripts {
+    const transcripts = new MemoryTranscripts();
+    transcripts.set(ALPHA_TRANSCRIPT, '{}\n', at);
+    return transcripts;
+  }
+
+  function startRush(kit: CliHarness, sessions: readonly string[], kind: 'rush' | 'surplus' = 'rush'): Promise<void> {
+    const at = kit.clock.now();
+    const burst: Burst = { kind, sessions, helpers: 2, hires: 0, dailyPct: 5, stopPct: 99, endsAt: at + 4 * 60 * MINUTE, tasks: [], ...(kind === 'rush' ? { goal: 'PROD' } : {}), reason: 'ship PROD', by: 'lead', at };
+    return new BurstLog(kit.files, BURSTS).append(burst);
+  }
+
+  /** Alpha with p2 work, which no handed-work wake takes, in a rush on PROD. */
+  async function rushingAlpha(config: JsonRecord = TEAM, sessions: readonly string[] = ['alpha']): Promise<CliHarness> {
+    const kit = await teamWithAlphaTab(config);
+    await hand(kit, 'Ship the page', 'p2');
+    await startRush(kit, sessions);
+    return kit;
+  }
+
+  it('pokes a tab idle 5 minutes with work left, once per idle stretch, and again after a new turn', async () => {
+    const kit = await rushingAlpha();
+    const turned = kit.clock.now() - 2 * MINUTE;
+    assert.deepEqual(answerOf(await check(kit, turnAt(turned))), waitTill(turned + 5 * MINUTE));
+    kit.clock.advance(3 * MINUTE);
+    const poked = answerOf(await check(kit, turnAt(turned)));
+    assert.ok(isRecord(poked));
+    assert.equal(poked['kind'], 'wake');
+    assert.deepEqual(poked['ids'], ['T1']);
+    assert.match(String(poked['text']), /^Rush on PROD: this tab sat idle 5 min with work left .*Start or continue T1 \(Ship the page\) now/);
+    assert.match(String(poked['toast']), /^teamrig poked this tab \(rush on PROD, idle 5 min\): T1 \(/);
+    assert.deepEqual(await logLines(kit), [
+      { v: 1, at: new Date(kit.clock.now()).toISOString(), kind: 'wake', session: 'alpha', tab: ALPHA_TAB, ids: ['T1'], w: 27_000, cold: false, poke: true },
+    ]);
+    kit.clock.advance(10 * MINUTE);
+    assert.deepEqual(answerOf(await check(kit, turnAt(turned))), waitTill(null), 'one poke per idle stretch');
+    const again = kit.clock.now() - MINUTE;
+    assert.deepEqual(answerOf(await check(kit, turnAt(again))), waitTill(again + 5 * MINUTE), 'a new turn opens a new stretch');
+  });
+
+  it('pokes no one outside a rush, in a burst that is no rush, nor the lead', async () => {
+    const surplus = await teamWithAlphaTab();
+    await hand(surplus, 'Ship the page', 'p2');
+    const idle = turnAt(surplus.clock.now() - 30 * MINUTE);
+    assert.deepEqual(answerOf(await check(surplus, idle)), waitTill(null), 'no rush');
+    await startRush(surplus, ['alpha'], 'surplus');
+    assert.deepEqual(answerOf(await check(surplus, idle)), waitTill(null), 'a surplus burst');
+    const other = await rushingAlpha(TEAM, ['bravo']);
+    assert.deepEqual(answerOf(await check(other, turnAt(other.clock.now() - 30 * MINUTE))), waitTill(null), 'a rush without alpha');
+    const lead = await rushingAlpha({ ...TEAM, roles: { lead: 'alpha' } });
+    assert.deepEqual(answerOf(await check(lead, turnAt(lead.clock.now() - 30 * MINUTE))), waitTill(null), 'alpha as the lead');
+    assert.deepEqual(await logLines(lead), []);
+  });
+
+  it('puts the poke off while a queued step of the session runs, and pokes once it ended', async () => {
+    const kit = await rushingAlpha();
+    const idle = turnAt(kit.clock.now() - 30 * MINUTE);
+    const started = new Date(kit.clock.now() - 2 * MINUTE).toISOString();
+    const step = { type: 'heavy', id: 'q1', session: 'alpha', what: 'tests', startedAt: started, endedAt: null, exitCode: null };
+    await kit.files.append(LEDGER, `${JSON.stringify(step)}\n`);
+    assert.deepEqual(answerOf(await check(kit, idle)), waitTill(kit.clock.now() + 5 * MINUTE));
+    await kit.files.append(LEDGER, `${JSON.stringify({ ...step, endedAt: new Date(kit.clock.now()).toISOString(), exitCode: 0 })}\n`);
+    kit.clock.advance(5 * MINUTE);
+    assert.match((await check(kit, idle)).stdout[0] ?? '', /"toast":"teamrig poked this tab \(rush on PROD, idle 35 min\): T1 /);
+  });
+
+  it('starts a session whose restart waits for work fresh in place of the poke (T1383)', async () => {
+    const { kit, store } = await parkedRestart(AUTO_RESTART_TEAM);
+    await hand(kit, 'Ship the page', 'p2');
+    await startRush(kit, ['alpha']);
+    const idle = turnAt(kit.clock.now() - 30 * MINUTE);
+    const answer = await kit.run(['hook', 'wake-check'], { stdin: payload(), transcripts: idle, processes: new FakeProcesses(), sessionProcesses: UNDER_CLAUDE() });
+    assert.deepEqual(answerOf(answer), waitTill(kit.clock.now() + RESTART_RECHECK_MS));
+    assert.equal((await store.restart('alpha'))?.phase, 'pending');
+  });
+});
+
 describe("hook wake-check at the day schedule's start (T2000)", () => {
   const DAY_START = { ...TEAM, wake: { dayStartUtc: '06:00' } };
   const SCHEDULE = join(TEAM_HOME, 'state', 'day-schedule.json');
@@ -811,7 +921,7 @@ describe('hook wake-check runs the idle pass', () => {
     const kit = await idleTeam();
     const dir = join(STATE, 'deploys', 'detached');
     const record = runRecordPathOf(dir, 'r1');
-    await kit.files.write(record, formatRunRecord({ v: 1, id: 'r1', team: 'app', session: 'bravo', what: 'build api', log: join(dir, 'r1.log'), pid: 5150, startedAt: '2030-01-08T09:30:00.000Z' }));
+    await kit.files.write(record, formatRunRecord({ v: 2, id: 'r1', team: 'app', session: 'bravo', what: 'build api', log: join(dir, 'r1.log'), pid: 5150, startedAt: '2030-01-08T09:30:00.000Z' }));
     assert.deepEqual(answerOf(await passCheck(kit)), WAIT);
     const told = (await new WakeAsks(kit.files, ASKS).read('bravo')).map((stored) => stored.ask?.text);
     assert.equal(kit.files.get(record), undefined);

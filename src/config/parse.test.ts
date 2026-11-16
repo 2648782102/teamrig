@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_FREEZES, DEFAULT_COMMITS, DEFAULT_FOCUS, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_PERMISSIONS, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_STATUS_LINE, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING, DEFAULT_BRANCHES } from './defaults.ts';
+import { DEFAULT_BUDGET, DEFAULT_BURST, DEFAULT_RUSH, DEFAULT_CHECK_TIMEOUT_SECONDS, DEFAULT_FREEZES, DEFAULT_COMMITS, DEFAULT_FOCUS, DEFAULT_QUEUE, DEFAULT_HIRING, DEFAULT_IDLE, DEFAULT_OPEN, DEFAULT_PERMISSIONS, DEFAULT_REFRESH, DEFAULT_REGISTER, DEFAULT_STATUS_LINE, DEFAULT_WAKE, DEFAULT_STABLE_PERIODS, DEFAULT_MEETING, DEFAULT_BRANCHES } from './defaults.ts';
 import { HIRE_CAP_DROPPED, IDLE_RETIRE_DROPPED } from './migrate.ts';
 import { parseConfig } from './parse.ts';
 import { CONFIG_VERSION, type AccountBudget, type BudgetConfig } from './types.ts';
@@ -27,7 +27,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.needsYou, { enabled: true, kinds: ['permission', 'question', 'elicitation', 'decision'], osToast: false });
     assert.deepEqual(config.meetingNotices, { enabled: true, beforeMinutes: 10, atStart: true, missedAfterMinutes: 5, osToast: true, tabToast: true, leadInbox: true });
     assert.deepEqual(config.tests, { maxFailureChars: 4000 });
-    assert.deepEqual(config.github, { repos: [], owners: {}, sessions: {}, closedDays: 14, everyMinutes: 15, acceptLabel: 'teamrig', similarThreshold: 0.35 });
+    assert.deepEqual(config.github, { repos: [], owners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35 });
     assert.deepEqual(config.register, DEFAULT_REGISTER);
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
@@ -358,7 +358,7 @@ describe('parseConfig', () => {
   });
 
   it('reads meeting.statusLine, on in magenta with "meeting on: held" by default, and refuses a bad colour or held text (T2513)', () => {
-    const defaults = { enabled: true, colour: '#d75fd7', heldText: 'meeting on: held' };
+    const defaults = { enabled: true, colour: '#8b57e3', heldText: 'meeting on: held' };
     assert.deepEqual(parseConfig(ROSTER).config.meeting.statusLine, defaults);
     const set = { enabled: false, colour: '#FF8800', heldText: 'held for the meeting' };
     assert.deepEqual(parseConfig({ ...ROSTER, meeting: { statusLine: set } }).config.meeting.statusLine, set);
@@ -405,10 +405,10 @@ describe('parseConfig', () => {
     }
   });
 
-  it('reads github repos and owners in lowercase, closedDays within 1 to 365 and everyMinutes within 0 to 1440', () => {
+  it('reads github repos and owners in lowercase, closedDays within 1 to 365 and probeSeconds 0 or within 30 to 3600', () => {
     const { config, issues } = parseConfig({
       ...ROSTER,
-      github: { repos: ['Acme/Web', 'acme/docs.site'], owners: { OctoCat: 'bravo' }, closedDays: 365, everyMinutes: 0 },
+      github: { repos: ['Acme/Web', 'acme/docs.site'], owners: { OctoCat: 'bravo' }, closedDays: 365, probeSeconds: 0 },
     });
     assert.deepEqual(issues, []);
     assert.deepEqual(config.github, {
@@ -416,20 +416,34 @@ describe('parseConfig', () => {
       owners: { octocat: 'bravo' },
       sessions: {},
       closedDays: 365,
-      everyMinutes: 0,
+      probeSeconds: 0,
+      statusPush: false,
       acceptLabel: 'teamrig',
       similarThreshold: 0.35,
     });
+    assert.equal(parseConfig({ ...ROSTER, github: { statusPush: true } }).config.github.statusPush, true);
+    for (const wrong of ['yes', 1]) {
+      const parsed = parseConfig({ ...ROSTER, github: { statusPush: wrong } });
+      assert.deepEqual(paths(parsed.issues), ['github.statusPush']);
+      assert.equal(parsed.config.github.statusPush, false);
+    }
     for (const wrong of [0, 366]) {
       const parsed = parseConfig({ ...ROSTER, github: { closedDays: wrong } });
       assert.deepEqual(paths(parsed.issues), ['github.closedDays']);
       assert.equal(parsed.config.github.closedDays, 14);
     }
-    for (const wrong of [-1, 1441, 2.5]) {
-      const parsed = parseConfig({ ...ROSTER, github: { everyMinutes: wrong } });
-      assert.deepEqual(paths(parsed.issues), ['github.everyMinutes']);
-      assert.equal(parsed.config.github.everyMinutes, 15);
+    for (const good of [30, 3600]) {
+      assert.equal(parseConfig({ ...ROSTER, github: { probeSeconds: good } }).config.github.probeSeconds, good);
     }
+    for (const wrong of [-1, 1, 29, 3601, 2.5]) {
+      const parsed = parseConfig({ ...ROSTER, github: { probeSeconds: wrong } });
+      assert.deepEqual(paths(parsed.issues), ['github.probeSeconds']);
+      assert.equal(parsed.config.github.probeSeconds, 60);
+    }
+    assert.deepEqual(parseConfig({ ...ROSTER, github: { probeSeconds: 29 } }).issues[0]?.message, 'expected 0 (no watch) or at least 30, got 29');
+    const dropped = parseConfig({ ...ROSTER, github: { everyMinutes: 15 } });
+    assert.deepEqual(paths(dropped.issues), ['github.everyMinutes']);
+    assert.match(dropped.issues[0]?.message ?? '', /^is no longer read: issue watch syncs when GitHub changed/);
   });
 
   it('reads the github similar threshold within 0 to 1, else keeps 0.35', () => {
@@ -455,6 +469,55 @@ describe('parseConfig', () => {
       assert.deepEqual(paths(parsed.issues), ['github.acceptLabel'], JSON.stringify(wrong));
       assert.equal(parsed.config.github.acceptLabel, 'teamrig');
     }
+  });
+
+  it('reads no service roles by default', () => {
+    assert.deepEqual(parseConfig(ROSTER).config.serviceRoles, {});
+  });
+
+  it('reads a service role whose commands come from the table and whose holders are sessions of the team (T2984)', () => {
+    const { config, issues } = parseConfig({ ...ROSTER, serviceRoles: { github: { holders: ['bravo'], commands: ['issue close', 'issue comment'] } } });
+    assert.deepEqual(issues, []);
+    assert.deepEqual(config.serviceRoles, { github: { holders: ['bravo'], commands: ['issue close', 'issue comment'] } });
+  });
+
+  it('fails the load on an unknown command, a holder off the roster or a misspelt key, and leaves the role out (T2984 C3)', () => {
+    const cases: readonly [unknown, readonly string[]][] = [
+      [{ holders: ['bravo'], commands: ['issue delete'] }, ['serviceRoles.github.commands[0]']],
+      [{ holders: ['bravo'], commands: ['issue *'] }, ['serviceRoles.github.commands[0]']],
+      [{ holders: ['bravo'], commands: ['issue close', 'issue close'] }, ['serviceRoles.github.commands[1]']],
+      [{ holders: ['bravo'], commands: [] }, ['serviceRoles.github.commands']],
+      [{ holders: ['bravo'] }, ['serviceRoles.github.commands']],
+      [{ holders: ['zulu'], commands: ['issue close'] }, ['serviceRoles.github.holders[0]']],
+      [{ holders: ['acme/bravo'], commands: ['issue close'] }, ['serviceRoles.github.holders[0]']],
+      [{ holders: ['bravo', 'bravo'], commands: ['issue close'] }, ['serviceRoles.github.holders[1]']],
+      [{ holders: [], commands: ['issue close'] }, ['serviceRoles.github.holders']],
+      [{ holders: 'bravo', commands: ['issue close'] }, ['serviceRoles.github.holders']],
+      [{ holder: ['bravo'], holders: ['bravo'], commands: ['issue close'] }, ['serviceRoles.github.holder']],
+      ['bravo', ['serviceRoles.github']],
+    ];
+    for (const [role, expected] of cases) {
+      const parsed = parseConfig({ ...ROSTER, serviceRoles: { github: role } });
+      assert.deepEqual(paths(parsed.issues), expected, JSON.stringify(role));
+      assert.deepEqual(parsed.config.serviceRoles, {}, JSON.stringify(role));
+    }
+  });
+
+  it('refuses "team" holders for a command that acts as whoever runs it (T2984 C4)', () => {
+    const parsed = parseConfig({ ...ROSTER, serviceRoles: { github: { holders: 'team', commands: ['issue close'] } } });
+    assert.deepEqual(paths(parsed.issues), ['serviceRoles.github.holders']);
+    assert.match(parsed.issues[0]?.message ?? '', /acts as whoever runs it/);
+    assert.deepEqual(parsed.config.serviceRoles, {});
+  });
+
+  it('refuses a role name outside the pattern and more roles than the limit', () => {
+    const role = { holders: ['bravo'], commands: ['issue close'] };
+    assert.deepEqual(paths(parseConfig({ ...ROSTER, serviceRoles: { 'Git Hub': role } }).issues), ['serviceRoles.Git Hub']);
+    const many = Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`r${index}`, role]));
+    const parsed = parseConfig({ ...ROSTER, serviceRoles: many });
+    assert.deepEqual(paths(parsed.issues), ['serviceRoles']);
+    assert.deepEqual(parsed.config.serviceRoles, {});
+    assert.equal(Object.keys(parseConfig({ ...ROSTER, serviceRoles: Object.fromEntries(Object.entries(many).slice(0, 16)) }).config.serviceRoles).length, 16);
   });
 
   it('reads each listed repository\'s session in lowercase, and reports one not listed, an unknown session or a repeat', () => {
@@ -1209,7 +1272,21 @@ describe('parseConfig', () => {
     }
     const bad = parseConfig({ ...ROSTER, prompts: { hookAsks: 'refuse', routeAllow: true } });
     assert.deepEqual(paths(bad.issues), ['prompts.routeAllow']);
-    assert.deepEqual(bad.config.prompts, { hookAsks: 'refuse', routeAllow: 'on' });
+    assert.deepEqual(bad.config.prompts, { hookAsks: 'refuse', routeAllow: 'on', serviceRoleDailyCap: 10 });
+  });
+
+  it('reads how many calls a service role lets run in 24 hours, defaulting to 10 and refusing one out of bounds', () => {
+    assert.equal(parseConfig(ROSTER).config.prompts.serviceRoleDailyCap, 10);
+    for (const cap of [0, 3, 200]) {
+      const set = parseConfig({ ...ROSTER, prompts: { serviceRoleDailyCap: cap } });
+      assert.deepEqual(set.issues, []);
+      assert.equal(set.config.prompts.serviceRoleDailyCap, cap);
+    }
+    for (const bad of [-1, 201, 2.5, '10']) {
+      const read = parseConfig({ ...ROSTER, prompts: { serviceRoleDailyCap: bad } });
+      assert.deepEqual(paths(read.issues), ['prompts.serviceRoleDailyCap'], String(bad));
+      assert.equal(read.config.prompts.serviceRoleDailyCap, 10);
+    }
   });
 
   it('reads the db-write guard, asking by default with no program, client or script of the team', () => {
@@ -1522,6 +1599,19 @@ describe('parseConfig', () => {
     const bad = parseConfig({ ...ROSTER, burst: { policy: 'automatic', surplusHours: 168, minSparePct: 0, maxHelpers: 21, maxHires: -1 } });
     assert.deepEqual(paths(bad.issues).sort(), ['burst.maxHelpers', 'burst.maxHires', 'burst.minSparePct', 'burst.policy', 'burst.surplusHours']);
     assert.deepEqual(bad.config.burst, DEFAULT_BURST);
+  });
+
+  it('reads rush.pokeAfterMinutes, 5 by default, and refuses one under a minute or past two hours', () => {
+    assert.deepEqual(parseConfig(ROSTER).config.rush, DEFAULT_RUSH);
+    assert.equal(DEFAULT_RUSH.pokeAfterMinutes, 5);
+    const set = parseConfig({ ...ROSTER, rush: { pokeAfterMinutes: 12 } });
+    assert.deepEqual(set.issues, []);
+    assert.equal(set.config.rush.pokeAfterMinutes, 12);
+    for (const pokeAfterMinutes of [0, 121, 'soon']) {
+      const bad = parseConfig({ ...ROSTER, rush: { pokeAfterMinutes } });
+      assert.deepEqual(paths(bad.issues), ['rush.pokeAfterMinutes'], String(pokeAfterMinutes));
+      assert.deepEqual(bad.config.rush, DEFAULT_RUSH);
+    }
   });
 
   it('flags the fixed hiring daily budgets this format no longer reads, instead of ignoring them', () => {

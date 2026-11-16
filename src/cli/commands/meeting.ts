@@ -33,7 +33,7 @@ import { loadTree, type KitTree } from '../tree.ts';
 import { weekLineOf } from './budget.ts';
 import { inboxDepsOf, read } from './inbox.ts';
 import { decidedByOf, decisionAgendaOf } from './meeting-registers.ts';
-import { agendaMeetingLines, meetingEndScheduled, meetingStartScheduled } from './meetings.ts';
+import { agendaMeetingLines, meetingEndScheduled, meetingStartNow, meetingStartScheduled, ownMeetingIdOf } from './meetings.ts';
 import { taskTreeOf, weekFitOf } from './register.ts';
 import { foldStats, statsTopLines } from './stats.ts';
 
@@ -44,8 +44,9 @@ import { foldStats, statsTopLines } from './stats.ts';
  * each session with a decision the lead recorded on its tasks, by one inbox line, and no other. The agenda is
  * gathered in one call: the goal scoreboard, the owner's decisions as card facts, the incidents, the late tasks, what
  * finished since the meeting before, the stats' Health and flow lines, the lead's inbox (marked read) and the week's
- * use and fit to the limit. Only a root team's lead holds it: its goals, stats, decisions and end's lines cover every
- * team under the lead's too (T1018).
+ * use and fit to the limit. The lead of any team holds it, at its own scope: its goals, stats, decisions and end's
+ * lines cover every team under the lead's too (T1018), so a sub-team's lead meets the owner over its subtree (T2985).
+ * A card decided there leaves its waits on the owner, so the root lead's meeting never asks it again.
  */
 
 interface MeetingKit {
@@ -58,14 +59,11 @@ interface MeetingKit {
   readonly now: number;
   /** The team's clock, which the meeting's lines and notices print on. */
   readonly zone: TimeZone;
-  /** Every team of the kit home: the lead's is a root team, whose subtree's waits on the owner the lead asks. */
+  /** Every team of the kit home: the lead's subtree is the meeting's scope, whose waits on the owner the lead asks. */
   readonly kitTree: KitTree;
 }
 
-/**
- * The caller's team, refused unless the caller is its lead and the team a root team: the meeting is the lead's with the
- * owner, and a child team's waits on the owner go up to the lead at its tree's root, whose agenda lists them (T509).
- */
+/** The caller's team, refused unless the caller is its lead: the meeting is the lead's with the owner, over its subtree. */
 async function meetingKit(args: ParsedArgs, runtime: CliRuntime, access: Access): Promise<MeetingKit> {
   noPositionals(args);
   const kit = await openTeamKit(runtime);
@@ -76,14 +74,12 @@ async function meetingKit(args: ParsedArgs, runtime: CliRuntime, access: Access)
   const holder = roster.holderOf('lead');
   const lead = holder !== undefined && roster.ids.includes(holder) ? holder : undefined;
   if (lead === undefined || caller !== lead) {
-    throw new RefusedError(`only the lead${lead === undefined ? '' : ` (${roster.nameOf(lead) ?? lead})`} runs the owner's daily meeting`);
+    throw new RefusedError(
+      `only the lead${lead === undefined ? '' : ` (${roster.nameOf(lead) ?? lead})`} runs the owner's daily meeting; ` +
+        `a meeting of your own with the owner: ${KIT_NAME} meeting start --about "<what>"`,
+    );
   }
-  const team = kit.paths.team;
   const kitTree = await loadTree(runtime);
-  const above = kitTree.tree.ownerLeadAbove(team);
-  if (above !== undefined) {
-    throw new RefusedError(`team ${team} meets no owner: the owner's daily meeting is ${formatAddress(above)}'s, whose agenda lists ${team}'s waits on the owner`);
-  }
   const store = new MeetingStore(runtime.files, kit.paths.meeting);
   return { kit, config, roster, lead, leadName: roster.nameOf(lead) ?? lead, store, now: runtime.clock.now(), zone: teamZone(config, runtime), kitTree };
 }
@@ -253,11 +249,14 @@ async function printAgenda(args: ParsedArgs, runtime: CliRuntime, mk: MeetingKit
 /**
  * `meeting start`: opens the meeting and prints the agenda; it posts no line, as the hook tells each sender it
  * holds. A meeting already open stays as it is: its agenda prints. With an id, `meeting start M3` starts a scheduled
- * meeting instead (meetings.ts).
+ * meeting instead (meetings.ts), and with `--about` any session's meeting with the owner on the spot (T2985).
  */
 export async function meetingStart(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
   if (args.positionals.length > 0) {
     return meetingStartScheduled(args, runtime);
+  }
+  if (args.flags.has('about')) {
+    return meetingStartNow(args, runtime);
   }
   const mk = await meetingKit(args, runtime, 'write');
   const phase = phaseOf(await mk.store.read(), mk.now);
@@ -308,14 +307,19 @@ export async function meetingAgenda(args: ParsedArgs, runtime: CliRuntime): Prom
  * updated during the meeting those updates (the decisions recorded) by one inbox line, in a team under the lead's
  * too (T1018); a session with none gets no line. Every card the agenda asked that got no answer (a Decided or a Later)
  * carries over (carried.ts): recorded on the meeting, the next agenda asks it first (T2775). `meeting end <id>` ends a
- * scheduled meeting instead (meetings.ts).
+ * scheduled meeting instead (meetings.ts), and with no id, the meeting on in the caller's tab, the lead's daily one
+ * first (T2985).
  */
 export async function meetingEnd(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
   if (args.positionals.length > 0) {
     return meetingEndScheduled(args, runtime);
   }
+  const inTab = await ownMeetingIdOf(args, runtime);
+  if (inTab !== undefined) {
+    return meetingEndScheduled({ ...args, positionals: [inTab] }, runtime);
+  }
   if (args.flags.has('note')) {
-    throw new UsageError('--note goes with meeting end <id>, a scheduled meeting; the daily meeting records its decisions on the tasks');
+    throw new UsageError('--note goes with meeting end <id>, a booked or on-the-spot meeting; the daily meeting records its decisions on the tasks');
   }
   const mk = await meetingKit(args, runtime, 'write');
   const phase = phaseOf(await mk.store.read(), mk.now);

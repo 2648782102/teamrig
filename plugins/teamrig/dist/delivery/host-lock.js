@@ -6,7 +6,7 @@ import { AdmitFile } from "./admit-file.js";
 import { admissionOrder, classOf, placeInLine } from "./admission.js";
 import { charge, DEFAULT_EXPECTED_MINUTES, EMPTY_TURNS, endedAtOf, endedText, isNewerTurns, parseTurns, settle, turnsFor, turnsText } from "./class-turns.js";
 import { shortText } from "./memory-gate.js";
-import { isLineRequest } from "./process-request.js";
+import { isLineRequest, takesShipSlot } from "./process-request.js";
 import { WAIT_CAUSES } from "./wait-cause.js";
 import { causeOfLockWait } from "./wait-log.js";
 /** Tries per taking: a stale lock removed may be retaken by another step first. */
@@ -183,6 +183,8 @@ export function holderText(holder, zone) {
             return `${stepsText(holder.running.length, 'heavy ')} running, the cap ${holder.cap}: ${heldText(holder.running, zone)}`;
         case 'cpu':
             return `host CPU ${holder.idlePct}% idle, ${holder.needPct}% needed (delivery.queue.heavyIdleCpuPct) beside ${stepsText(holder.running.length, 'heavy ')}: ${heldText(holder.running, zone)}`;
+        case 'shipSlot':
+            return `the ship slot, held by ${heldText(holder.running, zone)}`;
         case 'admitting':
             return 'another step being admitted';
     }
@@ -248,6 +250,8 @@ export function busyText(holder, zone) {
             return `heavy cap still reached: ${holderText(holder, zone)}`;
         case 'cpu':
             return `host CPU still busy: ${holderText(holder, zone)}`;
+        case 'shipSlot':
+            return `ship slot still held: ${heldText(holder.running, zone)}`;
         case 'held':
         case 'unknown':
         case 'queued':
@@ -276,6 +280,7 @@ function waitKey(holder, ahead) {
         case 'sessionCap':
         case 'heavyCap':
         case 'cpu':
+        case 'shipSlot':
             return `${holder.kind} ${idsOf(holder.running)} ${ahead}`;
         case 'admitting':
             return `admitting ${ahead}`;
@@ -310,7 +315,8 @@ class WaitReports {
 }
 /**
  * The ids of the steps a waiter stands behind at one look: the waiters ahead, the lock's holder and the steps it
- * waits for, the steps sharing the host, its own session's steps running at its cap, the heavy steps at their cap.
+ * waits for, the steps sharing the host, its own session's steps running at its cap, the heavy steps at their cap, the
+ * step holding the ship slot.
  */
 function standingBehind(ahead, holder) {
     const ids = new Set(ahead.map((waiter) => waiter.id));
@@ -334,6 +340,7 @@ function standingBehind(ahead, holder) {
         case 'sessionCap':
         case 'heavyCap':
         case 'cpu':
+        case 'shipSlot':
             for (const info of holder.running) {
                 ids.add(info.id);
             }
@@ -395,6 +402,8 @@ class Patience {
  * In admission's `pipeline` mode a heavy step shares the host too, its share marked `heavy`, while fewer than
  * `maxHeavyParallel` heavy shares run, else it waits in its place on them (`heavyCap`). An exclusive step (a merge, a
  * deploy) and every heavy step in `serial` mode take the lock file instead, which waits for every share to end.
+ * A step that moves a main branch (`takesShipSlot`) shares the host only while no other such step does, else it waits
+ * in its place on the one ship slot (`shipSlot`, T2727), which other steps pass.
  * With a memory gate in its ports, the first in line takes the lock or a share only once the gate finds the host's
  * memory has room for it, the MB held for the small steps sharing the host counted as taken; until then it waits in
  * its place, and a lone step is gated as much as one beside others. In arrival order a later step never passes a step
@@ -478,7 +487,7 @@ export class HostLock {
      */
     async acquire(session, purpose, maxWaitMs, pollMs, onWait, ask = {}, stop) {
         const patience = new Patience(this.ports.clock.now(), maxWaitMs);
-        const ticket = await this.joinLine(session, purpose, patience.deadline, this.ticketRequestOf(ask), ask.arrivedAt);
+        const ticket = await this.joinLine(session, purpose, patience.deadline, this.ticketRequestOf(ask, await this.rulesNow()), ask.arrivedAt);
         const reports = new WaitReports(onWait, this.ports.zone);
         try {
             const waited = await this.waitInLine(ticket, patience, pollMs, reports, ask, stop);
@@ -534,7 +543,7 @@ export class HostLock {
      */
     async line() {
         const line = await this.tickets();
-        const { admission } = this.ports;
+        const admission = await this.rulesNow();
         if (admission === undefined || admission.mode === 'serial') {
             return line.map(({ waiter }) => waiter);
         }
@@ -590,7 +599,7 @@ export class HostLock {
         for (;;) {
             stop?.throwIfAborted();
             const removeUnknown = unknownSince !== undefined && clock.now() - unknownSince >= HostLock.UNREADABLE_GRACE_MS;
-            const looked = await this.lookInLine(ticket, removeUnknown, ask);
+            const looked = await this.lookInLine(ticket, removeUnknown, ask, await this.rulesNow());
             if (looked === undefined) {
                 return { kind: 'withdrawn' };
             }
@@ -612,23 +621,23 @@ export class HostLock {
         }
     }
     /**
-     * One look in line: in arrival order (no admission rules, or `serial`), or in admission order (`pipeline`), where a
+     * One look in line under `admission`, the rules as this look read them: in arrival order (none, or `serial`), or in
+     * admission order (`pipeline`), where a
      * step that finds itself first looks again under the admit file and takes its turn there, keeping the class turns
      * ({@link keepTurns}); while another step holds that file, it waits on it (`admitting`). Undefined once its ticket is
      * gone, withdrawn.
      */
-    async lookInLine(ticket, removeUnknown, ask) {
-        const { admission } = this.ports;
+    async lookInLine(ticket, removeUnknown, ask, admission) {
         if (admission === undefined || admission.mode === 'serial') {
             const ahead = await this.waitersAhead(ticket.name);
-            return ahead === undefined ? undefined : { ahead, look: await this.inTurn(ticket.waiter, ahead, removeUnknown, ask) };
+            return ahead === undefined ? undefined : { ahead, look: await this.inTurn(ticket.waiter, ahead, removeUnknown, ask, admission) };
         }
         const view = await this.placeOf(ticket, admission);
         if (view === undefined) {
             return undefined;
         }
         if (view.place.capped !== undefined || view.place.ahead.length > 0) {
-            return this.lookFrom(view.place, ticket.waiter, removeUnknown, ask);
+            return this.lookFrom(view.place, ticket.waiter, removeUnknown, ask, admission);
         }
         const claim = await this.admit.claim(ticket.waiter.id);
         if (claim === undefined) {
@@ -639,7 +648,7 @@ export class HostLock {
             if (again === undefined) {
                 return undefined;
             }
-            const looked = await this.lookFrom(again.place, ticket.waiter, removeUnknown, ask);
+            const looked = await this.lookFrom(again.place, ticket.waiter, removeUnknown, ask, admission);
             await this.keepTurns(again, looked.look.kind === 'taken' ? this.openCharge(ticket.waiter, ask.need) : undefined);
             return looked;
         }
@@ -648,21 +657,24 @@ export class HostLock {
         }
     }
     /** One look from `place`: its session's cap when reached, else its turn behind the waiters ahead ({@link inTurn}). */
-    async lookFrom(place, waiter, removeUnknown, ask) {
-        const look = place.capped === undefined ? await this.inTurn(waiter, place.ahead, removeUnknown, ask) : { kind: 'busy', holder: place.capped };
+    async lookFrom(place, waiter, removeUnknown, ask, rules) {
+        const look = place.capped === undefined ? await this.inTurn(waiter, place.ahead, removeUnknown, ask, rules) : { kind: 'busy', holder: place.capped };
         return { ahead: place.ahead, look };
     }
     /** One look in its turn behind the waiters `ahead`: the lock for a step that takes the whole host ({@link takeInTurn}), else a share of it ({@link shareInTurn}). */
-    async inTurn(waiter, ahead, removeUnknown, ask) {
-        const hold = this.holdOf(ask);
+    async inTurn(waiter, ahead, removeUnknown, ask, rules) {
+        const hold = this.holdOf(ask, rules);
         return hold.kind === 'whole' ? this.takeInTurn(waiter, ahead, removeUnknown, ask.need) : this.shareInTurn(waiter, ahead, removeUnknown, ask.need, hold);
     }
     /**
      * How a step that asks `ask` holds the host: the whole of it (the lock file) when exclusive; a small share when its
      * need shares; a heavy share in admission's `pipeline` mode, at most `maxHeavyParallel` at once; else the whole host.
      */
-    holdOf(ask) {
-        const { admission } = this.ports;
+    /** The rules the line is ordered by as the team's config reads now ({@link HostLockPorts.admission}); none for a lock with no rules. */
+    async rulesNow() {
+        return this.ports.admission?.rules();
+    }
+    holdOf(ask, admission) {
         if (ask.exclusive === true) {
             return { kind: 'whole' };
         }
@@ -852,7 +864,8 @@ export class HostLock {
     }
     /**
      * One look in line for a step that shares the host as `hold` says, with `need`. A live lock is waited on, and so is an
-     * earlier waiter, and a heavy step waits while `cap` heavy steps share the host. Else the step shares the host, under
+     * earlier waiter, a step that moves a main branch while another such step shares the host (the ship slot), and a
+     * heavy step while `cap` heavy steps share it. Else the step shares the host, under
      * its ticket's id, holding its need's MB ({@link heldMbOf}), once the memory gate finds room for it beside the steps
      * already sharing it (at once with no gate); a stale lock is left for the next step that takes the lock.
      */
@@ -872,6 +885,13 @@ export class HostLock {
             await this.removeAt(this.path, (text) => text === seen.text);
         }
         const others = await this.liveShares();
+        // Only shares need the check: a whole-lock holder (an exclusive merge or deploy) already keeps every step out.
+        if (takesShipSlot(waiter.request?.kind)) {
+            const running = others.filter((share) => takesShipSlot(share.request?.kind));
+            if (running.length > 0) {
+                return { kind: 'busy', holder: { kind: 'shipSlot', running } };
+            }
+        }
         const heavy = hold.kind === 'heavy';
         if (heavy) {
             const running = others.filter(isHeavyShare);
@@ -984,12 +1004,12 @@ export class HostLock {
      * What the ticket of a step that asks `ask` says it asks: its request, with the MB its need holds ({@link heldMbOf}),
      * whether it is a heavy step and whether it takes the whole host ({@link holdOf}). Undefined without a request.
      */
-    ticketRequestOf(ask) {
+    ticketRequestOf(ask, rules) {
         const { need, request } = ask;
         if (request === undefined) {
             return undefined;
         }
-        const hold = this.holdOf(ask);
+        const hold = this.holdOf(ask, rules);
         return { ...request, needMb: this.heldMbOf(need), heavy: hold.kind !== 'small', exclusive: hold.kind === 'whole' };
     }
     /**

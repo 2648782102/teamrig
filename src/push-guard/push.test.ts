@@ -264,6 +264,15 @@ describe('evaluatePushes: where a push hides', () => {
     ]);
   });
 
+  it('allows quoted text whose backticks never close, as bash runs nothing there (T2764)', () => {
+    expectRows([
+      ["printf '%s' 'then `\\`' ; git push origin t1-x", 'allow'],
+      ["echo 'x `\\` git push origin main'", 'allow'],
+      ["echo 'say `\\`git push\\`` here'", 'ask', 'doubt'],
+      ["echo 'the form `git push origin b` asks'", 'ask', 'doubt'],
+    ]);
+  });
+
   it("reads git's global options", () => {
     expectRows([
       ['git -C ../other push origin main', 'ask'],
@@ -450,6 +459,15 @@ describe('evaluatePushes: where a push hides', () => {
       ['git checkout -- main && git push', 'allow'],
       ['git checkout feature-x && git push', 'ask', 'doubt'],
       ['git -C sub checkout main && git push', 'ask', 'doubt'],
+    ]);
+  });
+
+  it("forgets a branch change a package runner's shell line makes when its readings differ, as only one of them runs", () => {
+    expectRows([
+      // cmd reads ma^in as main, bash and PowerShell keep the caret: which branch HEAD names after it is not known.
+      ['npx -c "git checkout ma^in" && git push origin HEAD', 'ask', 'doubt'],
+      ['npx -c "git switch -c hotfix" && git push', 'allow'],
+      ['npx -c "git checkout main" && git push origin HEAD', 'ask'],
     ]);
   });
 
@@ -658,6 +676,8 @@ describe('evaluatePushes: a branch named alone', () => {
     );
     expectRows([['git push origin t1-x', 'allow']], onBranch({ 'push.default': 'upstream' }));
     expectRows([['git push origin t1-x', 'allow']], onBranch({ 'remote.fork.push': 'refs/heads/t1-x:refs/heads/main' }));
+    // A plain remote add writes no key a named push reads, so the config read before the line still holds.
+    expectRows([['git remote add up /x/far.git; git push -q up t1-x t1-x:keep', 'allow']], onBranch({ 'push.default': 'simple' }));
   });
 
   it('asks in doubt where it cannot read the mapping', () => {
@@ -669,6 +689,7 @@ describe('evaluatePushes: a branch named alone', () => {
       [
         ['git config push.default upstream && git push origin t1-x', 'ask', 'doubt'],
         ['git remote rename up origin && git push origin t1-x', 'ask', 'doubt'],
+        ['git remote add --mirror=push up x && git push up t1-x', 'ask', 'doubt'],
         ['git branch t1-x origin/main && git push origin t1-x', 'ask', 'doubt'],
         ['cd "$DIR" && git push origin t1-x', 'ask', 'doubt'],
         ['git push "$R" t1-x', 'ask', 'doubt'],
@@ -681,6 +702,31 @@ describe('evaluatePushes: a branch named alone', () => {
   it('allows the mapped push under pushToProtected lead, marking it normal', () => {
     const verdict = judge('git push origin t1-x', { ...onBranch(UPSTREAM_MAIN), pushToProtected: 'lead' });
     assert.deepEqual([verdict.decision, verdict.protectedPush, verdict.doubt], ['allow', 'normal', undefined]);
+  });
+});
+
+describe('evaluatePushes: a Git Bash drive path (T2764)', () => {
+  /** A repo git reads only in `dir`, as on a real host: in any other folder every key fails. */
+  function repoOnlyIn(dir: string) {
+    return { ...fakeRepo({ branch: 't1-x' }), config: mock.fn((at: string, _key: string): ConfigValue => (at === dir ? { kind: 'unset' } : { kind: 'unreadable' })) } satisfies RepoState;
+  }
+  const verdictOf = (command: string, cwd: string, home: string, repo: RepoState) =>
+    evaluatePushes(command, { cwd, home, dialect: 'bash', protectedBranches: ['main', 'master'], pushToProtected: 'ask', repo });
+
+  it('reads the repo git -C /c/x and --git-dir=/c/x name on a Windows home, as the picker guard tells sessions to write it', () => {
+    for (const command of ['git -C /c/x push origin t1-x', 'git -C /c/x push -u origin t1-x 2>&1 | tail -8']) {
+      const verdict = verdictOf(command, 'C:\\work', 'C:\\u', repoOnlyIn('C:\\x'));
+      assert.deepEqual([verdict.decision, verdict.doubt], ['allow', undefined], command);
+    }
+    const gitDir = verdictOf('git --git-dir=/c/x/.git push origin t1-x', 'C:\\work', 'C:\\u', repoOnlyIn('C:\\x\\.git'));
+    assert.deepEqual([gitDir.decision, gitDir.doubt], ['allow', undefined]);
+  });
+
+  it('reads the repo a cd to /c/x leads to on a Windows home, so a branch named alone passes', () => {
+    for (const command of ['cd /c/x && git push origin t1-x', 'cd /c/x && git push -u origin t1-x 2>&1 | tail -8', 'env -C /c/x git push origin t1-x']) {
+      const verdict = verdictOf(command, 'C:\\work', 'C:\\u', repoOnlyIn('C:\\x'));
+      assert.deepEqual([verdict.decision, verdict.doubt], ['allow', undefined], command);
+    }
   });
 });
 

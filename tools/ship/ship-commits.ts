@@ -1,6 +1,7 @@
 import { DEFAULT_COMMITS } from '../../src/config/defaults.ts';
 import { pathMatcher, weighCommit, type CommitWeight, type FileChange } from '../../src/push-guard/commit-size.ts';
-import type { ClearMerge } from './approval.ts';
+import { workChanges, type ClearMerge, type WorkCommit } from './approval.ts';
+import { freeBranch } from './branch-names.ts';
 import type { BuildStep } from './build-steps.ts';
 import type { GateVerdict } from './local-gate.ts';
 import type { MainMove, MergeExit } from './merge.ts';
@@ -14,7 +15,8 @@ export const DIST = 'plugins/teamrig/dist';
 /** The subject of the commit that holds the rebuilt dist; rerun.ts knows the ship's own dist commit by it. */
 export const DIST_SUBJECT = 'build: rebuild the plugin dist';
 
-const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
+/** The trailer of every commit a ship or a merge's catch-up makes. */
+export const TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
 
 /** What a ship does to the repo dir and the outside world; ship.ts wires the real ones, specs pass fakes. */
 export interface ShipDeps {
@@ -43,6 +45,8 @@ export interface ShipDeps {
   clearMerge: ClearMerge;
   /** The fingerprint of what `rev` changes over origin's main, regenerated paths apart (approval.ts `changePatch`). */
   patchOf: (rev: string) => string;
+  /** The work commits `rev` carries over origin's main, with their patch ids (approval.ts `workCommitsOf`). */
+  workOf: (rev: string) => readonly WorkCommit[];
 }
 
 /** The approved head a --merge run started from, and the fingerprint of its change, which the push must still carry. */
@@ -87,7 +91,8 @@ function commit(deps: ShipDeps, files: readonly string[], subject: string, body:
  * before the wait goes stale):
  *   -. with --merge, before anything changes: approval.ts clears the merge of the branch at its head (its task the
  *      caller's own, and the approval of the caller's leader naming that head, which --approved names too; a root
- *      team's lead clears itself), and fingerprints the change that head carries (T2788);
+ *      team's lead clears itself), and fingerprints the change that head carries (T2788); a head that is a rebase of
+ *      the approved one, its work commits the same patch for patch, clears on the approved one's approval (T2913);
  *   0. rerun.ts: a rerun takes back the commits its earlier run made (a failed build or gate, or a first run
  *      without --merge for an approval), so the plan's chunks and raise are uncommitted again (T1017);
  *   1. sync.ts: when origin/main moved past the branch, rebase onto it and set the plan's version raise again
@@ -124,7 +129,7 @@ export async function shipCommits(args: ShipArgs, written: readonly Chunk[], dep
       throw new Error(`REFUSED main moved to ${tip} and changed ${shared.join(', ')}, which this change changes too: rebase onto origin/main by hand, then ship again under a new branch name`);
     }
     stem ??= deps.git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
-    const next = freeBranch(deps, stem);
+    const next = freeBranch((...gitArgs) => deps.git(gitArgs).trim(), stem);
     deps.run('git', ['branch', '-m', next]);
     deps.log(`\nmain moved to ${tip}, touching no file this change touches: shipping again as ${next}`);
   }
@@ -136,14 +141,36 @@ export async function shipCommits(args: ShipArgs, written: readonly Chunk[], dep
  */
 async function clearedChange(args: ShipArgs, branch: string, deps: ShipDeps): Promise<ApprovedChange | null> {
   const head = deps.git(['rev-parse', 'HEAD']).trim();
-  const clearance = await deps.clearMerge(branch, head, args.approved);
+  const approvedHead = args.approved === null || head.startsWith(args.approved) ? head : rebasedFrom(args.approved, head, deps);
+  const clearance = await deps.clearMerge(branch, approvedHead, args.approved);
   if (clearance.kind === 'refused') throw new Error(`REFUSED ${clearance.reason}`);
   if (clearance.kind === 'self') {
     deps.log(`merge of ${branch} ${head.slice(0, 9)}: the caller's own, a root team's lead`);
     return null;
   }
-  deps.log(`merge of ${branch} ${head.slice(0, 9)}: approved by ${clearance.by}`);
-  return { head, patch: deps.patchOf('HEAD') };
+  deps.log(`merge of ${branch} ${approvedHead.slice(0, 9)}: approved by ${clearance.by}`);
+  return { head: approvedHead, patch: deps.patchOf(approvedHead) };
+}
+
+/**
+ * The full sha of `approved` when `head` is a rebase of it: the same work commits, patch for patch, in the same order
+ * (T2913). Main moving under an approved branch then needs no new approval, as the ship sets the version files and the
+ * dist again; a changed, dropped, added or reordered work commit throws `REFUSED`, naming each.
+ */
+function rebasedFrom(approved: string, head: string, deps: ShipDeps): string {
+  let full: string;
+  try {
+    full = deps.git(['rev-parse', '--verify', '--quiet', `${approved}^{commit}`]).trim();
+  } catch {
+    throw new Error(`REFUSED --approved ${approved} is not the branch head ${head.slice(0, 9)}, nor a commit here to compare its work with`);
+  }
+  const work = deps.workOf(full);
+  const changes = workChanges(work, deps.workOf(head));
+  if (changes.length > 0) {
+    throw new Error(`REFUSED the head ${head.slice(0, 9)} is not the approved ${full.slice(0, 9)} rebased: ${changes.join('; ')}. Ship it without --merge and ask for approval of the new head`);
+  }
+  deps.log(`head ${head.slice(0, 9)} carries the approved ${full.slice(0, 9)}'s ${work.length} work commit(s), patch for patch`);
+  return full;
 }
 
 const pathsOf = (text: string): string[] => text.split('\n').map((line) => line.trim()).filter((line) => line !== '');
@@ -155,14 +182,6 @@ function sharedWithMain(deps: ShipDeps, tip: string): string[] {
   const ours = new Set(changed('HEAD'));
   const setAgain = new Set(TEAMRIG_VERSION_FILES.map((file) => file.path));
   return changed(tip).filter((path) => ours.has(path) && !setAgain.has(path) && !path.startsWith(`${DIST}/`));
-}
-
-/** The first `<stem>-N`, N from 2, that names no branch here or on origin. */
-function freeBranch(deps: ShipDeps, stem: string): string {
-  for (let n = 2; ; n++) {
-    const name = `${stem}-${n}`;
-    if (deps.git(['branch', '--list', name]).trim() === '' && deps.git(['ls-remote', '--heads', 'origin', `refs/heads/${name}`]).trim() === '') return name;
-  }
 }
 
 /**

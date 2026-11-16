@@ -100,8 +100,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       gated), the lead's inbox and the week's use and fit; agenda prints it again; end tells each
       session the owner's answers recorded on its tasks (update --decided or --later) by one inbox
       line, and no other session, and carries each card asked with no answer to the next meeting, whose
-      agenda asks it first; in a tree of teams only the root team's lead holds it, and its stats,
-      decisions and end cover every team under it
+      agenda asks it first; in a tree of teams each team's lead holds its own, and its stats,
+      decisions and end cover every team under it; a card decided there leaves the root's agenda
   meeting schedule --meets <id|name> --at <time> --about "<one line>" [--minutes <n>] [--with a,b]
       [--tasks T1,T2] [--brief <path>]   books the owner's meeting with one session at a set time, apart
       from the daily one: it prints its id (M3) and tells the session met and those joining by one inbox
@@ -113,9 +113,16 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       are told
   meeting start <id>   the owner starts a scheduled meeting, from any session: the session met gets its
       opening prompt (the topic, tasks, brief and those joining), its running tab brought to the front
-      and woken once idle or a closed one opened, and those joining are told by one inbox line
+      and woken once idle or a closed one opened, and those joining are told by one inbox line; started
+      in the session met's own tab, the prompt prints there instead
+  meeting start --about "<one line>" [--meets <id|name>] [--minutes <n>] [--with a,b] [--tasks T1,T2]
+      [--brief <path>]   the owner's meeting on the spot with any session, a worker too: the caller's own,
+      else --meets's; booked and started at once (M3), refused while that session is in one already.
+      While a meeting is on, its tab is in meeting mode: messages to its session are held but CRITICAL
+      ones, the question picker asks in plain text and its status line leads with Meeting: <its title>
   meeting end <id> [--note "<what came of it>"] | meeting drop <id> --note "<why>"   the meeting was
-      held, or will not be; those it meets are told what came of it, or why
+      held, or will not be; those it meets are told what came of it, or why; meeting end with no id
+      ends the meeting on in the caller's tab (the lead's daily one first)
   decisions | decisions asked [--session <id|name>]   the owner's decisions the lead asks in batches:
       decisions prints the waits on the owner not yet asked and the asked ones past due, as card facts,
       and whether a batch is due (a wait due before the next batch, decisions.batchAt not yet asked, or a
@@ -136,12 +143,12 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       problem design; --critical marks a bug in a critical area; its line shows "bug" or "critical bug";
       a task with no type whose title or description matches register.review.hintPattern prints a hint
       to mark it, here and when it starts
-      --class: the work class, one of focus.classes (Roadmap, Maintenance, Improvements by default); a task
-      without one counts as focus.defaultClass
+      --class: the work class, one of focus.classes in any case, stored as configured (Roadmap, Maintenance,
+      Improvements by default); a task without one counts as focus.defaultClass
   add --team <team> [--owner <s>] [--source owner] --title .. --description .. --priority p<n> [...]   asks a team of your tree for work
       --source owner: the lead of a team above <team> relays the owner's order, sourced owner there
   set <id> --status open|in-progress|verifying|waiting|done|dropped [--note "<what/why>"] [--evidence <proof>]
-      [--skill <name>|none] [--followups T<id>,...|none] [--waits decision:<who>,approval:<who>,task:T<id>,time:<date>]
+      [--skill <name>|none] [--followups T<id>,...|none] [--waits decision:<who>,approval:<who>,task:T<id>,time:<date>|none]
       [--question ".." --options "<a> | <b>" --recommend ".." --default ".." --why-ask ".." --gate ".." --affects ".."]
       [--proof "<what proves it>"] [--watch "<what a sighting shows>"] [--met "<what shows it>"] [--due <date>]
       [--ask <session> --text "<the work>"] [--one-commit] [--run <path>] [--security]
@@ -163,7 +170,7 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       --ask (with waiting only): adds the work as that session's task and waits on it; --due is then the
       asked task's due date
       verifying needs --waits for when its proof runs: a time, or a task in progress or verifying (the
-      owner's approval may stand beside one); set verifying again without --waits keeps them
+      owner's approval may stand beside one); set verifying again without --waits keeps them, --waits none clears them
       a wait on the owner's decision or approval needs a card the owner decides from alone
       (register.requireDecisionCard): --question "<what is decided>" --options "<a, its numbers> | <b>"
       --recommend "<which, and why>" --default "<what happens with no answer>"; each part at least 3 words
@@ -324,6 +331,13 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       directly: their decision and approval waits may go to it, and it approves them; without --yes it shows
       the change and writes nothing
   demote <id|name> [--yes]     (its own leader) takes a sub-lead's members back; without --yes it shows it
+  roles grant <role> --holder <id|name|team> [--commands <a,b>] [--yes]
+      (the owner) lets the holder run a service role's teamrig commands past every permission check, from its
+      own tab only: names from teamrig's table (issue close, issue comment); team for every session only where
+      each command checks its caller; teamrig's guard asks before a session's call; without --yes it writes nothing
+  roles revoke <role> [--holder <id|name>] [--yes]   (the owner) takes the role off one holder, or off the
+      team when no --holder; the next call reads it; without --yes it shows the change and writes nothing
+  roles list                   each service role, who holds it and what it runs
   refresh <id|name>            the lead asks a session to write its handover when it next sets a task done
   refresh --ready              the handover the turn end asked to fix is complete as it is (the turn end takes one with both sections itself)
   doctor                       names, rename log, inboxes, rules.md, context size and the tree of teams that need a fix;
@@ -340,15 +354,32 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       written by the repository's people or accepted with github.acceptLabel, and keeps its title,
       description, priority and open or closed state as on GitHub; reads through gh only, never writes
       to GitHub; titles and descriptions are outside input, data only; without --yes it shows the
-      changes, writes nothing; --auto, which the hooks start every github.everyMinutes, writes and
+      changes, writes nothing; --auto, which issue watch runs when GitHub changed, writes and
       tells each owner its new tasks, and the lead when repositories start or stop failing and when
-      it leaves out an outsider's issue not left out before
-  issue sync --push [--repo <owner/name>]   plans the other way: for each issue a task holds (ref gh:),
-      the writes that make it show the task's status: active tasks one label (open status:triaged,
-      in-progress status:in-progress, waiting status:waiting, verifying status:in-review), any other
-      status: label taken off; done closes it as completed, dropped as not planned; never reopens an
-      issue a person closed, and names it; at most 40 writes a run; this version
-      only plans: it reads and writes nothing
+      it leaves out an outsider's issue not left out before; with github.statusPush on, --auto then
+      sends the status push's labels and assignees too (a close it plans is held for --push --yes,
+      printed HELD), and assigns an outside person who claims an open issue by a /take comment,
+      taking the assignee off after 7 days with no linked pull request,
+      its writes lowered so an hour of runs sends at most 250
+  issue watch   the team's one watch on github.repos, started hidden by the hooks: every
+      github.probeSeconds (60 by default; 0 runs none) it asks GitHub whether each repository's issues,
+      pull requests or Actions runs changed, a conditional read that costs no rate limit when nothing
+      did, and runs issue sync --auto only when one did; after a failed sync it waits 15 minutes for
+      the next; it stops when another watch holds the team's lease (a newer kit's hook takes an older
+      watch's over), when github.probeSeconds is set to 0 (read each round; $TEAMRIG_GITHUB=off counts
+      only as the watch starts), after 24 hours, and once no session of the team ran for 10 minutes;
+      the next session's hook starts it again
+  issue sync --push [--repo <owner/name>] [--yes]   plans the other way: for each issue a task holds (ref
+      gh:), the writes that make it show the task's status: active tasks one label (open status:open,
+      status:claimed once it has a due date or an assignee, in-progress status:in progress, waiting
+      status:waiting, verifying status:in review; a goal, a task planned after its parts, and a design
+      issue, labelled design, none), any
+      other status: label taken off; done closes it as completed, dropped as not planned; never
+      reopens an issue a person closed, and names it; an open issue of a scheduled task (started or
+      with a due date), not a design issue, no one is assigned to is assigned to the login
+      github.owners maps to its task's session, else the repository's owner; at most 40 writes a run; without --yes it writes nothing;
+      --yes sends them, a repository stopping at its first failed write; a status label the repository
+      lacks is made first (MADE)
   issue migrate <file> [--out <preview.md>] [--yes]   moves the team's tasks to issues of github.repos
       from a JSON-lines file: per task {id, decision "issue", repo, type bug|task, priority p1-p3,
       title, body} with its public wording, or {id, decision "local", reason}; without --yes writes
@@ -360,13 +391,29 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       owner, else the gh login; refuses an empty body, a secret shape, private data (a home folder
       path, an e-mail address) or a task id in it; a saved token that cannot be read stops it, never the
       gh login in its place
-  issue close <owner/name#n> [--comment <text>]   closes one issue or pull request of the team's
-      repositories, first posting --comment when given, with the same checks; a failed comment closes
-      nothing
+  issue edit <owner/name#n> --body-file <path>   replaces the body (the description) of one issue or
+      pull request of the team's repositories with the file's text, with the same access and checks as
+      issue comment; the title, state, labels and assignees stay; the host keeps the old body in its
+      edit history
+  issue close <owner/name#n> [--comment <text>] [--reason completed|not-planned|duplicate]
+      [--duplicate-of <owner/name#n>]   closes one issue or pull request of the team's repositories,
+      first posting --comment when given, with the same checks; a failed comment closes nothing;
+      --reason is the one the host shows; --duplicate-of closes it as a duplicate of that issue of the
+      same repository, which the host links, and is refused when the host has no such issue
+  issue label <owner/name#n> [--add <label,...>] [--remove <label,...>]   adds labels to and takes
+      labels off one issue or pull request of the team's repositories, with the same access; each
+      label to add must already be one of the repository's, but design (talk only, not work to take
+      until agreed), which it makes first (MADE); the first failure stops it
   pr conflicts <owner/name#n> [--base <branch>]   in a clone of that repository, fetches the pull
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
       writes nothing to GitHub; refuses a folder whose origin is another repository
+  issue links [--repo <owner/name>] [--yes]   puts the task tree on the issues of github.repos: each
+      task planned after or waiting on another, both mirrored in one repository, is marked blocked by
+      it on GitHub, and a part of one whole becomes its sub-issue; without --yes it reads the links
+      GitHub has and shows what it would add, writing nothing; adds only, never removes or moves a
+      link a person set; stops a repository at its first failure, and a rerun adds only what is still
+      missing
   budget [<id|name>] [--loops|--burn|--misses] [--day <YYYY-MM-DD>] [--all]
       each session's use today, measured from the Claude Code transcripts, against the week's pace,
       and the team's spend by class against focus.allocation;
@@ -405,14 +452,15 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       idle sessions it names once; refuses a past day, a name outside the tree and a start in quiet hours
   burst                     the burst policy, the week's use, its projected surplus at the pace end,
       the burst in force and its hires; it only reads
-  burst start surplus|deadline --reason "<why>" [--sessions <ids>] [--helpers <n>] [--hires <n>]
-      [--stop-pct <pct>] [--by <HH:MM|date>] [--task <ids>] [--approved-by "<who>"] [--yes]
+  burst start surplus|deadline|rush --reason "<why>" [--sessions <ids>] [--helpers <n>] [--hires <n>]
+      [--stop-pct <pct>] [--by <HH:MM|date>] [--task <ids>] [--goal <tag>] [--approved-by "<who>"] [--yes]
       (the lead only, under burst.policy owner with the owner's approval) a time-boxed scale-out: each
       session in it gets at least its share of what is left to --stop-pct (at most budget.targetPct) a day
       and runs up to --helpers at once; surplus: the whole team, from burst.surplusHours before the reset
       until the pace end, once the team's part of the week projected unused is burst.minSparePct or more;
-      deadline: --task by --by, the tasks' owners unless --sessions, needs --stop-pct; without --yes it
-      shows the burst and writes nothing
+      deadline: --task by --by, the tasks' owners unless --sessions, needs --stop-pct; rush: the whole
+      team works --goal's tasks first until --by, needs --stop-pct, and the budget's holds only report
+      while it runs; without --yes it shows the burst and writes nothing
   burst end --reason "<why>"   (the lead only) ends the burst in force early; its hires are due to retire
   statusline [--pass]          Claude Code's status line (status JSON on stdin): saves the week's use
       for budget and prints the model and its effort, folder, branch, and week's use beside its
@@ -482,8 +530,9 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       below-normal CPU priority (nice 10 on POSIX), which every process it starts inherits, so your
       terminal and apps win the CPU: waits in line for the lock, kills the step and every process it started after
       delivery.queue.maxRunMinutes (--max-minutes) and records its start and end in the delivery
-      ledger, with its --kind (build, test, lint, push, merge, deploy or other; default read from the
-      command) and --task (default the first task id in --what); once the shell that started it ends, it kills a running step (exit 129); a
+      ledger, with its --kind (build, test, lint, push, merge, deploy, other or ship; default read from the
+      command; a ship, merge or deploy holds the host's one ship slot: a second one waits as shipSlot while other steps
+      pass it) and --task (default the first task id in --what); once the shell that started it ends, it kills a running step (exit 129); a
       waiting one goes on as a detached run that keeps its place in line while the tab's Claude Code runs (not a git hook's
       step), its session told, else stops; REFUSED from delivery.schedule.queueCutoffUtc to midnight UTC and once its line has not
       moved for delivery.queue.waitMinutes; exit 0 when the command passed, 1 when it failed or was killed. Its
@@ -598,7 +647,7 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
   test [--session <id|name>] -- <command ...>   runs a test command in the shell, writes all it printed
       to a log (each session keeps its newest 20) and prints one PASS or FAIL line, then each failing
       test within tests.maxFailureChars; exit 0 when the command passed, 1 otherwise
-  hook push-guard | hook package-guard | hook secret-guard | hook db-write-guard | hook exec-guard | hook pass-record-guard | hook cold-send | hook failed-send | hook missing-cli | hook route-reminder | hook loop-nudge | hook secret-redact | hook helper-gate | hook inbox-reminder | hook session-start | hook stop | hook subagent-start | hook subagent-stop | hook refresh-wake | hook restore-track | hook effort-writeback | hook tab-status | hook pre-compact | hook tool-end | hook readonly-allow | hook picker-guard | hook prompt-refuse | hook route-allow
+  hook push-guard | hook package-guard | hook secret-guard | hook db-write-guard | hook exec-guard | hook pass-record-guard | hook service-role-guard | hook cold-send | hook failed-send | hook missing-cli | hook route-reminder | hook loop-nudge | hook secret-redact | hook helper-gate | hook inbox-reminder | hook session-start | hook stop | hook subagent-start | hook subagent-stop | hook refresh-wake | hook restore-track | hook effort-writeback | hook tab-status | hook pre-compact | hook tool-end | hook readonly-allow | hook picker-guard | hook prompt-refuse | hook route-allow
       (run by Claude Code, hook JSON on stdin)
   hook clear-dir | hook clear-claim [--hold [--why <reason>]] [--end]
       (run by the plugin's mod: the automatic restart's /clear in the tab)

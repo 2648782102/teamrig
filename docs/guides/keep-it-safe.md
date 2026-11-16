@@ -79,11 +79,13 @@ PowerShell or cmd, each measured on the real shell), so it finds a push wherever
   `cat <<EOF | bash`); one that any other command reads is that command's input, not commands;
 - git aliases (from `-c alias.x=`, from a `git config alias.x` earlier in the line, or from git config, `!` shell
   aliases included) and the commands git runs itself (`submodule foreach`, `rebase --exec`, `bisect run`);
-- folder and branch moves earlier in the line: `cd sub && git push`, `git checkout main && git push`;
+- folder and branch moves earlier in the line: `cd sub && git push`, `git checkout main && git push`; on Windows a
+  Git Bash drive folder (`cd /c/work && git push`, `git -C /c/work push`, `env -C /c/work`) is the folder `C:\work`;
 - a branch named alone, which goes where git sends it: under `push.default upstream`, `git push origin t1-x` asks
   when that branch's upstream is protected, and is refused with `--force`. It asks in doubt when `remote.<name>.push`
   is set for that remote, or when an earlier command in the line changes that config, makes a branch or gives one an
-  upstream. Write `git push origin t1-x:t1-x` to send a branch to its own name for certain;
+  upstream. A plain `git remote add up <url>` changes none of it; `--mirror`, or a word only known when it runs,
+  does. Write `git push origin t1-x:t1-x` to send a branch to its own name for certain;
 - bash variables set earlier in the line: `B=feat; git push -u origin $B` reads as `git push -u origin feat`,
   and `B=main; git push origin $B` still asks. `NAME=value` or `export NAME=value` must run before the push,
   through `;`, `&&`, a newline, a `for`, `while` or `until` loop, an `if` or a `{ }` group, in the same shell or
@@ -104,7 +106,9 @@ When it cannot read part of a line with confidence, it asks and says why: a quot
 command, alias, folder, remote or refspec only known when the line runs, an alias git cannot read, scripts nested
 too deep, a push held in quoted text as a command substitution (`x='a[$(git push origin main)]'`), which bash runs
 if an expansion reads the text again (`${x@P}`, `${!x}`, `$((x))`, `let`, `[[ -eq ]]`, or `read`, `printf -v`,
-`unset` or `declare` given it as a name), in this line or a later one. A line whose words depend on the shell's
+`unset` or `declare` given it as a name), in this line or a later one. Quoted text whose backticks never close, as
+when an escaped backtick sits inside one (`` echo 'x `\` git push' ``), holds no command, as bash runs nothing there.
+A line whose words depend on the shell's
 version, its host or how it is started also counts: a NUL or a `` `u{2d} `` in PowerShell, a CR in bash, a caret
 before a line end in cmd, or a `"`, a `\`, an empty value, a bare comma or a `--%` handed to a program from
 PowerShell, as Windows PowerShell 5.1 rebuilds that program's line and the words it gets can differ from the words
@@ -197,6 +201,8 @@ one per kind, session and day while that task is open (once it is closed, a late
 names it to the session. For credentials in a URL the task names the account they were for (`login app at
 example.com`), never the value. A secret variable's URL value goes only when it carries a login, a password, a
 secret-named parameter or a token-shaped path segment; a connection string without them stays.
+A value that is exactly one placeholder (`%s`, `$NAME`, `${NAME}`, `<token>`) or empty stays, as does a relative script path
+(`./dist/cli/x-token.js`); anything added to a placeholder (`%sabc`, `$X-abc`) is still a value.
 `secretGuard.redact: false` turns it off
 ([what it does not cover](../../plugins/teamrig/skills/teamrig-guide/hooks.md#after-a-tool-call-the-secret-redactor)).
 
@@ -276,7 +282,8 @@ request's stage.
 
 A hook keeps the review honest: it refuses an approval given in another session's name or the owner's (the owner
 reviews in their own terminal, or with `/teamrig exec approve` typed in a tab), and any `exec` call through a copy of
-teamrig that is not the installed plugin or was changed after its build
+teamrig that is not the installed plugin or was changed after its build, however the line starts it (a package runner,
+a version manager, a renamed copy)
 ([the exec guard](../../plugins/teamrig/skills/teamrig-guide/hooks.md#before-a-shell-command-the-exec-guard); every
 field of a request: [exec request](../../plugins/teamrig/skills/teamrig-guide/commands.md#teamrig-exec-request)).
 The `exec` commands also refuse to run on a node told to load code beside teamrig (a `--require` or `--import`
@@ -284,7 +291,9 @@ preload, or one in `NODE_OPTIONS`); the reason names the option, and unsetting i
 The same hook refuses the owner's own actions on a task (`teamrig owner note`, `owner next`) from any session's tool
 call, as they write as the owner: the owner runs them in their own terminal, or types them after `/teamrig` in a tab.
 It also refuses a shell fed its commands from a pipe (`echo ... | bash`), as the pipe can carry a review the line
-never shows.
+never shows, and any of teamrig's hook commands, which take the tab they run for from what the caller hands them.
+A tab keeps the session it was first bound to: a tool call cannot make it another session by reading that session's
+inbox, so the review checks above see the tab's own session; you move a tab by typing `/teamrig inbox read` in it.
 The commands also refuse to write wherever Claude Code set `$CLAUDECODE` (a script a session's tool call runs, a hook
 command), which the pane's buttons and a typed `/teamrig` line lack. Every session runs as your OS user, so these stop
 the routine route and an instruction slipped into what a session reads, not a session set on forging the owner: a

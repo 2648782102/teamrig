@@ -95,7 +95,7 @@ export const DEFAULT_PUSH_GUARD = { protectedBranches: ['main', 'master'], pushT
 export const DEFAULT_PACKAGE_GUARD = { adHocRunners: 'deny', installs: 'deny', cooldownDays: 14 };
 /** Refused by default: the hooks are the repository's own checks, and a session that skips them ships what they would catch. */
 export const DEFAULT_COMMIT_GUARD = { skipHooks: 'deny' };
-export const DEFAULT_PROMPTS = { hookAsks: 'ask', routeAllow: 'on' };
+export const DEFAULT_PROMPTS = { hookAsks: 'ask', routeAllow: 'on', serviceRoleDailyCap: 10 };
 /** Refused by default: a secret printed into a session lands in its transcript and every later prompt (T660, 10-19). */
 export const DEFAULT_SECRET_GUARD = { secretReads: 'deny', writes: 'deny', paths: [], envNames: [], commands: [], redact: true };
 /**
@@ -215,14 +215,14 @@ export const DEFAULT_WAKE = { enabled: true, priority: 1, batchSeconds: 120, min
  * The spotlight is on too, by the owner's call (T2523): it keeps the owner's eye on the meeting, lets every click
  * through and lifts when the meeting ends; a team sets it false to stop it. At 0.6 the rest of the screen stays
  * readable behind it. A break-through lifts it for two minutes: long enough to read the message and answer it, short
- * enough that the meeting gets its focus back on its own (T2524). The status line marks are on: they only colour the
- * lead's line and add a few words to the others' while a meeting is open (T2513); the magenta reads on dark and light
- * terminal themes alike.
+ * enough that the meeting gets its focus back on its own (T2524). The status line marks are on: they only lead the
+ * meeting tab's line with its title and add a few words to the others' while a meeting is open (T2513); the purple is
+ * teamrig's theme colour, by the owner's call (T2985), and reads on dark and light terminal themes alike.
  */
 export const DEFAULT_MEETING = {
     panel: { enabled: true },
     spotlight: { enabled: true, dim: 0.6, breakthroughSeconds: 120 },
-    statusLine: { enabled: true, colour: '#d75fd7', heldText: 'meeting on: held' },
+    statusLine: { enabled: true, colour: '#8b57e3', heldText: 'meeting on: held' },
 };
 /** About a screenful: two or three failing tests with their errors and first stack frames. */
 export const DEFAULT_TESTS = { maxFailureChars: 4000 };
@@ -232,7 +232,7 @@ export const DEFAULT_TESTS = { maxFailureChars: 4000 };
  * per further hundred open, or recently changed closed, issues). An outsider's issue waits for the `teamrig` label,
  * named after the tool so it does not clash with a repository's own triage labels.
  */
-export const DEFAULT_GITHUB = { repos: [], owners: {}, sessions: {}, closedDays: 14, everyMinutes: 15, acceptLabel: 'teamrig', similarThreshold: 0.35 };
+export const DEFAULT_GITHUB = { repos: [], owners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35 };
 /**
  * Claude Code compacts a 200k window at about 167k, so 120k refreshes before that; every 3 tasks catches a
  * session that grows slowly, from 80k up. Measured over 8 days of 12 sessions: about 9 refreshes a day in all.
@@ -360,6 +360,8 @@ export const DEFAULT_BRANCHES = { pattern: '{type}/{id}-{slug}', typePatterns: {
  * and one burst hires at most 2 sessions.
  */
 export const DEFAULT_BURST = { policy: 'owner', surplusHours: 48, minSparePct: 5, maxHelpers: 3, maxHires: 2 };
+/** The owner's bar for a rush: a tab with work left that sits idle 5 minutes is poked. */
+export const DEFAULT_RUSH = { pokeAfterMinutes: 5 };
 /**
  * An area's pace is the tasks it finished over the last week, counted once it finished at least 3; the dated
  * tasks of the top two priorities are the work it must finish in time.

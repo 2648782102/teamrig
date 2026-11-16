@@ -3,6 +3,7 @@ import type { ItemType } from '../register/events.ts';
 import type { CoreRuleKey } from '../rules/keys.ts';
 import type { AdmissionMode } from '../delivery/admission.ts';
 import type { NeedKind } from '../tabs/need-kind.ts';
+import type { ServiceCommand } from '../permissions/service-commands.ts';
 
 /** The config format this code reads and writes. Older files are migrated in memory on load. */
 export const CONFIG_VERSION = 8;
@@ -324,8 +325,16 @@ export type SkipHooks = 'deny' | 'ask' | 'allow';
 export interface PromptsConfig {
   /** What a hook does with a call it would ask the human about. */
   readonly hookAsks: HookAsks;
-  /** Whether a sanctioned route's line runs with no permission check at all while asks are refused. */
+  /**
+   * Whether a sanctioned route's line runs with no permission check at all while asks are refused, and a service role's
+   * call for its holder's tab whatever asks say.
+   */
   readonly routeAllow: RouteAllow;
+  /**
+   * How many calls one service role lets run with no permission check in 24 hours (T2984, security condition C6), so a
+   * holder steered by outside text closes or comments only so much; past it, the role's next call asks the owner.
+   */
+  readonly serviceRoleDailyCap: number;
 }
 
 /**
@@ -672,8 +681,18 @@ export interface GithubConfig {
   readonly sessions: Readonly<Record<string, string>>;
   /** How many days back closed issues are read, to finish the tasks they were imported as. */
   readonly closedDays: number;
-  /** How often the hooks start a sync on their own, in minutes, once for the whole team; 0 leaves it to `issue sync --yes`. */
-  readonly everyMinutes: number;
+  /**
+   * How often `issue watch` asks GitHub whether a listed repository changed, in seconds (a conditional read, free
+   * when nothing changed), syncing only when one did; 0 runs no watch and leaves the sync to `issue sync --yes`.
+   */
+  readonly probeSeconds: number;
+  /**
+   * Whether the automatic sync also sends the status push (`issue sync --push --yes`), so each issue a task holds
+   * shows the task's status without a session running it. It sends labels and assignees only: a close waits
+   * for a session's `issue sync --push --yes` (security verdict F1 on T2876).
+   * Off by default: read the push's dry run first.
+   */
+  readonly statusPush: boolean;
   /**
    * The label that lets an issue by an author outside the repository (not its owner, an organization member or a
    * collaborator) become a task: it counts when someone other than the author added it last and the title and body
@@ -685,6 +704,20 @@ export interface GithubConfig {
    * their TF-IDF word vectors (src/issues/similar.ts). Higher lists fewer, closer candidates.
    */
   readonly similarThreshold: number;
+}
+
+/**
+ * One service role (T2984): the teamrig commands it lets run past every permission check for the sessions that hold
+ * it. Written by `teamrig roles grant` and `revoke`, which the owner runs.
+ */
+export interface ServiceRoleConfig {
+  /**
+   * The sessions of this team that hold it, by id, or `team` for every session of the team, which only a role whose
+   * every command checks its own caller may name (TEAM_HELD_COMMANDS).
+   */
+  readonly holders: readonly string[] | 'team';
+  /** The commands it holds, by name from teamrig's fixed table (permissions/service-commands.ts); never free text. */
+  readonly commands: readonly ServiceCommand[];
 }
 
 /** The small-commits rule: one logical change per commit, and a reason line on any commit over the bounds. */
@@ -946,7 +979,8 @@ export interface QueueConfig {
    * turn, priority raised by agingMinutes waited, and arrival), with at most perSessionRunning steps of one session
    * running and maxHeavyParallel heavy steps sharing the host at once, and is the default; `serial` keeps the line in
    * arrival order with no cap and one heavy step at a time, for a team whose own deploy tool takes the lock file
-   * without first waiting for the shares to end.
+   * without first waiting for the shares to end. A step in line reads this key and the four after it again at each
+   * look, so an edit reaches the steps already waiting.
    */
   readonly admission: AdmissionMode;
   /** In `pipeline` admission, a waiting step's priority rises one level per this many minutes waited, never to p0; 0 ages nothing. */
@@ -1332,6 +1366,16 @@ export interface BurstConfig {
   readonly maxHires: number;
 }
 
+/** A rush (`teamrig burst start rush`): how it keeps the team's tabs on its work. */
+export interface RushConfig {
+  /**
+   * The poke: while a rush is on, a tab idle this many minutes since its last turn, with a task of its own it can go
+   * on with and no queued step of its own running, is woken once to start or continue its top task
+   * (src/wake/rush-poke.ts).
+   */
+  readonly pokeAfterMinutes: number;
+}
+
 /**
  * Where `teamrig open` opens a session's tab: `auto` picks tmux inside tmux, else the platform's
  * terminal; `print` opens nothing and prints the command to run.
@@ -1564,8 +1608,9 @@ export interface MeetingConfig {
    */
   readonly spotlight: { readonly enabled: boolean; readonly dim: number; readonly breakthroughSeconds: number };
   /**
-   * The status line while a meeting is open (T2513): the lead's tab prints its whole line in `colour` (`#rrggbb`), and
-   * every other tab appends `heldText`, so a glance at any tab says the team is held for the meeting.
+   * The status line while a meeting is open (T2513): the meeting tab leads its line with `Meeting: <title>` and every
+   * other tab appends `heldText`, each mark alone in `colour` (`#rrggbb`, T2985), so a glance at any tab says the team
+   * is held for the meeting.
    */
   readonly statusLine: { readonly enabled: boolean; readonly colour: string; readonly heldText: string };
 }
@@ -1627,6 +1672,8 @@ export interface KitConfig {
   readonly wake: WakeConfig;
   readonly tests: TestsConfig;
   readonly github: GithubConfig;
+  /** Each service role by name: the teamrig commands it holds and the sessions that hold it (T2984). */
+  readonly serviceRoles: Readonly<Record<string, ServiceRoleConfig>>;
   readonly alerts: AlertsConfig;
   readonly decisions: DecisionsConfig;
   /**
@@ -1654,6 +1701,7 @@ export interface KitConfig {
   readonly refresh: RefreshConfig;
   readonly hiring: HiringConfig;
   readonly burst: BurstConfig;
+  readonly rush: RushConfig;
   /** How `teamrig open` starts a session in a new terminal tab. */
   readonly open: OpenConfig;
   /** What `teamrig statusline` shows. */

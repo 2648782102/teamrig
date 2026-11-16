@@ -1,5 +1,5 @@
 /**
- * The only GraphQL texts teamrig sends to GitHub: two reads of a repository's issues, a page at a time. gh.ts
+ * The only GraphQL texts teamrig sends to GitHub: three reads of a repository's issues, a page at a time. gh.ts
  * refuses a `gh api graphql` run whose query is not one of these word for word, so a query never writes (no
  * mutation) and never reads past the fields below.
  */
@@ -16,14 +16,24 @@ export const TIMELINE_EVENTS = 30;
  */
 export const RAW_FIELD = '-f';
 
-/** One issue: what the task is made from, and who wrote it, labelled it and edited it, which decides trust. */
-const ISSUE_FIELDS = `number title body state stateReason url updatedAt closedAt lastEditedAt authorAssociation
+/** Comments kept per issue, newest last: enough to see who spoke last for the response clock (src/github/clock.ts). */
+export const COMMENTS_READ = 20;
+
+/**
+ * One issue: what the task is made from, and who wrote it, labelled it and edited it, which decides trust; when it
+ * was opened and when each newest comment was posted by whom, which runs the response clock and points the claim
+ * pass at the issues to read; and how many open pull requests close it, which keeps a claim from running out. Never
+ * a comment's text: only the claim pass reads it, one bounded page per issue (gh.ts commentsReadArgs).
+ */
+const ISSUE_FIELDS = `number title body state stateReason url createdAt updatedAt closedAt lastEditedAt authorAssociation
         author { __typename login }
         labels(first: 100) { nodes { name } }
         assignees(first: 100) { nodes { login } }
         timelineItems(itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT], last: ${TIMELINE_EVENTS}) {
           nodes { __typename ... on LabeledEvent { createdAt actor { __typename login } label { name } } ... on RenamedTitleEvent { createdAt } }
-        }`;
+        }
+        comments(last: ${COMMENTS_READ}) { nodes { createdAt authorAssociation author { __typename login } } }
+        closedByPullRequestsReferences(first: 1) { totalCount }`;
 
 /** Every open issue, oldest first. */
 export const OPEN_ISSUES_QUERY = `query($owner: String!, $name: String!, $after: String) {
@@ -49,10 +59,32 @@ export const CLOSED_ISSUES_QUERY = `query($owner: String!, $name: String!, $afte
   }
 }`;
 
+/** Blockers read per issue: past this many, a link already there may be added again, which GitHub refuses. */
+export const BLOCKERS_PER_ISSUE = 50;
+
+/**
+ * Every issue in any state, oldest first, with what issue links need: its number, the id a link write names, its
+ * parent and the issues it is blocked by, each with its repository. The id is `fullDatabaseId`, a string: issue ids
+ * passed 2^31, past the 32-bit Int that GraphQL's `databaseId` is typed as.
+ */
+export const ISSUE_LINKS_QUERY = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    issues(first: ${ISSUE_PAGE_SIZE}, after: $after, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number fullDatabaseId
+        parent { number repository { nameWithOwner } }
+        blockedBy(first: ${BLOCKERS_PER_ISSUE}) { nodes { number repository { nameWithOwner } } }
+      }
+    }
+  }
+}`;
+
 /** Each shipped text with the variables it declares: gh.ts runs a query only with these, each at most once. */
 export const QUERY_VARIABLES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [OPEN_ISSUES_QUERY, new Set(['owner', 'name', 'after'])],
   [CLOSED_ISSUES_QUERY, new Set(['owner', 'name', 'after', 'since'])],
+  [ISSUE_LINKS_QUERY, new Set(['owner', 'name', 'after'])],
 ]);
 
 /** Which page of which repository a read asks for: `after` is the cursor the page before ended on. */
@@ -65,6 +97,11 @@ export interface PageVariables {
 /** The arguments for one page of open issues. */
 export function openPageArgs(page: PageVariables): string[] {
   return pageArgs(OPEN_ISSUES_QUERY, page, []);
+}
+
+/** The arguments for one page of every issue's links. */
+export function linksPageArgs(page: PageVariables): string[] {
+  return pageArgs(ISSUE_LINKS_QUERY, page, []);
 }
 
 /** The arguments for one page of closed issues changed on or after `since`, an ISO time. */
