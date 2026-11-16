@@ -309,6 +309,9 @@ export interface FakeFields {
   readonly issues: readonly JsonRecord[];
 }
 
+/** A file a fake pull request changes: its path, or a rename from the earlier path `from`. */
+export type FakePullFile = string | { readonly filename: string; readonly from: string };
+
 /**
  * A gh that reaches no network: each request is recorded, so a test can hold every one to a read. A page of the
  * open or closed issue query gets the issues `holds` set for the repository in that state, closed ones changed
@@ -341,7 +344,7 @@ export class FakeGh implements GhRunner {
   private readonly posts = new Map<string, readonly JsonRecord[]>();
   private readonly reviews = new Map<string, readonly JsonRecord[]>();
   private readonly postFailures = new Map<string, GhResult>();
-  private readonly files = new Map<string, readonly string[]>();
+  private readonly files = new Map<string, readonly FakePullFile[]>();
   /** Set by `pages`; else each query's own page size. */
   private pageSize: number | undefined;
   /** How often each `<repo> <probe path>` changed: its entity tag is `W/"v<count>"`. */
@@ -473,9 +476,12 @@ export class FakeGh implements GhRunner {
     return this;
   }
 
-  /** From now on, the pull request `<repo>#<number>` changes these files, and a files read of any other is Not Found. */
-  pullFiles(pull: string, paths: readonly string[]): this {
-    this.files.set(pull, paths);
+  /**
+   * From now on, the pull request `<repo>#<number>` changes these files, each a path or a rename from its earlier
+   * path, and a files read of any other is Not Found.
+   */
+  pullFiles(pull: string, files: readonly FakePullFile[]): this {
+    this.files.set(pull, files);
     return this;
   }
 
@@ -766,11 +772,13 @@ export class FakeGh implements GhRunner {
     if (canned !== undefined) {
       return canned;
     }
-    const paths = this.files.get(`${owner}/${name}#${number}`);
-    if (paths === undefined) {
+    const files = this.files.get(`${owner}/${name}#${number}`);
+    if (files === undefined) {
       return { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' };
     }
-    const page = paths.slice(0, PULL_FILES_PAGE).map((filename) => ({ filename, status: 'modified', patch: '@@ -1 +1 @@' }));
+    const page = files
+      .slice(0, PULL_FILES_PAGE)
+      .map((file) => (typeof file === 'string' ? { filename: file, status: 'modified', patch: '@@ -1 +1 @@' } : { filename: file.filename, previous_filename: file.from, status: 'renamed' }));
     return { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify(page), stderr: '' };
   }
 
