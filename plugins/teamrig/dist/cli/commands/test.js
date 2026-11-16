@@ -3,7 +3,7 @@ import { DEFAULT_TESTS } from "../../config/defaults.js";
 import { errorMessage } from "../../core/guards.js";
 import { ENV, resolveKitHome } from "../../core/home.js";
 import { resolveTeam } from "../../core/team.js";
-import { commandHeader, logBody, pruneLogs, reserveLog } from "../../test-run/logs.js";
+import { commandHeader, LiveLog, pruneLogs, reserveLog } from "../../test-run/logs.js";
 import { cleanOutput, parseTestOutput } from "../../test-run/parse.js";
 import { labelOf, reportLines } from "../../test-run/report.js";
 import { commandLine } from "../../test-run/shell.js";
@@ -38,9 +38,9 @@ async function logPlace(runtime, session) {
     return { dir: kit.paths.logs, session: known?.ok === true ? known.id : session, maxFailureChars: config.tests.maxFailureChars };
 }
 /** Runs the command; when it cannot start, the log (holding the command line) says why before the error goes on. */
-async function runLogged(runtime, command, log) {
+async function runLogged(runtime, command, log, live) {
     try {
-        return await runtime.shell.run({ command, cwd: runtime.cwd, env: runtime.env });
+        return await runtime.shell.run({ command, cwd: runtime.cwd, env: runtime.env, onOutput: (chunk) => live.write(chunk) });
     }
     catch (error) {
         await runtime.files.append(log, `could not start: ${errorMessage(error)}\n`);
@@ -59,10 +59,11 @@ export async function test(args, runtime) {
     const command = commandLine(words, runtime.platform);
     const log = await reserveLog(runtime.files, place.dir, place.session, commandHeader(command));
     const started = runtime.clock.now();
-    const result = await runLogged(runtime, command, log);
+    const live = new LiveLog(runtime.files, log);
+    const result = await runLogged(runtime, command, log, live);
     const tookMs = runtime.clock.now() - started;
     const output = cleanOutput(result.output);
-    await runtime.files.append(log, logBody(output, result.end));
+    await live.end(result.end, result.heldOpen === true);
     await pruneLogs(runtime.files, place.dir, place.session);
     const lines = reportLines({ label: labelOf(words), end: result.end, tookMs, log, output, parsed: parseTestOutput(output), maxFailureChars: place.maxFailureChars });
     for (const line of lines) {
