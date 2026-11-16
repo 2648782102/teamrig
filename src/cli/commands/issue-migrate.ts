@@ -2,9 +2,10 @@ import { resolve } from 'node:path';
 import { ENV, KIT_NAME } from '../../core/home.ts';
 import { SecretScanner } from '../../core/secrets.ts';
 import { issueRef } from '../../github/map.ts';
-import type { GithubConfig } from '../../config/types.ts';
+import type { GithubConfig, RolesConfig } from '../../config/types.ts';
 import { issueRepoOf } from '../../github/issue-at-add.ts';
 import { countsLine, parseMigrateRows, planMigration, previewMarkdown, replacedRefNote, taskIssueRow, type MigrateCreate, type MigratePlan, type MigrateRow, type RefJudge } from '../../github/migrate.ts';
+import { offGitHubReason } from '../../github/off-github.ts';
 import { fitIssueFields, issueRulesOf, RepoTypes } from '../../issues/issue-fields.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import type { Task } from '../../register/fold.ts';
@@ -50,12 +51,12 @@ export async function issueMigrate(args: ParsedArgs, runtime: CliRuntime): Promi
   }
   const scanner = new SecretScanner(team.config.register.secretPatterns);
   const { snapshot, elsewhere } = await team.register.snapshotWithElsewhere();
-  const rows = one === undefined ? await rowsAt(runtime, resolve(runtime.cwd, fileOf(args)), scanner) : [taskRow(args, snapshot.state.tasks.get(one), one, team.config.github, scanner)];
+  const rows = one === undefined ? await rowsAt(runtime, resolve(runtime.cwd, fileOf(args)), scanner) : [taskRow(args, snapshot.state.tasks.get(one), one, team.config, scanner)];
   const judge: RefJudge = (task, ref) => {
     const verdict = policy.update(task, by, { ref }, refNote(task.ref), snapshot.state, elsewhere);
     return verdict.ok ? undefined : verdict.error;
   };
-  const planned = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge, issueRulesOf(team.config.github));
+  const planned = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge, issueRulesOf(team.config.github), team.config.roles.securityReviewer);
   // One task's run says nothing of the tasks it was never asked about.
   const plan = one === undefined ? planned : { ...planned, unrowed: [] };
   const out = args.flags.get('out');
@@ -83,8 +84,11 @@ function fileOf(args: ParsedArgs): string {
 /** The flags that give one task's issue. */
 const ISSUE_FLAGS = ['issue', 'issue-body', 'issue-repo'] as const;
 
-/** The one row of `--task <id>`: the task's issue, in the repository `add --issue` would open it in; refused when there is no such task or the wording is not public. */
-function taskRow(args: ParsedArgs, task: Task | undefined, id: string, github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>, scanner: SecretScanner): MigrateRow {
+/**
+ * The one row of `--task <id>`: the task's issue, in the repository `add --issue` would open it in; refused when there
+ * is no such task, the task must stay off GitHub (off-github.ts), or the wording is not public.
+ */
+function taskRow(args: ParsedArgs, task: Task | undefined, id: string, config: TaskRowConfig, scanner: SecretScanner): MigrateRow {
   noPositionals(args);
   const title = args.flags.get('issue');
   const body = args.flags.get('issue-body');
@@ -94,7 +98,11 @@ function taskRow(args: ParsedArgs, task: Task | undefined, id: string, github: P
   if (task === undefined) {
     throw new RefusedError(`no task ${id} in the working set`);
   }
-  const repo = issueRepoOf(args.flags.get('issue-repo'), github);
+  const off = offGitHubReason(task, config.roles.securityReviewer);
+  if (off !== undefined) {
+    throw new RefusedError(`${id} gets no public issue: ${off}`);
+  }
+  const repo = issueRepoOf(args.flags.get('issue-repo'), config.github);
   if (!repo.ok) {
     throw new RefusedError(repo.error);
   }
@@ -103,6 +111,12 @@ function taskRow(args: ParsedArgs, task: Task | undefined, id: string, github: P
     throw new RefusedError(row.error);
   }
   return row.value;
+}
+
+/** The team settings one task's row reads: its repositories, and the security reviewer, whose tasks stay off GitHub. */
+interface TaskRowConfig {
+  readonly github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>;
+  readonly roles: Pick<RolesConfig, 'securityReviewer'>;
 }
 
 /** The rows of the file at `path`; refused when it is missing or a row is bad. */

@@ -7,6 +7,7 @@ import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from '../register/model.ts';
 import type { Verdict } from '../register/policy.ts';
 import type { IssueDraft } from '../issues/host.ts';
 import { fieldsText, wantedFields, type IssueRules, type WantedFields } from '../issues/issue-fields.ts';
+import { offGitHubReason } from './off-github.ts';
 
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
@@ -242,13 +243,13 @@ export function rowLabels(row: IssueRow): string[] {
  * after a stop skips each task already holding its issue. A ref that is no issue is replaced, and its create names
  * it. A live task no row names is listed, so none is left behind unseen.
  */
-export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<string, Task>, repos: readonly string[], judge: RefJudge, rules: IssueRules): MigratePlan {
+export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<string, Task>, repos: readonly string[], judge: RefJudge, rules: IssueRules, securityReviewer: string | undefined): MigratePlan {
   const creates: MigrateCreate[] = [];
   const local: LocalRow[] = [];
   const skipped: MigrateSkip[] = [];
   for (const row of rows) {
     const task = tasks.get(row.id);
-    const reason = skipReason(row, task, repos, judge);
+    const reason = skipReason(row, task, repos, judge, securityReviewer);
     if (reason !== undefined) {
       skipped.push({ id: row.id, reason });
     } else if (row.decision === 'local') {
@@ -264,7 +265,7 @@ export function planMigration(rows: readonly MigrateRow[], tasks: ReadonlyMap<st
   return { creates, local, skipped, unrowed };
 }
 
-function skipReason(row: MigrateRow, task: Task | undefined, repos: readonly string[], judge: RefJudge): string | undefined {
+function skipReason(row: MigrateRow, task: Task | undefined, repos: readonly string[], judge: RefJudge, securityReviewer: string | undefined): string | undefined {
   if (task === undefined) {
     return 'no such task in the working set';
   }
@@ -273,6 +274,10 @@ function skipReason(row: MigrateRow, task: Task | undefined, repos: readonly str
   }
   if (row.decision === 'local') {
     return undefined;
+  }
+  const off = offGitHubReason(task, securityReviewer);
+  if (off !== undefined) {
+    return `it gets no public issue: ${off}; give it a local row`;
   }
   if (task.ref?.startsWith(ISSUE_REF_PREFIX) === true) {
     return `the task has its issue already: ${task.ref}`;

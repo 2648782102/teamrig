@@ -220,7 +220,7 @@ async function addHere(args: ParsedArgs, runtime: CliRuntime, caller: string): P
   const team = await openTeam(runtime, 'write');
   const input = { ...addInputOf(args.flags, caller, typedTimes(runtime, team.zone)), ...criticalOf(args.switches) };
   const scanner = new SecretScanner(team.config.register.secretPatterns);
-  const issue = addIssuePlan(addIssueAskOf(args.flags, input), team.config.github, scanner);
+  const issue = addIssuePlan(addIssueAskOf(args.flags, addInputIds(team, input)), team.config.github, scanner, team.config.roles.securityReviewer);
   if (!issue.ok) {
     throw new RefusedError(issue.error);
   }

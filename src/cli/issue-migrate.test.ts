@@ -87,6 +87,9 @@ describe('teamrig issue migrate', () => {
     const kit = new CliHarness({ ...GITHUB_TEAM, github: { repos: ['acme/web', 'acme/api'], issueAtAdd: 'acme/api' } });
     const added = await kit.run(['add', '--title', 'Private retry fix', '--description', 'private what and why', '--priority', 'p0', '--owner', 'alpha', '--type', 'bug', '--local', 'its issue opens later'], AS_LEAD);
     assert.equal(added.code, EXIT.ok, [...added.stdout, ...added.stderr].join('\n'));
+    // A local ref keeps the task off GitHub until its owner clears it.
+    const cleared = await kit.run(['update', 'T1', '--ref', 'none'], { env: { TEAMRIG_SESSION: 'alpha' } });
+    assert.equal(cleared.code, EXIT.ok, [...cleared.stdout, ...cleared.stderr].join('\n'));
     const gh = new FakeGh();
     const lines = await expectRun(kit, ['issue', 'migrate', '--task', 'T1', '--issue', 'Login fails on retry', '--issue-body', 'Retries stop at three.', '--yes'], gh, EXIT.ok);
     assert.deepEqual(lines.slice(-2), ['OPENED T1 gh:acme/api#1', "DONE opened 1 issue(s) and set each task's ref"]);
@@ -110,6 +113,34 @@ describe('teamrig issue migrate', () => {
     assert.match(await refusal(['issue', 'migrate', '--task', 'T9', '--issue', 'Gone', '--issue-body', 'Why.'], EXIT.refused), /no task T9 in the working set/u);
     assert.match(await refusal(['issue', 'migrate', '--task', 'T2', '--issue', 'Gone', '--issue-body', 'Why.'], EXIT.refused), /--issue-repo names the repository/u);
     assert.match(await refusal(['issue', 'migrate', '--task', 'T2', '--issue', 'Gone', '--issue-body', 'Follows T1.', '--issue-repo', 'acme/api'], EXIT.refused), /T1/u);
+    assert.deepEqual(gh.ran, []);
+  });
+
+  it('refuses one task\'s issue for a local ref, a critical bug or the security reviewer\'s task, running no gh (T3349)', async () => {
+    const kit = new CliHarness({ ...GITHUB_TEAM, sessions: ['lead', 'alpha', 'security'], roles: { lead: 'lead', securityReviewer: 'security' }, github: { repos: ['acme/web'], issueAtAdd: 'acme/web' } });
+    for (const fields of [
+      ['--title', 'Kept here', '--owner', 'alpha', '--local', 'names a host'],
+      ['--title', 'Token leak', '--owner', 'alpha', '--type', 'bug', '--critical', '--local', 'a hole'],
+      ['--title', 'Review the guard', '--owner', 'security', '--local', 'a review'],
+    ]) {
+      const added = await kit.run(['add', ...fields, '--description', 'what and why', '--priority', 'p1'], AS_LEAD);
+      assert.equal(added.code, EXIT.ok, [...added.stdout, ...added.stderr].join('\n'));
+    }
+    for (const [id, owner] of [['T2', 'alpha'], ['T3', 'security']] as const) {
+      const cleared = await kit.run(['update', id, '--ref', 'none'], { env: { TEAMRIG_SESSION: owner } });
+      assert.equal(cleared.code, EXIT.ok, [...cleared.stdout, ...cleared.stderr].join('\n'));
+    }
+    const gh = new FakeGh();
+    const why = new Map([
+      ['T1', /T1 gets no public issue: its ref keeps it local/u],
+      ['T2', /T2 gets no public issue: it is a critical bug/u],
+      ['T3', /T3 gets no public issue: the security reviewer \(security\) owns it/u],
+    ]);
+    for (const [id, reason] of why) {
+      const result = await kit.run(['issue', 'migrate', '--task', id, '--issue', 'A public title', '--issue-body', 'Public words.', '--yes'], { ...AS_LEAD, gh });
+      assert.equal(result.code, EXIT.refused, [...result.stdout, ...result.stderr].join('\n'));
+      assert.match([...result.stdout, ...result.stderr].join('\n'), reason);
+    }
     assert.deepEqual(gh.ran, []);
   });
 

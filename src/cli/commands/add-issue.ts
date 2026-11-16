@@ -15,7 +15,7 @@ import { GITHUB_OFF, githubOff } from './issue-sync-auto.ts';
 /** The flags of `add` that ask about the new task's issue (github/issue-at-add.ts). */
 export const ADD_ISSUE_FLAGS = ['issue', 'issue-body', 'issue-repo', 'local'] as const;
 
-/** What an add asked about its issue: its issue flags, with the task's own ref, type and priority. */
+/** What an add asked about its issue: its issue flags, with the task's own ref, type, priority, owner (an id) and critical mark. */
 export function addIssueAskOf(flags: Flags, input: AddInput): AddIssueAsk {
   return {
     title: flags.get('issue'),
@@ -25,6 +25,8 @@ export function addIssueAskOf(flags: Flags, input: AddInput): AddIssueAsk {
     ref: input.ref,
     type: input.type,
     priority: input.priority,
+    owner: input.owner,
+    critical: input.critical ?? false,
   };
 }
 

@@ -3,20 +3,22 @@ import assert from 'node:assert/strict';
 import { SecretScanner } from '../core/secrets.ts';
 import { addIssuePlan, type AddIssueAsk, type AddIssuePlan } from './issue-at-add.ts';
 
-const NONE: AddIssueAsk = { title: undefined, body: undefined, repo: undefined, local: undefined, ref: undefined, type: undefined, priority: 2 };
+const NONE: AddIssueAsk = { title: undefined, body: undefined, repo: undefined, local: undefined, ref: undefined, type: undefined, priority: 2, owner: 'alpha', critical: false };
 const ONE_REPO = { repos: ['acme/web'] };
 const TWO_REPOS = { repos: ['acme/web', 'acme/api'] };
 const AT_ADD = { repos: ['acme/web', 'acme/api'], issueAtAdd: 'acme/api' };
 const ISSUE = { title: ' Add a health check ', body: 'Why it is needed.\n' };
+/** The team's security reviewer, `roles.securityReviewer`. */
+const REVIEWER = 'security';
 
 function planned(ask: Partial<AddIssueAsk>, github: { readonly repos: readonly string[]; readonly issueAtAdd?: string }): AddIssuePlan {
-  const verdict = addIssuePlan({ ...NONE, ...ask }, github, new SecretScanner());
+  const verdict = addIssuePlan({ ...NONE, ...ask }, github, new SecretScanner(), REVIEWER);
   assert.ok(verdict.ok, verdict.ok ? '' : verdict.error);
   return verdict.value;
 }
 
 function refused(ask: Partial<AddIssueAsk>, github: { readonly repos: readonly string[]; readonly issueAtAdd?: string }): string {
-  const verdict = addIssuePlan({ ...NONE, ...ask }, github, new SecretScanner());
+  const verdict = addIssuePlan({ ...NONE, ...ask }, github, new SecretScanner(), REVIEWER);
   assert.ok(!verdict.ok, 'expected a refusal');
   return verdict.error;
 }
@@ -46,6 +48,13 @@ describe('addIssuePlan', () => {
       kind: 'open',
       draft: { repo: 'acme/web', title: 'Add a health check', body: 'Why it is needed.', labels: ['enhancement', 'p3'], type: null, assignees: [] },
     });
+  });
+
+  it('refuses an issue for a critical bug or a task the security reviewer owns, which take --local (T3349)', () => {
+    assert.equal(refused({ ...ISSUE, type: 'bug', critical: true }, ONE_REPO), 'the new task gets no public issue: it is a critical bug, whose issue could tell a security hole; add it with --local "<why>"');
+    assert.equal(refused({ ...ISSUE, owner: REVIEWER }, ONE_REPO), 'the new task gets no public issue: the security reviewer (security) owns it; add it with --local "<why>"');
+    assert.deepEqual(planned({ type: 'bug', critical: true, local: 'tells a hole' }, AT_ADD), { kind: 'local', ref: 'local: tells a hole' });
+    assert.deepEqual(planned({ ...ISSUE, type: 'task', critical: true }, ONE_REPO).kind, 'open');
   });
 
   it('refuses an issue with no repository to open it in, or one outside github.repos', () => {

@@ -4,6 +4,7 @@ import type { IssueDraft } from '../issues/host.ts';
 import { ISSUE_REF_PREFIX, LOCAL_REF_PREFIX } from '../register/model.ts';
 import type { Verdict } from '../register/policy.ts';
 import { issueLabels, priorityLabelOf, publicIssueText, type RowType } from './migrate.ts';
+import { offGitHubReason } from './off-github.ts';
 
 /**
  * What `teamrig add` does about the new task's GitHub issue (T3132): open one with the public wording given, record
@@ -26,6 +27,10 @@ export interface AddIssueAsk {
   readonly ref: string | undefined;
   readonly type: RowType | undefined;
   readonly priority: number;
+  /** The task's owner, as a session id. */
+  readonly owner: string;
+  /** `--critical`. */
+  readonly critical: boolean;
 }
 
 /** No issue, the local ref to write with the task, or the issue to open before it is written, its ref pointing there. */
@@ -37,14 +42,17 @@ export type AddIssuePlan =
 /** The name a refusal gives the task, which has no id before it is written. */
 const NEW_TASK = 'the new task';
 
-/** The plan for an add's issue under the team's GitHub settings, or why the add is refused. */
-export function addIssuePlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>, scanner: SecretScanner): Verdict<AddIssuePlan> {
+/**
+ * The plan for an add's issue under the team's GitHub settings, or why the add is refused: a task that must stay off
+ * GitHub (off-github.ts; `securityReviewer` is `roles.securityReviewer`) takes `--local`, never `--issue`.
+ */
+export function addIssuePlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>, scanner: SecretScanner, securityReviewer: string | undefined): Verdict<AddIssuePlan> {
   const asksIssue = ask.title !== undefined || ask.body !== undefined || ask.repo !== undefined;
   if (ask.local !== undefined) {
     return localPlan(ask.local, asksIssue, ask.ref);
   }
   if (asksIssue) {
-    return openPlan(ask, github, scanner);
+    return openPlan(ask, github, scanner, securityReviewer);
   }
   if (github.issueAtAdd !== undefined && !(ask.ref?.startsWith(ISSUE_REF_PREFIX) ?? false)) {
     return {
@@ -69,12 +77,16 @@ function localPlan(reason: string, asksIssue: boolean, ref: string | undefined):
   return { ok: true, value: { kind: 'local', ref: `${LOCAL_REF_PREFIX}${shown}` } };
 }
 
-function openPlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>, scanner: SecretScanner): Verdict<AddIssuePlan> {
+function openPlan(ask: AddIssueAsk, github: Pick<GithubConfig, 'repos' | 'issueAtAdd'>, scanner: SecretScanner, securityReviewer: string | undefined): Verdict<AddIssuePlan> {
   if (ask.title === undefined || ask.body === undefined) {
     return { ok: false, error: '--issue and --issue-body come together: the issue\'s public title and body' };
   }
   if (ask.ref !== undefined) {
     return { ok: false, error: '--issue points the task\'s ref at its new issue; give --issue or --ref, not both' };
+  }
+  const off = offGitHubReason({ owner: ask.owner, type: ask.type ?? null, critical: ask.critical, ref: null }, securityReviewer);
+  if (off !== undefined) {
+    return { ok: false, error: `${NEW_TASK} gets no public issue: ${off}; add it with --local "<why>"` };
   }
   const repo = issueRepoOf(ask.repo, github);
   if (!repo.ok) {

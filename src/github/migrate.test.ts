@@ -40,6 +40,8 @@ function tasksOf(...tasks: Task[]): Map<string, Task> {
 const allow: RefJudge = () => undefined;
 /** No session has a login or an area: an issue is assigned only to the repository's owner. */
 const RULES: IssueRules = { logins: new Map(), areaOwners: new Map(), fields: DEFAULT_ISSUE_FIELDS };
+/** The team's security reviewer, `roles.securityReviewer`. */
+const REVIEWER = 'security';
 
 describe('parseMigrateRows', () => {
   it('reads an issue row and a local row, skipping blank lines and trimming text', () => {
@@ -162,7 +164,7 @@ describe('priorityLabelOf', () => {
 describe('planMigration', () => {
   it('opens an issue for a live task with no ref, and keeps a local row local', () => {
     const local: MigrateRow = { decision: 'local', id: 'T2', reason: 'Private.' };
-    const plan = planMigration([issueRow(), local], tasksOf(testTask(), testTask({ id: 'T2', status: 'waiting' })), [REPO], allow, RULES);
+    const plan = planMigration([issueRow(), local], tasksOf(testTask(), testTask({ id: 'T2', status: 'waiting' })), [REPO], allow, RULES, REVIEWER);
     assert.deepEqual(plan, {
       creates: [
         {
@@ -179,7 +181,7 @@ describe('planMigration', () => {
   });
 
   it('skips a row whose task is missing or finished, issue and local alike', () => {
-    const plan = planMigration([issueRow({ id: 'T9' }), issueRow(), { decision: 'local', id: 'T2', reason: 'x' }], tasksOf(testTask({ status: 'done' }), testTask({ id: 'T2', status: 'dropped' })), [REPO], allow, RULES);
+    const plan = planMigration([issueRow({ id: 'T9' }), issueRow(), { decision: 'local', id: 'T2', reason: 'x' }], tasksOf(testTask({ status: 'done' }), testTask({ id: 'T2', status: 'dropped' })), [REPO], allow, RULES, REVIEWER);
     assert.deepEqual(plan.skipped, [
       { id: 'T9', reason: 'no such task in the working set' },
       { id: 'T1', reason: 'the task is done' },
@@ -190,12 +192,12 @@ describe('planMigration', () => {
   });
 
   it('skips a task that holds its issue already, so a rerun opens no second one', () => {
-    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: `gh:${REPO}#7` })), [REPO], allow, RULES);
+    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: `gh:${REPO}#7` })), [REPO], allow, RULES, REVIEWER);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: `the task has its issue already: gh:${REPO}#7` }]);
   });
 
   it('replaces a ref that is no issue, naming it', () => {
-    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: 'notes/plan.md' })), [REPO], allow, RULES);
+    const plan = planMigration([issueRow()], tasksOf(testTask({ ref: 'notes/plan.md' })), [REPO], allow, RULES, REVIEWER);
     assert.deepEqual(plan.skipped, []);
     assert.deepEqual(
       plan.creates.map((create) => [create.id, create.replaces]),
@@ -204,7 +206,7 @@ describe('planMigration', () => {
   });
 
   it("skips a repo outside the team's github.repos", () => {
-    const plan = planMigration([issueRow({ repo: 'acme/other' })], tasksOf(testTask()), [REPO, 'acme/pane'], allow, RULES);
+    const plan = planMigration([issueRow({ repo: 'acme/other' })], tasksOf(testTask()), [REPO, 'acme/pane'], allow, RULES, REVIEWER);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: `acme/other is not one of github.repos (${REPO}, acme/pane)` }]);
   });
 
@@ -214,7 +216,7 @@ describe('planMigration', () => {
       asked.push(`${task.id} ${ref}`);
       return 'not your task';
     };
-    const plan = planMigration([issueRow()], tasksOf(testTask()), [REPO], judge, RULES);
+    const plan = planMigration([issueRow()], tasksOf(testTask()), [REPO], judge, RULES, REVIEWER);
     assert.deepEqual(asked, [`T1 gh:${REPO}#1`]);
     assert.deepEqual(plan.skipped, [{ id: 'T1', reason: 'not your task' }]);
   });
@@ -222,7 +224,7 @@ describe('planMigration', () => {
   it("gives a started task's issue its type, status and area labels and its owner's login, a goal the types of github.fields.types.goal", () => {
     const rules: IssueRules = { logins: new Map([['alpha', 'octocat']]), areaOwners: new Map([['area:cli', 'beta'], ['area:sync', 'alpha']]), fields: DEFAULT_ISSUE_FIELDS };
     const tasks = tasksOf(testTask({ status: 'in-progress' }), testTask({ id: 'T2', type: 'bug', due: '2030-01-02' }), testTask({ id: 'T3', after: ['T1'] }));
-    const plan = planMigration([issueRow(), issueRow({ id: 'T2', type: 'bug' }), issueRow({ id: 'T3' })], tasks, [REPO], allow, rules);
+    const plan = planMigration([issueRow(), issueRow({ id: 'T2', type: 'bug' }), issueRow({ id: 'T3' })], tasks, [REPO], allow, rules, REVIEWER);
     assert.deepEqual(
       plan.creates.map((create) => create.wanted),
       [
@@ -234,13 +236,24 @@ describe('planMigration', () => {
   });
 
   it("types the issue by the row's kind of work, as its label is", () => {
-    const plan = planMigration([issueRow({ type: 'bug' }), issueRow({ id: 'T2', type: 'task' })], tasksOf(testTask(), testTask({ id: 'T2', type: 'bug' })), [REPO], allow, RULES);
+    const plan = planMigration([issueRow({ type: 'bug' }), issueRow({ id: 'T2', type: 'task' })], tasksOf(testTask(), testTask({ id: 'T2', type: 'bug' })), [REPO], allow, RULES, REVIEWER);
     assert.deepEqual(plan.creates.map((create) => create.wanted.types), [['Bug'], ['Task']]);
+  });
+
+  it('opens no issue for a task with a local ref, a critical bug or a task the security reviewer owns, and keeps a local row for one (T3349)', () => {
+    const tasks = tasksOf(testTask({ ref: 'local: names a host' }), testTask({ id: 'T2', type: 'bug', critical: true }), testTask({ id: 'T3', owner: REVIEWER }), testTask({ id: 'T4' }));
+    const rows = [issueRow(), issueRow({ id: 'T2', type: 'bug' }), issueRow({ id: 'T3' }), issueRow({ id: 'T4' })];
+    const plan = planMigration([...rows, { decision: 'local', id: 'T5', reason: 'x' }], new Map([...tasks, ['T5', testTask({ id: 'T5', owner: REVIEWER })]]), [REPO], allow, RULES, REVIEWER);
+    assert.deepEqual(plan.skipped.map((skip) => skip.id), ['T1', 'T2', 'T3']);
+    assert.match(plan.skipped[0]?.reason ?? '', /^it gets no public issue: its ref keeps it local; .*; give it a local row$/u);
+    assert.equal(plan.skipped[1]?.reason, 'it gets no public issue: it is a critical bug, whose issue could tell a security hole; give it a local row');
+    assert.equal(plan.skipped[2]?.reason, 'it gets no public issue: the security reviewer (security) owns it; give it a local row');
+    assert.deepEqual([plan.creates.map((create) => create.id), plan.local.map((row) => row.id)], [['T4'], ['T5']]);
   });
 
   it('lists each live task no row names, and leaves out finished ones', () => {
     const tasks = tasksOf(testTask(), testTask({ id: 'T3', status: 'verifying' }), testTask({ id: 'T4', status: 'done' }), testTask({ id: 'T5', status: 'in-progress' }));
-    assert.deepEqual(planMigration([issueRow()], tasks, [REPO], allow, RULES).unrowed, ['T3', 'T5']);
+    assert.deepEqual(planMigration([issueRow()], tasks, [REPO], allow, RULES, REVIEWER).unrowed, ['T3', 'T5']);
   });
 });
 
@@ -264,6 +277,7 @@ describe('previewMarkdown', () => {
       [REPO],
       allow,
       RULES,
+      REVIEWER,
     );
     assert.equal(
       previewMarkdown(plan),
