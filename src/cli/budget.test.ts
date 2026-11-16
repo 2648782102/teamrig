@@ -702,8 +702,9 @@ describe('teamrig budget lift', () => {
 describe('teamrig budget cut', () => {
   const CUTS = join(TEAM_HOME, 'state', 'usage', 'cuts.jsonl');
   const CUT = ['budget', 'cut', 'alpha', '--reason', 'over on a p3'];
+  // The default budget.overAction is warn, which holds nothing, a cut included (#922).
   const cutLine = (who: string, until: string): string =>
-    `CUT ${who} to its own daily budget until ${until}: past it, it is held whatever room the team has, so it wakes for p0 work only and budget.overAction holds its new helpers back as it says; a lift in force still sets that budget, and a new lift of it ends the cut.`;
+    `CUT ${who} to its own daily budget until ${until}: past it, it is warned whatever room the team has, but budget.overAction warn holds nothing, so it still wakes and works as before (set budget.overAction to hold it); a lift in force still sets that budget, and a new lift of it ends the cut.`;
   const records = (text: string | undefined): unknown[] =>
     (text ?? '')
       .split('\n')
