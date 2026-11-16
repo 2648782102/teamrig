@@ -41,7 +41,8 @@ To update an installed teamrig, follow
 - **Task register**: an append-only log of task events. Every ask that creates work is a task with an id like
   `T12`, an owner session, a priority `p1` (most urgent) to `p5`, and a status. Only the task's owner sets its
   status, except on a task `teamrig issue sync` imported from a GitHub issue (source `github`): it opens, finishes or
-  drops it as GitHub has the issue. Nothing goes from the task list to GitHub.
+  drops it as GitHub has the issue. A task reaches GitHub only through teamrig's issue commands (`add --issue`,
+  `issue migrate`, `issue label`, the status push), never by itself.
 - **Inbox**: one file per session. A line there is a note the receiver reads at its next work block or prompt;
   it wakes an idle session only when sent with `--wake now`, or with `--wake-by <time>` at that time if still
   unseen. Urgent work handed to an idle session as a task does wake it ([the wake](hooks.md#the-mod-the-wake-on-urgent-work)).
