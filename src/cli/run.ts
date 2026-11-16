@@ -247,6 +247,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   'issue close': { effect: 'write', flags: ['session', 'comment', 'reason', 'duplicate-of'], load: async () => (await issueCommands()).issueClose },
   'issue label': { effect: 'write', flags: ['session', 'add', 'remove'], load: async () => (await issueCommands()).issueLabel },
   'issue similar': { effect: 'read', flags: [], load: async () => (await issueCommands()).issueSimilar },
+  'issue assign': { effect: 'write', flags: ['session', 'login'], load: async () => (await issueCommands()).issueAssign },
   'pr conflicts': { effect: 'write', flags: ['base'], load: async () => (await prCommands()).prConflicts },
   'issue links': { effect: 'write', flags: ['repo'], switches: ['yes'], load: async () => (await issueLinksCommands()).issueLinks },
   follow: { effect: 'write', flags: ['session'], switches: ['list'], load: async () => (await followCommands()).follow },
@@ -808,6 +809,9 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
   issue similar <owner/name#n>   the issues the task list mirrors that may be duplicates of this one,
       best first: at most 3 at or above github.similarThreshold by TF-IDF over their titles and bodies,
       with no model and no GitHub call; reads the task list only, so issue sync must have added the issue
+  issue assign <owner/name#n> --login <login,...>   adds people to the assignees of one issue or pull
+      request of the team's repositories, with the same access; each login is read first as one the
+      repository may assign, as the host spells it, and one it may not stops it before any write
   pr conflicts <owner/name#n> [--base <branch>]   in a clone of that repository, fetches the pull
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
