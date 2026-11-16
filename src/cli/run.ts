@@ -232,6 +232,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   'issue edit': { effect: 'write', flags: ['session', 'body-file'], load: async () => (await issueCommands()).issueEdit },
   'issue close': { effect: 'write', flags: ['session', 'comment', 'reason', 'duplicate-of'], load: async () => (await issueCommands()).issueClose },
   'issue label': { effect: 'write', flags: ['session', 'add', 'remove'], load: async () => (await issueCommands()).issueLabel },
+  'issue assign': { effect: 'write', flags: ['session', 'login'], load: async () => (await issueCommands()).issueAssign },
   'pr conflicts': { effect: 'write', flags: ['base'], load: async () => (await prCommands()).prConflicts },
   'issue links': { effect: 'write', flags: ['repo'], switches: ['yes'], load: async () => (await issueLinksCommands()).issueLinks },
   budget: { effect: 'read', flags: ['day', 'task'], switches: ['loops', 'burn', 'misses', 'all'], load: async () => (await budgetCommands()).budget },
@@ -754,6 +755,9 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       labels off one issue or pull request of the team's repositories, with the same access; each
       label to add must already be one of the repository's, but design (talk only, not work to take
       until agreed), which it makes first (MADE); the first failure stops it
+  issue assign <owner/name#n> --login <login,...>   adds people to the assignees of one issue or pull
+      request of the team's repositories, with the same access; each login is read first as one the
+      repository may assign, as the host spells it, and one it may not stops it before any write
   pr conflicts <owner/name#n> [--base <branch>]   in a clone of that repository, fetches the pull
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
