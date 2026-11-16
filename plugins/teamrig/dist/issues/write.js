@@ -178,3 +178,35 @@ async function duplicateIdOf(host, original) {
     const reason = read.kind === 'failed' ? read.reason : `${targetText(original)} is no issue the access can see: name an existing one as the original`;
     return { kind: 'refused', reason };
 }
+/**
+ * Assigns `logins` to the issue or pull request (T3169): each read first as one the repository may assign, as the host
+ * spells it (GitHub silently drops a login it may not assign, and matches the case it keeps), then one assign of
+ * them all; any assignee on it stays. A login the host does not know stops it before anything is written. True when
+ * the assign was sent.
+ */
+export async function assignIssue(host, write, say) {
+    const shown = targetText(write.target);
+    const reach = await host.reach(write.target.repo, 'write');
+    if (reach.kind === 'unreachable') {
+        say(`FAILED ${shown}: ${reach.reason}; nothing was changed`);
+        return false;
+    }
+    say(`ACCESS ${reach.access}`);
+    const logins = [];
+    for (const login of write.logins) {
+        const found = await host.assigneeExists(write.target.repo, login);
+        if (found.kind !== 'found') {
+            const why = found.kind === 'failed' ? found.reason : `${login} may not be assigned in ${write.target.repo} (not a person with access to it)`;
+            say(`FAILED ${shown}: ${why}; nothing was changed`);
+            return false;
+        }
+        logins.push(found.login);
+    }
+    const assigned = await host.assign(write.target, logins);
+    if (assigned.kind === 'failed') {
+        say(`FAILED ${shown}: ${assigned.reason}; nothing was changed`);
+        return false;
+    }
+    say(`ASSIGNED ${shown}: ${logins.join(', ')}`);
+    return true;
+}

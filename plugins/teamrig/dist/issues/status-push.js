@@ -139,10 +139,9 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins) {
     let unchanged = 0;
     for (const [target, task] of [...holders(repo, tasks)].sort(([a], [b]) => a - b).map(([number, holder]) => [{ repo, number }, holder])) {
         const issue = listed.get(target.number);
-        const goal = issueGoal(task, { assigned: issue !== undefined && issue.assignees.length > 0, design: issue?.labels.includes(DESIGN_LABEL) ?? false });
         if (issue === undefined) {
             // The list holds every open issue, so one it left out is closed (or gone): as a closed task wants it.
-            if (goal.open) {
+            if (issueGoal(task, { assigned: false, design: false }).open) {
                 unlisted.push({ target, task: task.id, status: task.status });
             }
             else {
@@ -150,23 +149,43 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins) {
             }
             continue;
         }
-        if (issue.state === 'closed' && goal.open) {
+        const plan = planIssue(target, task, issue, logins);
+        if (plan.kind === 'closed-active') {
             closedActive.push({ target, task: task.id, status: task.status, stateReason: issue.stateReason });
-            continue;
         }
-        const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(repo, task.owner, logins) : undefined;
-        const change = changeFor(target, task, issue, goal, assign);
-        if (change === undefined) {
+        else if (plan.kind === 'unchanged') {
             unchanged += 1;
         }
         else {
-            planned.push(change);
+            planned.push(plan.change);
         }
     }
     const heldCloses = limits.closes ? [] : planned.filter((change) => change.close !== undefined);
     const sendable = limits.closes ? planned : planned.filter((change) => change.close === undefined);
     const { changes, deferred } = withinRun(sendable, limits.writesPerRun);
     return { repo, changes, deferred, heldCloses, unchanged, closedActive, unlisted };
+}
+/**
+ * The push of the one issue `task` holds, planned against `issue` as the host has it now, the same way planPush plans
+ * each issue of a repository: with `logins` an open issue of a scheduled task with no assignee is assigned
+ * (assigneeOf), and without, nobody is.
+ */
+export function planIssue(target, task, issue, logins) {
+    const goal = issueGoal(task, { assigned: issue.assignees.length > 0, design: issue.labels.includes(DESIGN_LABEL) });
+    if (issue.state === 'closed' && goal.open) {
+        return { kind: 'closed-active' };
+    }
+    const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(target.repo, task.owner, logins) : undefined;
+    const change = changeFor(target, task, issue, goal, assign);
+    return change === undefined ? { kind: 'unchanged' } : { kind: 'change', change };
+}
+/** A push plan of `repo` that sends `change` alone, for a write of one issue (issues/reply.ts) through applyPush. */
+export function onePushPlan(repo, change) {
+    return { repo, changes: [change], deferred: [], heldCloses: [], unchanged: 0, closedActive: [], unlisted: [] };
+}
+/** The task speaking for `target`, as the push picks it (a team task over one the import added), or undefined when none holds it. */
+export function holderOf(target, tasks) {
+    return holders(target.repo, tasks).get(target.number);
 }
 /** The task speaking for each issue number of `repo` a task holds: a team task over one the import added. */
 function holders(repo, tasks) {
