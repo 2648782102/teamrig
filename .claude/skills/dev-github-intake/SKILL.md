@@ -23,9 +23,13 @@ this is the other side of it.
 
 ## A pull request from outside
 
-1. Best fix first: judge whether its fix is the best one. If a better one exists, propose it on the pull request
-   (what and why) before taking it; else say in one line why theirs is best.
-2. A change under a guarded path (CONTRIBUTING.md, Review) gets a security review before it lands.
+1. Take it in at once: `teamrig issue intake <owner/name#n> --priority <p>` asks each session owning an area it
+   changes (`github.areaPaths`) a best-fix and overlap review task, and the security reviewer one when it changes a
+   guarded path (CONTRIBUTING.md, Review), all in parallel. Your task to reply comes last, planned after them all:
+   answer the author only once every verdict is in.
+2. Best fix first: weigh the owners' verdicts and judge the paths no area holds yourself. If a better fix exists,
+   or an open task of ours does the same, propose it on the pull request (what and why) before taking it; else say
+   in one line why theirs is best.
 3. A change to a threshold, limit or trigger: ask "can this still fire?" Its tests must show it firing in the real
    flow, through whatever resets its count (a compaction, a `/clear`, a restart); ask for that spec when they do
    not (CONTRIBUTING.md, Tests).
@@ -52,4 +56,4 @@ comment` refuses a secret it finds, the rest is on you. A security hole someone 
 discussed there: tell the maintainer at once, so the comment is hidden and the report moves to a private advisory
 ([SECURITY.md](../../../SECURITY.md)), and reply only with a pointer to it.
 
-Last verified: 2026-11-15
+Last verified: 2026-11-16
