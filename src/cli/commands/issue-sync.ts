@@ -259,7 +259,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
         send: true,
         // No closes: the automatic push sends labels and assignees only (security verdict F1 on T2876); it prints each close held.
         limits: { writesPerRun: Math.max(0, writesPerRun - claimed.writes), closes: false },
-        logins: sessionLogins(config.github.owners),
+        assignees: { sessions: sessionLogins(config.github.owners), design: config.github.designAssignees },
         told,
         fields: await fieldRunOf(runtime, config, kit.paths, register),
       },
