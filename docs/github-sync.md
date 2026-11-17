@@ -185,7 +185,7 @@ while it lasts; the first run on a repository only notes what is there.
   own authors pushed that branch to the repository itself: the repository's owner, or a login in `owners`. A
   collaborator or member the team never listed counts as an outsider, since write access lets anyone push a
   `t<id>-` branch. A fork's or an outsider's pull request, or a branch that names no task, goes to
-  `github.watcher` in the team config; unset, the session holding a service role with `issue comment`, the one that
+  `github.watcher` in the team config; unset, the session holding a service role with `issue close`, the one that
   answers on GitHub; else the lead.
 - With `github.activity` on, the same news also goes to the owner of the task holding the pull request or an issue
   of the same repository it closes (a `Fixes #12` link GitHub knows), whatever its branch or author, and to each
