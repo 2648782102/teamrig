@@ -37,7 +37,6 @@ import {
   decideStop,
   reaskGrowth,
   thousands,
-  thresholdOf,
   type DueFacts,
   type RefreshSettings,
   type StopContext,
@@ -234,7 +233,7 @@ async function titleOutcome(runtime: CliRuntime, kit: Kit, config: KitConfig, pa
  * work (T1383), cancels it, so the session keeps its context; one line tells the model, with the context growth
  * (`growth` tokens) that asks again. None when no restart waits, or one is already ending the session.
  */
-async function cancelledRestartLine(runtime: CliRuntime, kit: Kit, id: string, refresh: Pick<RefreshSettings, 'contextTokens' | 'largeWindowContextTokens'>): Promise<string | undefined> {
+async function cancelledRestartLine(runtime: CliRuntime, kit: Kit, id: string, refresh: Pick<RefreshSettings, 'contextTokens'>): Promise<string | undefined> {
   const store = new RefreshStore(runtime.files, kit.paths);
   const parked = (await store.parked(id)) !== undefined;
   const pending = (await store.restart(id))?.phase === 'pending';
@@ -247,8 +246,7 @@ async function cancelledRestartLine(runtime: CliRuntime, kit: Kit, id: string, r
   if (!parked && !pending) {
     return undefined;
   }
-  // The growth past its ask at the session's own threshold: the larger one on a large window.
-  const growth = reaskGrowth({ contextTokens: thresholdOf(await store.state(id), refresh) });
+  const growth = reaskGrowth(refresh);
   return `${KIT_NAME}: the user typed, so the automatic restart is cancelled and you keep this context; a new handover is asked at your next task end, or once your context grew ${thousands(growth)} more`;
 }
 

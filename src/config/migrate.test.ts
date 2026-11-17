@@ -6,8 +6,10 @@ import {
   DROP_FIXED_DAILY_BUDGETS,
   DROP_HIRE_CAP,
   DROP_IDLE_RETIRE,
+  DROP_LARGE_WINDOW,
   HIRE_CAP_DROPPED,
   IDLE_RETIRE_DROPPED,
+  LARGE_WINDOW_DROPPED,
   migrateConfig,
   RENAME_BLOCKED_TO_WAITING,
   RENAME_TIERS_TO_PRIORITIES,
@@ -306,6 +308,26 @@ describe('the shipped migrations', () => {
       assert.deepEqual(DROP_IDLE_RETIRE.apply(config), { config, changes: [] }, JSON.stringify(config));
     }
     assert.equal(DROP_IDLE_RETIRE.from, 6);
+  });
+
+  it('v8 to v9 drops refresh.largeWindowContextTokens, and keeps every other key (T4083)', () => {
+    const raw: JsonRecord = { configVersion: 8, refresh: { contextTokens: 150_000, largeWindowContextTokens: 250_000, everyTasks: 2 }, custom: true };
+    assert.deepEqual(migrateConfig(raw, 9), {
+      kind: 'migrated',
+      fromVersion: 8,
+      version: 9,
+      config: { configVersion: 9, refresh: { contextTokens: 150_000, everyTasks: 2 }, custom: true },
+      changes: [`v8→v9: refresh.largeWindowContextTokens removed: ${LARGE_WINDOW_DROPPED}`],
+      firstRelease: DROP_LARGE_WINDOW.firstRelease,
+    });
+  });
+
+  it('v8 to v9 changes nothing but the version when no large-window threshold is set', () => {
+    const configs: JsonRecord[] = [{}, { refresh: 'not an object' }, { refresh: { contextTokens: 150_000 } }, { largeWindowContextTokens: 250_000 }];
+    for (const config of configs) {
+      assert.deepEqual(DROP_LARGE_WINDOW.apply(config), { config, changes: [] }, JSON.stringify(config));
+    }
+    assert.equal(DROP_LARGE_WINDOW.from, 8);
   });
 
   it('v7 to v8 renames the delivery keys into plain words, each in its place, and keeps every value', () => {
