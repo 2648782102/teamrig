@@ -28,8 +28,9 @@ description: Land a finished teamrig change through small signed commits with Co
 8. Open the pull request and fill in the template (`.github/pull_request_template.md`): its `## Reach` always, its
    `## Alternatives` when the change settles a design question. A pull request `tools/ship` opens takes its text from
    `--note-file`, else from `pr.md` in the branch's task folder (`teamrig files T<id>`), with the commit list below it;
-   the merge refuses, before any GitHub call, a text it cannot find or one with no `Reach:` line or filled `## Reach`
-   section, and opens no pull request on a text lacking a `## <name>` section that `pullSections` in
+   the merge refuses, before any GitHub call, a text it cannot find, one with no `Reach:` line or filled `## Reach`
+   section, or one holding a secret's shape (the team's `register.secretPatterns` too) or private data, naming the
+   shape, never the value, and opens no pull request on a text lacking a `## <name>` section that `pullSections` in
    `tools/ship/repos.json` asks for (one already open without it merges with a warning line). Write that file before you
    ask for approval. The repository is public: a security fix's branch name, commits, pull request text, comments and
    test names describe the hardening, never how to get past the old code, nor the private report or review by its id
