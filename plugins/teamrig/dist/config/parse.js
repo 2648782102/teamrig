@@ -484,6 +484,7 @@ function parseGithub(read, raw, sessions) {
         similarThreshold: read.number(raw, 'similarThreshold', 'github', DEFAULT_GITHUB.similarThreshold, CONFIG_LIMITS.similarThreshold),
         activity: read.boolean(raw, 'activity', 'github', DEFAULT_GITHUB.activity),
         followMax: read.integer(raw, 'followMax', 'github', DEFAULT_GITHUB.followMax, CONFIG_LIMITS.githubFollowMax),
+        lowRiskPaths: read.stringList(raw, 'lowRiskPaths', 'github', DEFAULT_GITHUB.lowRiskPaths, shortLine(CONFIG_LIMITS.githubLowRiskPaths.maxLength), CONFIG_LIMITS.githubLowRiskPaths.maxItems),
         sensitivePaths: read.stringList(raw, 'sensitivePaths', 'github', DEFAULT_GITHUB.sensitivePaths, shortLine(CONFIG_LIMITS.githubSensitivePaths.maxLength), CONFIG_LIMITS.githubSensitivePaths.maxItems),
         ...readGithubWatcher(read, raw, sessions),
         ...(issueAtAdd === undefined ? {} : { issueAtAdd }),

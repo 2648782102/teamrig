@@ -27,6 +27,7 @@ export async function mergeStandingOf(reader, team, callerText, taskId) {
         task: state.tasks.get(taskId),
         approvers: await approversOf(reader, team, config, caller),
         answerer: githubWatcher(config),
+        lowRisk: config.github.lowRiskPaths,
         sensitive: [...[...GENERIC_REVIEW_PATHS, ...config.pushGuard.reviewPaths].map((entry) => entry.glob), ...config.github.sensitivePaths],
         securityReviewer: config.roles.securityReviewer,
         open: new Map([...state.tasks.values()].filter((task) => UNSHIPPED.includes(task.status)).map((task) => [task.id, task.owner])),

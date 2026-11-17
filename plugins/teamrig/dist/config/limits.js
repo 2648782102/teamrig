@@ -71,6 +71,8 @@ export const CONFIG_LIMITS = {
     githubFollowMax: { min: 0, max: 100 },
     /** As long as a review gate glob (REVIEW_PATH_LIMITS), and as many as that gate's list holds. */
     githubSensitivePaths: { maxItems: 128, maxLength: 200 },
+    /** As the sensitive paths: the two lists read the same globs. */
+    githubLowRiskPaths: { maxItems: 128, maxLength: 200 },
     budgetTargetPct: { min: 1, max: 100 },
     budgetReservePct: { min: 0, max: 50 },
     /** 0 turns the floor off; past 50 one team's floor would leave a second less than its own (T2215). */
