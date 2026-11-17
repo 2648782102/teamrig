@@ -147,6 +147,16 @@ repositories are read on. A `LEFT OUT` line names, by number only, the open issu
 that no one accepted yet (at most 20, then how many more); their text is never printed. `teamrig issue sync --repo
 acme/web` reads one repository only.
 
+A repository renamed or moved to another owner keeps its issue numbers, and GitHub answers its old name with the new
+one. When the sync would add an issue whose number a task holds under a repository not in `github.repos`, it reads
+that name once a run; when it is now the listed repository, the issue matches that task and adds none:
+
+```text
+MOVED acme/old is now acme/web: its issues match the 12 task(s) holding refs under acme/old; teamrig refs apply points them at acme/web
+```
+
+A read that fails fails that repository, so no issue the sync could not tell apart is added.
+
 ## Then it runs on its own
 
 Once the repositories are listed, nobody needs to run it. When a session of the team starts or ends a turn, its hook
@@ -167,6 +177,10 @@ reaches its owner within about a minute while an idle repository costs nothing.
 - Each session with new tasks gets one inbox line, for example
   `github: GitHub sync added 1 task(s) for you: T42 gh:acme/web#7 "Fix the login redirect"`.
 - `teamrig list` shows such a task with its issue: `T42 open, p1, owner web, from gh:acme/web#7 | Fix the login redirect`.
+- A round that would add more than `addMaxPerRun` (25) tasks for one repository adds none of them, as so many at once
+  is far more often a mismatch than news: a `HELD acme/web: 40 issue(s) to add, more than github.addMaxPerRun (25) a
+  round, so none was added` line, told to the lead once like a failure. Its other changes still go. A person's
+  `teamrig issue sync` shows the adds, and `--yes` writes them.
 - A repository that cannot be read is told to the lead's inbox once, with the `FAILED` reason, and again when every
   repository reads again; it is not repeated at every run.
 - An outsider's issue left out for the first time is told to the lead's inbox once, by ref only, for example
