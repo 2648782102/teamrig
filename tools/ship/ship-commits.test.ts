@@ -196,7 +196,7 @@ test('without --merge, the review head holds the work alone: the raise and the d
   const { deps, events, logs, takenBack } = fake({ numstat: DIST_STAT });
   assert.equal(await shipCommits(ARGS, RAISE_FIRST, deps), 0);
   assert.deepEqual(takenBack, [['core: a', 'plugin: version 0.134.0, a']]);
-  assert.deepEqual(events.slice(events.indexOf(TSC) + 2), [
+  assert.deepEqual(events.slice(events.indexOf('node tools/ci/coverage-cli.ts') + 1), [
     'git add -- src/a.ts',
     committed('core: a', 'why a, since 0.134.0'),
     `git add -- ${VERSION_FILES}`,
