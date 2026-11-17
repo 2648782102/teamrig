@@ -28,7 +28,8 @@ description: Land a finished teamrig change through small signed commits, a dist
    `## Alternatives` when the change settles a design question. A pull request `tools/ship` opens takes its text from
    `--note-file`, else from `pr.md` in the branch's task folder (`teamrig files T<id>`), with the commit list below it;
    the merge refuses, before any GitHub call, a text it cannot find or one with no `Reach:` line or filled `## Reach`
-   section. Write that file before you ask for approval. The repository is public: a security fix's branch name, commits,
+   section, and one whose title, commit subjects or text the private-data scrub finds anything in (its file and line
+   named). Write that file before you ask for approval. The repository is public: a security fix's branch name, commits,
    pull request text, comments and test names describe the hardening, never how to get past the old code, nor the private
    report or review by its id ([SECURITY.md](../../../SECURITY.md)). It is rebase-merged once
    every check passes on its head, and the branch is deleted.
