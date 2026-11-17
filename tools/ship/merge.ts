@@ -1,17 +1,18 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
 import { ENV } from '../../src/core/home.ts';
 import { gitSyncIn } from '../lib/git.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
+import type { SecretScanner } from '../../src/core/secrets.ts';
 import { type ClearMerge, type ClearTaskMerge, type MergeClearance, type WorkCommit, approvedRebase, clearMergeFrom, clearTaskMergeFrom, teamrigShipWritesOf, workCommitsOf } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
-import { pullTextOf, taskPullTextFile } from './pull-text.ts';
+import { pullTextOf, taskPullTextFile, teamSecretScanner } from './pull-text.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
 import { type GateDeps, proveTree, realGateDeps } from './local-gate.ts';
@@ -577,6 +578,8 @@ export interface MergeDeps {
   turn: LandingTurn;
   /** The task file holding the pull request text of `head` when no --note-file names one (pull-text.ts, T3420), or null. */
   pullTextFile: (head: string) => string | null;
+  /** The secret scan a pull request text passes before it is published (pull-text.ts). */
+  pullTextScanner: SecretScanner;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -750,7 +753,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
     return done(1);
   }
   // The release pull request is opened by its release tool, with its own text, so only a change head needs one.
-  const pullText = opens ? pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText) : null;
+  const pullText = opens ? pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText, deps.pullTextScanner) : null;
   if (pullText?.kind === 'refused') {
     deps.err(`REFUSED ${pullText.reason}`);
     return done(1);
@@ -860,6 +863,7 @@ export function realMergeDeps(dir: string): MergeDeps {
     share: stepShareOf(process.env, runOwnCli),
     turn: processLandingTurn(dir, git),
     pullTextFile: head => taskPullTextFile(process.env, homedir(), head),
+    pullTextScanner: teamSecretScanner(process.env, homedir(), path => (existsSync(path) ? readFileSync(path, 'utf8') : null)),
     out,
     err,
   };
