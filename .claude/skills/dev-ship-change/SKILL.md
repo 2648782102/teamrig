@@ -27,11 +27,13 @@ description: Land a finished teamrig change through small signed commits with Co
    Never `--no-verify`.
 8. Open the pull request and fill in the template (`.github/pull_request_template.md`): its `## Reach` and
    `## Risks` always ([What a change is held to](../../../CONTRIBUTING.md#what-a-change-is-held-to)). A pull request
-   `tools/ship` opens takes its text from `--note-file`: give that file a `## Reach` and a `## Risks` section. The
-   merge opens no pull request without them (`pullSections` in
-   `tools/ship/repos.json`), refusing before it waits on any check; one already open without it merges with a warning
-   line. The repository is public: a security fix's branch name, commits, pull request text, comments and test names
-   describe the hardening, never how to get past the old code, nor the private report or review by its id
+   `tools/ship` opens takes its text from `--note-file`, else from `pr.md` in the branch's task folder
+   (`teamrig files T<id>`), with the commit list below it; give that text a `## Reach` and a `## Risks` section. The
+   merge refuses, before any GitHub call, a text it cannot find or one with no `Reach:` line or filled `## Reach`
+   section, and opens no pull request on a text lacking a `## <name>` section that `pullSections` in
+   `tools/ship/repos.json` asks for (one already open without it merges with a warning line). Write that file before you
+   ask for approval. The repository is public: a security fix's branch name, commits, pull request text, comments and
+   test names describe the hardening, never how to get past the old code, nor the private report or review by its id
    ([SECURITY.md](../../../SECURITY.md)). It is rebase-merged once every check passes on its head, and the branch is
    deleted.
 
