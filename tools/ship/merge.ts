@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
 import { ENV } from '../../src/core/home.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
-import { type ClearMerge, clearMergeFrom } from './approval.ts';
+import { type ChangeReads, type ClearMerge, clearanceText, clearMergeFrom, repoChanges } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
@@ -493,7 +493,7 @@ function approvalGate(args: MergeArgs, deps: MergeDeps): MergeGate {
     }
     const clearance = await deps.clearMerge(head, sha, args.approved);
     if (clearance.kind === 'refused') return clearance.reason;
-    const by = clearance.kind === 'self' ? "the caller's own, a root team's lead" : `approved by ${clearance.by}`;
+    const by = clearanceText(clearance);
     deps.out(`merge of ${head} ${sha.slice(0, 9)}: ${by}`);
     cleared = { head, sha, by };
     return null;
@@ -603,16 +603,25 @@ export function realMergeDeps(dir: string): MergeDeps {
   const out = (line: string): void => console.log(line);
   const err = (line: string): void => console.error(line);
   const git = (...gitArgs: string[]): string => execFileSync('git', ['-C', dir, ...gitArgs], { encoding: 'utf8' }).trim();
+  // Untrimmed, so a -z path list keeps a name that starts or ends with a space whole.
+  const gitText = (gitArgs: readonly string[]): string => execFileSync('git', ['-C', dir, ...gitArgs], { encoding: 'utf8' });
+  const profiles = readProfiles();
+  // Read the profile only when the GitHub answerer's clearance reads the repo.
+  const repo = (): ChangeReads => {
+    const { main, regenerated } = profileFor(profiles, slugOf(git('remote', 'get-url', 'origin')));
+    return repoChanges(gitText, main, regenerated);
+  };
+  const changes: ChangeReads = { changedPaths: (rev) => repo().changedPaths(rev), taskBranches: () => repo().taskBranches() };
   return {
     git,
-    profiles: readProfiles(),
+    profiles,
     credential: () => readCredential(SHIP_TOKEN_TARGET, windowsPowerShell),
     ghFor: token => ghWithToken(token),
     waiter: { now: () => Date.now(), sleep: ms => new Promise(done => setTimeout(done, ms)) },
     gate: realGateDeps(dir, out),
     renamedCallers: (base, tip, repo) => renamedCallersRefusal({ base, tip, repo }, { env: process.env, userHome: homedir() }, realRenamedCallersDeps(dir, out)),
     sweep: (merged, profile, gh) => sweepAfterMerge(merged, profile, { git, pullsOf: pullsOfHead(gh, merged.repo), out, err }),
-    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }),
+    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }, changes),
     catchUp: request =>
       catchUp(
         {

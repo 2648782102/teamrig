@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
-import { changePatch, clearMergeFrom, shipWritesOf, workCommitsOf } from './approval.ts';
+import { changePatch, clearMergeFrom, repoChanges, shipWritesOf, workCommitsOf } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { leftoversCommand } from './leftovers.ts';
 import { checkCommand, proveTree, realGateDeps } from './local-gate.ts';
@@ -21,6 +21,8 @@ import { TEAMRIG_VERSION_FILES } from './version-bump.ts';
  * The ship tool's command line; what each command does lives in its module.
  * Ships a finished teamrig change from a tested working tree (ship-commits.ts):
  *   node ship.ts <teamrig dir> <plan.json> [base, default origin/main] [--merge [--approved <sha>] [--note-file <path>]]
+ *   --approved names the head the lead approved, or the GitHub answerer's own head: alone on a change touching no
+ *   sensitive path and no other session's open branch, else after that session's approval (approval.ts, T3448).
  * plan.json: { "chunks": [ { "files": ["src/a.ts", ...], "subject": "area: what", "body": "why" } ] }
  *
  * Proves a repo dir's checked-out tree with its local checks (a pass record, else a run that writes one):
@@ -60,7 +62,7 @@ function realShipDeps(repo: string, noteFile: string | null): ShipDeps {
     push: () => pushOwnBranch(gitLine, profile.main),
     merge: (branch) => mergeBranch([repo, '--head', branch, ...(noteFile === null ? [] : ['--note-file', noteFile])]),
     mainMove: () => mainMovedPast(gitLine, profile.main),
-    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }),
+    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }, repoChanges(git, profile.main, profile.regenerated)),
     patchOf: (rev) => changePatch(git, rev, `refs/remotes/origin/${profile.main}`, shipWritesOf(profile.regenerated, TEAMRIG_VERSION_FILES)),
     workOf: (rev) => workCommitsOf(git, rev, `refs/remotes/origin/${profile.main}`, shipWritesOf(profile.regenerated, TEAMRIG_VERSION_FILES)),
   };
