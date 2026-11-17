@@ -50,16 +50,30 @@ export function importedTasks(tasks: Iterable<Task>): Map<string, Task> {
 /**
  * The task holding each issue or pull request ref: the task the import added for it, else the team's own task that
  * links to it (linkedRefs), the first of a ref winning, so news of an item reaches the session working it however its
- * task came to hold it.
+ * task came to hold it. An import that is done or dropped gives way to an active team task linking the same ref
+ * (finishedImport): a duplicate the team dropped holds nothing.
  */
 export function refHolders(tasks: readonly Task[]): Map<string, Task> {
   const held = importedTasks(tasks);
   for (const task of tasks) {
-    if (task.ref !== null && task.ref.startsWith(ISSUE_REF_PREFIX) && !held.has(task.ref)) {
+    if (task.ref === null || !task.ref.startsWith(ISSUE_REF_PREFIX)) {
+      continue;
+    }
+    const holder = held.get(task.ref);
+    if (holder === undefined || (task.source !== GITHUB_SOURCE && ACTIVE_STATUSES.includes(task.status) && finishedImport(holder))) {
       held.set(task.ref, task);
     }
   }
   return held;
+}
+
+/**
+ * Whether `task` is one the import added that the team has done or dropped. Where a team task links the same issue,
+ * such a task is a duplicate left behind (an import made before the link, say after a repository moved), so the
+ * issue is the team task's.
+ */
+function finishedImport(task: Task): boolean {
+  return task.source === GITHUB_SOURCE && !ACTIVE_STATUSES.includes(task.status);
 }
 
 /**
@@ -79,7 +93,8 @@ export function linkedRefs(tasks: Iterable<Task>): Set<string> {
 
 /**
  * The writes that bring the register in step with a repository's issues. An issue a team task links to
- * (`linked`, from linkedRefs) is that task's: nothing is written for it. An open issue with no task is
+ * (`linked`, from linkedRefs) is that task's: nothing is written for it, nor for an import of it the team has done
+ * or dropped, so dropping a duplicate is enough to leave the issue to the team task. An open issue with no task is
  * added when it is trusted or accepted (trust.ts), else left out by its number; a closed one with no task is
  * not, as there is nothing left to do. On a task the import added, only the title, the description, the
  * priority and whether it is open follow GitHub: any active status stands for an open issue, and its owner,
@@ -110,7 +125,7 @@ function issueSteps(issue: HostIssue, imported: ReadonlyMap<string, Task>, rules
   const wanted = issueTask(issue, rules);
   const task = imported.get(wanted.ref);
   const followsText = issueTrust(issue, rules.acceptLabel) !== 'untrusted';
-  if (task === undefined && linked.has(wanted.ref)) {
+  if (linked.has(wanted.ref) && (task === undefined || finishedImport(task))) {
     return { known: true, steps: [] };
   }
   if (task === undefined) {

@@ -70,6 +70,17 @@ describe('refHolders', () => {
       ['gh:acme/web#3', linked],
     ]);
   });
+
+  it('holds a ref by the active team task linking to it when its import was done or dropped', () => {
+    const duplicate = imported('T9', 1, { status: 'dropped' });
+    const team = testTask({ id: 'T2', ref: 'gh:acme/web#1' });
+    const finished = testTask({ id: 'T3', ref: 'gh:acme/web#2', status: 'done' });
+    const doneImport = imported('T8', 2, { status: 'done' });
+    assert.deepEqual([...refHolders([duplicate, team, doneImport, finished])], [
+      ['gh:acme/web#1', team],
+      ['gh:acme/web#2', doneImport],
+    ]);
+  });
 });
 
 describe('linkedRefs', () => {
@@ -100,6 +111,12 @@ describe('planSync', () => {
   it('writes nothing for an issue a team task links to, open or closed, and counts it as known', () => {
     const linked = new Set(['gh:acme/web#7', 'gh:acme/web#8']);
     assert.deepEqual(planSync([issue(7, { labels: ['p1'] }), issue(8, { state: 'closed' })], new Map(), RULES, linked), { steps: [], inserted: 0, changed: 0, unchanged: 2, leftOut: [] });
+  });
+
+  it('leaves an issue a team task links to that task, not to an import of it the team dropped', () => {
+    const duplicate = imported('T9', 7, { status: 'dropped', statusAt: '2030-01-01T00:00:00.000Z' });
+    const plan = planSync([issue(7, { updatedAt: '2030-01-02T00:00:00Z', title: 'Renamed' })], new Map([['gh:acme/web#7', duplicate]]), RULES, new Set(['gh:acme/web#7']));
+    assert.deepEqual(plan, { steps: [], inserted: 0, changed: 0, unchanged: 1, leftOut: [] });
   });
 
   it('writes nothing for an issue its task already matches, whatever the team did with it', () => {
