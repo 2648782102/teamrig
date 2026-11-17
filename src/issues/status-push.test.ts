@@ -363,11 +363,11 @@ describe('the assignee (T2999)', () => {
   });
 
   it('assigns an open design issue no one is assigned to every design assignee, in one write, and keeps one a person assigned', () => {
-    const issues = [testHostIssue(7, { labels: ['design', 'status:open'] }), testHostIssue(8, { labels: ['design'], assignees: ['someone'] }), testHostIssue(9)];
-    const tasks = [holding('T1', 7, { owner: 'bravo' }), holding('T2', 8, { owner: 'bravo' }), holding('T3', 9, { owner: 'bravo', status: 'done' })];
+    const issues = [testHostIssue(7, { labels: ['design', 'status:open'] }), testHostIssue(8, { labels: ['design'], assignees: ['someone'] }), testHostIssue(9), testHostIssue(10, { labels: ['design'] })];
+    const tasks = [holding('T1', 7, { owner: 'bravo' }), holding('T2', 8, { owner: 'bravo' }), holding('T3', 9, { owner: 'bravo', status: 'done' }), holding('T4', 10, { owner: 'alpha', status: 'in-progress' })];
     const plan = planPush(REPO, issues, tasks, { writesPerRun: 50, closes: true }, { sessions: logins, design: ['monalisa', 'hubot'] });
-    assert.deepEqual(plan.changes.map(changeLine), ['LABEL acme/web#7 T1 open: take off status:open, assign monalisa, hubot', 'CLOSE acme/web#9 T3 done: close as completed']);
-    assert.deepEqual(plan.changes.map(changeWrites), [2, 1]);
+    assert.deepEqual(plan.changes.map(changeLine), ['LABEL acme/web#7 T1 open: take off status:open, assign monalisa, hubot', 'CLOSE acme/web#9 T3 done: close as completed', 'ASSIGN acme/web#10 T4 in-progress: assign monalisa, hubot']);
+    assert.deepEqual(plan.changes.map(changeWrites), [2, 1, 1]);
   });
 
   it('takes every status label off a goal, and still assigns it once scheduled (T3056)', () => {
