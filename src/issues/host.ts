@@ -74,6 +74,13 @@ export type HostLabelFile = { readonly kind: 'read'; readonly labels: readonly L
  */
 export type HostAssignee = { readonly kind: 'found'; readonly login: string } | { readonly kind: 'missing' } | { readonly kind: 'failed'; readonly reason: string };
 
+/**
+ * The name a repository goes by on the host now, as the host spells it: a repository renamed or moved to another
+ * owner answers with its new name, as GitHub follows its redirect. Missing when the host knows no such repository (or
+ * shows it to no one reading it), or the read failed.
+ */
+export type HostRepoName = { readonly kind: 'found'; readonly name: string } | { readonly kind: 'missing' } | { readonly kind: 'failed'; readonly reason: string };
+
 /** The comments one read of an issue's new comments gave, oldest first, each with its text matched and dropped; or the read failed. */
 export type HostComments = { readonly kind: 'read'; readonly comments: readonly ReadComment[] } | { readonly kind: 'failed'; readonly reason: string };
 
@@ -177,6 +184,11 @@ export interface IssueHost {
   assigneeExists(repo: string, login: string): Promise<HostAssignee>;
   /** Adds `logins` to the assignees of the issue or pull request; those already on it stay. */
   assign(target: IssueTarget, logins: readonly string[]): Promise<HostEnd>;
+  /**
+   * The name `repo` goes by now, read with the access `via` (a repository the team lists) is reached with: so the
+   * sync knows a name its tasks still hold is one a listed repository had before it was renamed or moved.
+   */
+  repoName(via: string, repo: string): Promise<HostRepoName>;
   /**
    * Whether `repo` changed since the host gave `marks`, cheaply enough to ask every minute: no list is read. Empty
    * marks always read as changed.

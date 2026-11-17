@@ -46,6 +46,8 @@ import {
   issueReadArgs,
   issueUnassignArgs,
   isUserRead,
+  isRepoRead,
+  repoReadArgs,
   jobLogArgs,
   labelCreateArgs,
   LabelFileReads,
@@ -483,6 +485,23 @@ describe('the assignee calls (T2999)', () => {
       ['api', '/users/octocat'],
     ]) {
       assert.equal(isUserRead(args), false, args.slice(1).join(' '));
+      assert.equal(isAllowedGh(args), false, args.slice(1).join(' '));
+    }
+  });
+
+  it('takes a repository read, and refuses one with a method, a field or a path past the repository', () => {
+    assert.deepEqual(repoReadArgs('acme/web'), ['api', 'repos/acme/web']);
+    assert.ok(isRepoRead(repoReadArgs('acme/web')) && isAllowedGh(repoReadArgs('acme/web')));
+    for (const args of [
+      ['api', 'repos/acme/web', '-X', 'DELETE'],
+      ['api', 'repos/acme/web', '-X', 'PATCH', '-f', 'name=x'],
+      ['api', 'repos/acme/web', '--jq', '.owner'],
+      ['api', 'repos/acme'],
+      ['api', 'repos/acme/..'],
+      ['api', 'repos/acme/web?per_page=1'],
+      ['api', '/repos/acme/web'],
+    ]) {
+      assert.equal(isRepoRead(args), false, args.slice(1).join(' '));
       assert.equal(isAllowedGh(args), false, args.slice(1).join(' '));
     }
   });

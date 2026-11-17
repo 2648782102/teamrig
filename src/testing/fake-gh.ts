@@ -4,6 +4,7 @@ import {
   isCommentsRead,
   COMMENTS_PAGE,
   isUserRead,
+  isRepoRead,
   isIssueAssign,
   isIssueUnassign,
   isIssueBodyEdit,
@@ -339,6 +340,8 @@ export class FakeGh implements GhRunner {
   /** How often each `<repo> <probe path>` changed: its entity tag is `W/"v<count>"`. */
   private readonly versions = new Map<string, number>();
   private readonly probeFailures = new Map<string, GhResult>();
+  /** Repositories renamed or moved: each former name, in lowercase, to the name it answers under now. */
+  private readonly moves = new Map<string, string>();
 
   /**
    * From now on, `repo` has these issue fields and types, and its open issues these values, as the fields query
@@ -462,6 +465,12 @@ export class FakeGh implements GhRunner {
     return this;
   }
 
+  /** From now on, a read of the repository `from` answers under the name `to`, as GitHub does once it was renamed or moved. */
+  moved(from: string, to: string): this {
+    this.moves.set(from.toLowerCase(), to);
+    return this;
+  }
+
   /** From now on, every user read ends as given. */
   answersUserRead(result: GhResult): this {
     this.userAnswer = result;
@@ -524,6 +533,9 @@ export class FakeGh implements GhRunner {
     }
     if (isUserRead(request.args)) {
       return this.userRead(request.args[1] ?? '');
+    }
+    if (isRepoRead(request.args)) {
+      return this.repoRead((request.args[1] ?? '').slice('repos/'.length));
     }
     if (isCommentsRead(request.args)) {
       return this.commentsAnswer ?? this.commentsRead(request.args);
@@ -657,6 +669,21 @@ export class FakeGh implements GhRunner {
     const name = (args[5] ?? '').slice('name='.length);
     this.labels.set(repo, [...(this.labels.get(repo) ?? []), name]);
     return { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ name }), stderr: '' };
+  }
+
+  /**
+   * A repository read as GitHub answers it: what a test set for the repository, else the name it moved to, else its
+   * own name when it holds issues or pull requests, else Not Found.
+   */
+  private repoRead(repo: string): GhResult {
+    const canned = this.canned.get(repo);
+    if (canned !== undefined) {
+      return canned;
+    }
+    const name = this.moves.get(repo.toLowerCase()) ?? (this.issues.has(repo) || this.pulls.has(repo) ? repo : undefined);
+    return name === undefined
+      ? { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' }
+      : { end: { kind: 'exited', code: 0 }, stdout: JSON.stringify({ full_name: name, private: false }), stderr: '' };
   }
 
   /** A user read as GitHub answers it: the user with its login as GitHub spells it, whatever case the path names. */
