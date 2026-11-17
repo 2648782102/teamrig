@@ -26,10 +26,16 @@ this is the other side of it.
 1. Best fix first: judge whether its fix is the best one. If a better one exists, propose it on the pull request
    (what and why) before taking it; else say in one line why theirs is best.
 2. A change under a guarded path (CONTRIBUTING.md, Review) gets a security review before it lands.
-3. Land it with credit: cherry-pick its source commits (`git cherry-pick -s <sha>` keeps the author), leave out its
+3. Who approves it: the GitHub answerer (`github.watcher`, else the intake role's holder, else the lead) alone, by
+   its own `--approved <full head sha>` on the merge, unless it touches a sensitive path (`github.sensitivePaths`, a
+   generic review path or a `pushGuard.reviewPaths` entry: the security reviewer approves that head first) or a file
+   another session's open branch changes (that session approves it). Needing two such approvals, it goes to the lead.
+   The merge reads the paths and the open branches itself and refuses, naming whose approval to ask
+   (`teamrig set <task> --status waiting --waits approval:<them>`).
+4. Land it with credit: cherry-pick its source commits (`git cherry-pick -s <sha>` keeps the author), leave out its
    version and dist commits, then raise the version and rebuild the dist ourselves (`dev-ship-change`). Comment on
    the pull request naming the landed commit, and close it.
-4. Reply as yourself, in plain words, with the next step and its date, and keep each promise in a task.
+5. Reply as yourself, in plain words, with the next step and its date, and keep each promise in a task.
 
 ## A design issue
 
@@ -49,4 +55,4 @@ comment` refuses a secret it finds, the rest is on you. A security hole someone 
 discussed there: tell the maintainer at once, so the comment is hidden and the report moves to a private advisory
 ([SECURITY.md](../../../SECURITY.md)), and reply only with a pointer to it.
 
-Last verified: 2026-11-15
+Last verified: 2026-11-17
