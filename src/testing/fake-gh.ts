@@ -16,6 +16,7 @@ import {
   isJobLogRead,
   isLabelAdd,
   isFileLabelCreate,
+  isAreaLabelCreate,
   isLabelCreate,
   isLabelFileRead,
   isLabelRead,
@@ -508,7 +509,7 @@ export class FakeGh implements GhRunner {
     if (isLabelRead(request.args)) {
       return this.labelRead(request.args[1] ?? '');
     }
-    if (isLabelCreate(request.args)) {
+    if (isLabelCreate(request.args) || isAreaLabelCreate(request.args)) {
       return this.writeFailure ?? this.labelCreate(request.args);
     }
     if (isLabelFileRead(request.args)) {
