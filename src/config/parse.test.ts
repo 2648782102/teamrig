@@ -28,7 +28,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.needsYou, { enabled: true, kinds: ['permission', 'question', 'elicitation', 'decision'], osToast: false });
     assert.deepEqual(config.meetingNotices, { enabled: true, beforeMinutes: 10, atStart: true, missedAfterMinutes: 5, osToast: true, tabToast: true, leadInbox: true });
     assert.deepEqual(config.tests, { maxFailureChars: 4000 });
-    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true });
+    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, addMaxPerRun: 25, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true });
     assert.deepEqual(config.register, DEFAULT_REGISTER);
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
@@ -435,6 +435,7 @@ describe('parseConfig', () => {
       areaOwners: {},
       sessions: {},
       closedDays: 365,
+      addMaxPerRun: 25,
       probeSeconds: 0,
       statusPush: false,
       acceptLabel: 'teamrig',
@@ -459,6 +460,14 @@ describe('parseConfig', () => {
       const parsed = parseConfig({ ...ROSTER, github: { closedDays: wrong } });
       assert.deepEqual(paths(parsed.issues), ['github.closedDays']);
       assert.equal(parsed.config.github.closedDays, 14);
+    }
+    for (const good of [1, 1000]) {
+      assert.equal(parseConfig({ ...ROSTER, github: { addMaxPerRun: good } }).config.github.addMaxPerRun, good);
+    }
+    for (const wrong of [0, 1001, 2.5, '25']) {
+      const parsed = parseConfig({ ...ROSTER, github: { addMaxPerRun: wrong } });
+      assert.deepEqual(paths(parsed.issues), ['github.addMaxPerRun']);
+      assert.equal(parsed.config.github.addMaxPerRun, 25);
     }
     for (const good of [30, 3600]) {
       assert.equal(parseConfig({ ...ROSTER, github: { probeSeconds: good } }).config.github.probeSeconds, good);

@@ -6,7 +6,7 @@ import { followersOf, parseFollows } from '../../github/follows.ts';
 import { issueMarkStep, type IssueAudience, type IssueChangeRoute, type IssueMark } from '../../github/issue-marks.ts';
 import { importRules, issueOwner, issueRef } from '../../github/map.ts';
 import { planRepo } from '../../github/moved.ts';
-import { importedTasks, refHolders, type SyncPlan, type SyncStep } from '../../github/plan.ts';
+import { holdAdds, importedTasks, refHolders, type SyncPlan, type SyncStep } from '../../github/plan.ts';
 import { withCiExcerpts } from '../../github/ci-excerpt.ts';
 import {
   firstMentionWatch,
@@ -161,7 +161,13 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       continue;
     }
     planned.lines.forEach(say);
-    const { tasks, plan } = planned;
+    const { tasks } = planned;
+    // The automatic sync adds at most github.addMaxPerRun tasks a repository: a mass add waits for a person's --yes.
+    const { plan, held } = auto ? holdAdds(planned.plan, config.github.addMaxPerRun) : { plan: planned.plan, held: 0 };
+    const heldReason = `${held} issue(s) to add, more than github.addMaxPerRun (${config.github.addMaxPerRun}) a round, so none was added: check the repository was not renamed or moved, then teamrig issue sync --yes adds them`;
+    if (held > 0) {
+      say(`HELD ${repo}: ${heldReason}`);
+    }
     const imported = importedTasks(tasks);
     // A security issue goes to its task's owner, else where the import would route it; an outsider's left-out report too.
     security.set(repo, securityIssues(read.issues, (issue) => imported.get(issueRef(issue.repo, issue.number))?.owner ?? issueOwner(issue, rules)));
@@ -178,6 +184,11 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
     const leftOutText = leftOutLines(repo, plan.leftOut, rules.acceptLabel);
     let end: RepoEnd = 'ok';
     let issueThreads: Thread[] = [];
+    if (held > 0) {
+      // The lead hears of it once (failureNews), and again only after a round that held nothing.
+      failures.push({ repo, reason: heldReason });
+      end = 'refused';
+    }
     if (write) {
       const outcomes = await applySteps(register, plan.steps);
       // Against the tasks as written, so an issue the import just took is held by its new task.
@@ -188,7 +199,9 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       added.push(...addedTasks(outcomes));
       const refused = refusedReason(outcomes);
       if (refused !== undefined) {
-        failures.push({ repo, reason: refused });
+        if (end === 'ok') {
+          failures.push({ repo, reason: refused });
+        }
         end = 'refused';
       }
     } else {

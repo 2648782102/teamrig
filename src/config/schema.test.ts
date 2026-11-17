@@ -184,6 +184,7 @@ const LIMIT_PATHS: { readonly [Name in keyof typeof CONFIG_LIMITS]: string } = {
   maxFailureChars: 'tests.maxFailureChars',
   githubRepos: 'github.repos',
   closedDays: 'github.closedDays',
+  githubAddMaxPerRun: 'github.addMaxPerRun',
   githubProbeSeconds: 'github.probeSeconds',
   similarThreshold: 'github.similarThreshold',
   githubFollowMax: 'github.followMax',
