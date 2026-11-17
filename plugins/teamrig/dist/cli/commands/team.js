@@ -148,5 +148,9 @@ export async function rename(args, runtime) {
     const { from } = outcome.rename;
     runtime.out.stdout(`RENAMED ${id}: ${from} -> ${to}`);
     runtime.out.stdout(`NOTE ${from} still finds ${id} in every ${KIT_NAME} command; ${KIT_NAME} never edits permission or auto-mode rules, so update any that name ${from} yourself`);
+    // Every team ran these same checks by hand after a rename (#1255); only a recorded rename prints them.
+    runtime.out.stdout(`NEXT ${KIT_NAME} who: ${to} is listed under its new name`);
+    runtime.out.stdout(`NEXT ${KIT_NAME} list --session ${to}: its tasks`);
+    runtime.out.stdout(`NEXT ${KIT_NAME} inbox read --session ${to}: its unread lines`);
     return EXIT.ok;
 }
