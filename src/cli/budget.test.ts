@@ -1025,7 +1025,7 @@ describe('teamrig statusline', () => {
     return {
       branch: mock.fn((_dir: string): string | undefined => branch),
       head: mock.fn((_dir: string): string | undefined => head),
-      pushTarget: (): string | undefined => undefined,
+      remoteUrls: () => [], pushTarget: (): string | undefined => undefined,
       config: () => ({ kind: 'unset' }),
     } satisfies RepoState;
   }
