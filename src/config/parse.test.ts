@@ -28,7 +28,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.needsYou, { enabled: true, kinds: ['permission', 'question', 'elicitation', 'decision'], osToast: false });
     assert.deepEqual(config.meetingNotices, { enabled: true, beforeMinutes: 10, atStart: true, missedAfterMinutes: 5, osToast: true, tabToast: true, leadInbox: true });
     assert.deepEqual(config.tests, { maxFailureChars: 4000 });
-    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, fields: DEFAULT_ISSUE_FIELDS });
+    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, designAssignees: [], fields: DEFAULT_ISSUE_FIELDS });
     assert.deepEqual(config.register, DEFAULT_REGISTER);
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
@@ -482,6 +482,7 @@ describe('parseConfig', () => {
       activity: true,
       followMax: 20,
       stamp: true,
+      designAssignees: [],
     });
     assert.equal(parseConfig({ ...ROSTER, github: { statusPush: true } }).config.github.statusPush, true);
     assert.equal(parseConfig({ ...ROSTER, github: { stamp: false } }).config.github.stamp, false);
@@ -663,6 +664,14 @@ describe('parseConfig', () => {
     });
     assert.deepEqual(paths(issues), ['github.sessions.acme/other', 'github.sessions.acme/api', 'github.sessions.ACME/web']);
     assert.deepEqual(config.github.sessions, { 'acme/web': 'bravo' });
+  });
+
+  it('reads github.designAssignees as logins in lowercase, reporting a wrong one and one listed twice', () => {
+    const set = parseConfig({ ...ROSTER, github: { designAssignees: ['MonaLisa', 'octo-cat', 'octo_cat', 'monalisa', 7] } });
+    assert.deepEqual(paths(set.issues), ['github.designAssignees[2]', 'github.designAssignees[4]', 'github.designAssignees']);
+    assert.deepEqual(set.config.github.designAssignees, ['monalisa', 'octo-cat']);
+    const tooMany = parseConfig({ ...ROSTER, github: { designAssignees: Array.from({ length: 11 }, (_, index) => `maintainer${index}`) } });
+    assert.deepEqual(paths(tooMany.issues), ['github.designAssignees']);
   });
 
   it('reports a wrong repository, a repository listed twice, a wrong login and an unknown session', () => {
