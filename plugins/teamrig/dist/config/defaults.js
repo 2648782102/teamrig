@@ -227,12 +227,71 @@ export const DEFAULT_MEETING = {
 /** About a screenful: two or three failing tests with their errors and first stack frames. */
 export const DEFAULT_TESTS = { maxFailureChars: 4000 };
 /**
+ * `github.lowRiskPaths` (owner order, T3448, security verdict): the only paths an outside pull request may touch and
+ * merge on the GitHub answerer's approval alone, so a path added tomorrow is sensitive until a team lists it. Docs text
+ * and pictures only, which nothing runs: not `docs/**`, which would take a script placed there too, and no test code,
+ * as the ship gate and every session's test runs execute tests on the host as the user. A team may add its own paths,
+ * knowing a code path's merged code runs there; `github.sensitivePaths` wins over every entry.
+ */
+export const DEFAULT_LOW_RISK_PATHS = ['docs/**/*.md', 'docs/**/*.png', 'docs/**/*.svg', 'docs/**/*.jpg'];
+/**
+ * `github.sensitivePaths` (owner order, T3448): what stays sensitive inside `github.lowRiskPaths`, so a team's broad
+ * low-risk folder never clears these. The repo's own tooling and CI (`tools/`, `.github/`, git hooks), whatever guards,
+ * hooks, merges or grants permissions, the code that writes to GitHub, the package file that chooses what installs (the
+ * lock files are generic review paths already), config and the code that reads it (these lists among it), secrets and
+ * approvals, and the instructions agents follow (`CLAUDE.md` and `AGENTS.md` at any depth, `.claude/`, plugin
+ * manifests and skills). A glob with no slash names a file at any depth, so `*hook*` covers a
+ * `hook-*.ts` command beside the others, and `**\/hooks/**` a hooks folder anywhere.
+ */
+export const DEFAULT_SENSITIVE_PATHS = [
+    'tools/**',
+    '.github/**',
+    '**/.githooks/**',
+    '**/*guard*/**',
+    '*guard*',
+    '**/hooks/**',
+    '*hook*',
+    '**/merge/**',
+    '*merge*',
+    '**/permissions/**',
+    '*permission*',
+    '**/github/**',
+    '*github*',
+    '**/issues/**',
+    'issue*',
+    'package.json',
+    '**/config/**',
+    '*config*',
+    '*secret*',
+    '*approval*',
+    'CLAUDE.md',
+    'CLAUDE.local.md',
+    'AGENTS.md',
+    '**/.claude/**',
+    '**/.claude-plugin/**',
+    '**/skills/**',
+];
+/**
  * Off until a team lists a repository; two weeks of closed issues covers a sync missed over a holiday. Every 15
  * minutes a new issue reaches its session within a working block, at two gh calls per repository each time (one more
  * per further hundred open, or recently changed closed, issues). An outsider's issue waits for the `teamrig` label,
  * named after the tool so it does not clash with a repository's own triage labels.
  */
-export const DEFAULT_GITHUB = { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20 };
+export const DEFAULT_GITHUB = {
+    repos: [],
+    owners: {},
+    areaOwners: {},
+    sessions: {},
+    closedDays: 14,
+    probeSeconds: 60,
+    statusPush: false,
+    acceptLabel: 'teamrig',
+    similarThreshold: 0.35,
+    activity: true,
+    followMax: 20,
+    lowRiskPaths: DEFAULT_LOW_RISK_PATHS,
+    sensitivePaths: DEFAULT_SENSITIVE_PATHS,
+};
 /**
  * Claude Code compacts a 200k window at about 167k, so 120k refreshes before that; every 3 tasks catches a
  * session that grows slowly, from 80k up. Measured over 8 days of 12 sessions: about 9 refreshes a day in all.

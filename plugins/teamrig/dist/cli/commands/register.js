@@ -17,7 +17,7 @@ import { postLine } from "../../inbox/inbox.js";
 import { formatTaskLines, taskLinesOf } from "../../inbox/task-lines.js";
 import { WakeAsks } from "../../wake/asks.js";
 import { teamDayStartAt } from "../../wake/day-start.js";
-import { waitAnswerersOf } from "../../register/approval.js";
+import { approvalRolesOf, waitAnswerersOf } from "../../register/approval.js";
 import { byFlagKind, checkTasks, leaderWaitFlags, noIssueFlags, peerWaitFlags, runFileFlags, untriagedFlags } from "../../register/check.js";
 import { currentWeekOf } from "../../register/week.js";
 import { fitLines, leftOfWeek, overLimitFlag, weekFit } from "../../register/fit.js";
@@ -286,7 +286,7 @@ async function tellLeadersOfWaits(runtime, team, by, verdict) {
     const { task, before } = verdict.value;
     const earlier = before?.waits ?? [];
     const leaders = new LeadTree(team.config, team.above);
-    const answerers = waitAnswerersOf(leaders, team.config.roles, task.owner);
+    const answerers = waitAnswerersOf(leaders, approvalRolesOf(team.config), task.owner);
     const added = task.waits.filter((reason) => (reason.kind === 'decision' || reason.kind === 'approval') && !isPeerWait(reason, answerers, ownerSource) && !earlier.some((other) => sameWait(reason, other)));
     const ownLeader = leaders.leaderOf(task.owner) ?? leaders.above ?? lead;
     const receiverOf = (reason) => (reason.who === ownerSource ? ownLeader : reason.who);
@@ -917,7 +917,7 @@ function checkRegister({ snapshot, config, elsewhere, above, ranking }, now, zon
     const leads = new LeadTree(config, above);
     const flags = [
         ...checkTasks(tasks, now, zone, week, config.register, elsewhere, ranking),
-        ...peerWaitFlags(tasks, leads, config.roles, config.register.ownerSource),
+        ...peerWaitFlags(tasks, leads, approvalRolesOf(config), config.register.ownerSource),
         ...runFileFlags(tasks, runFiles),
         // In plan order, so the leader reads the most urgent wait first.
         ...leaderWaitFlags(tree.inPlanOrder(tasks), leads, config.focus, now.getTime()),
