@@ -133,7 +133,7 @@ describe('planPush (T2682)', () => {
       ],
       [holding('T1', 7, { status: 'done' }), holding('T2', 8, { status: 'dropped' }), holding('T3', 9, { status: 'done' }), holding('T4', 10, { status: 'done' })],
       SESSION_PUSH,
-      logins,
+      { sessions: logins, design: [] },
     );
     assert.deepEqual(plan.keptOpen, [
       { target: { repo: REPO, number: 7 }, task: 'T1', status: 'done', why: { kind: 'taken', assignees: ['outsider'] } },
