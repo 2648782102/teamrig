@@ -1326,7 +1326,14 @@ register refused a step (a `SKIPPED` line each), else 0.
 
 On its own: with `github.repos` listed and `github.probeSeconds` above 0 (60 by default), the team's
 `teamrig issue watch` runs `teamrig issue sync --auto` within a probe of a change on GitHub. A new issue so reaches its
-owner while sessions work; a run by hand still works at any time.
+owner while sessions work; a run by hand still works at any time. A round of `--auto` that would add more than
+[github.addMaxPerRun] (25) tasks for one repository adds none of them: a `HELD` line, and the lead is told once as a
+failure of that repository. Its other changes still go; read the preview, then `teamrig issue sync --yes` adds them.
+
+A repository renamed or moved keeps its issue numbers: when the sync would add an issue whose number a task holds under
+a repository the team does not list, it asks GitHub whether that name is now the listed one, and if so the issue
+matches that task (a `MOVED` line; `teamrig refs apply` points the refs at the new name). A task done or dropped
+that the import added gives way to an open task linking the same issue.
 
 A run that writes also times each open issue's and pull request's wait for an answer of ours (the targets are in
 [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md#answer-times)): at 75% of its target
