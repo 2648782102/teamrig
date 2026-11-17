@@ -51,11 +51,17 @@ page you point them to.
 4. A change to a threshold, limit or trigger: ask "can this still fire?" Its tests must show it firing in the real
    flow, through whatever resets its count (a compaction, a `/clear`, a restart); ask for that spec when they do
    not (CONTRIBUTING.md, Tests).
-5. Land it with credit: cherry-pick its source commits (`git cherry-pick -s <sha>` keeps the author), leave out its
+5. Who approves it: the GitHub answerer (`github.watcher`, else the intake role's holder, else the lead) alone, by
+   its own `--approved <full head sha>` on the merge, unless it touches a sensitive path (`github.sensitivePaths`, a
+   generic review path or a `pushGuard.reviewPaths` entry: the security reviewer approves that head first) or a file
+   another session's open branch changes (that session approves it). Needing two such approvals, it goes to the lead.
+   The merge reads the paths and the open branches itself and refuses, naming whose approval to ask
+   (`teamrig set <task> --status waiting --waits approval:<them>`).
+6. Land it with credit: cherry-pick its source commits (`git cherry-pick -s <sha>` keeps the author), leave out its
    version and dist commits, which the release workflow makes, and land the rest with `dev-ship-change` and the plan
    `{ "chunks": [] }`, which lands the picked commits as they are; a chunk naming them would commit them again under
    our name. Comment on the pull request naming the landed commit, and close it.
-6. Reply as yourself, in plain words, with the next step and its date, and keep each promise in a task.
+7. Reply as yourself, in plain words, with the next step and its date, and keep each promise in a task.
 
 ## A design issue
 
@@ -90,4 +96,4 @@ comment` refuses a secret it finds, the rest is on you. A security hole someone 
 discussed there: tell the maintainer at once, so the comment is hidden and the report moves to a private advisory
 ([SECURITY.md](../../../SECURITY.md)), and reply only with a pointer to it.
 
-Last verified: 2026-11-16
+Last verified: 2026-11-17
