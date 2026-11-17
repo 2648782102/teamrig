@@ -187,6 +187,17 @@ function changedSince(issue: HostIssue, at: string): boolean {
   return issue.updatedAt !== undefined && Date.parse(issue.updatedAt) > Date.parse(at);
 }
 
+/**
+ * `plan` with its adds held when it would add more than `max` tasks: none of them is added, its other writes still
+ * go, and `held` says how many were held (0 when none).
+ */
+export function holdAdds(plan: SyncPlan, max: number): { readonly plan: SyncPlan; readonly held: number } {
+  if (plan.inserted <= max) {
+    return { plan, held: 0 };
+  }
+  return { plan: { ...plan, steps: plan.steps.filter((step) => step.kind !== 'add'), inserted: 0 }, held: plan.inserted };
+}
+
 /** The note on a closed issue's task: how GitHub closed it, when it is a reason GitHub names. */
 export function closedNote(stateReason: string): string {
   const reason = CLOSE_REASONS.get(stateReason.toUpperCase());

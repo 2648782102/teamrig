@@ -67,6 +67,7 @@ export const CONFIG_LIMITS = {
   githubRepos: { maxItems: 20, maxLength: 140 },
   issueTypeNames: { maxItems: 5, maxLength: 100 },
   closedDays: { min: 1, max: 365 },
+  githubAddMaxPerRun: { min: 1, max: 1000 },
   githubProbeSeconds: { min: 0, max: 3600 },
   similarThreshold: { min: 0, max: 1 },
   githubFollowMax: { min: 0, max: 100 },

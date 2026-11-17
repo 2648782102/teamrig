@@ -755,6 +755,7 @@ function parseGithub(read: ConfigReader, raw: JsonRecord, sessions: readonly str
     areaOwners: readGithubAreaOwners(read, read.section(raw, 'areaOwners', 'github'), sessions),
     sessions: readGithubSessions(read, read.section(raw, 'sessions', 'github'), repos, sessions),
     closedDays: read.integer(raw, 'closedDays', 'github', DEFAULT_GITHUB.closedDays, CONFIG_LIMITS.closedDays),
+    addMaxPerRun: read.integer(raw, 'addMaxPerRun', 'github', DEFAULT_GITHUB.addMaxPerRun, CONFIG_LIMITS.githubAddMaxPerRun),
     probeSeconds: readProbeSeconds(read, raw),
     statusPush: read.boolean(raw, 'statusPush', 'github', DEFAULT_GITHUB.statusPush),
     fields: parseIssueFields(read, read.section(raw, 'fields', 'github')),

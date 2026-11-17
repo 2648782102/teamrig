@@ -1407,6 +1407,13 @@
           "maximum": 365,
           "default": 14
         },
+        "addMaxPerRun": {
+          "description": "The most tasks the automatic sync adds for one repository in a round. A round that would add more adds none for that repository and tells the lead once, as so many new issues at once is far more often a mismatch, such as a repository renamed or moved under the team, than real news. Its updates still go. A person's teamrig issue sync --yes is not held: read its preview first.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 25
+        },
         "probeSeconds": {
           "description": "How often teamrig issue watch asks GitHub whether a listed repository changed, in seconds: a conditional read that costs no rate limit when nothing changed, the sync running only when something did. One watch runs for the whole team, started by the hooks. 0 runs no watch and leaves the sync to teamrig issue sync --yes; otherwise at least 30. It replaced everyMinutes, which is reported until deleted.",
           "type": "integer",

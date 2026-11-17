@@ -717,6 +717,12 @@ export interface GithubConfig {
   /** How many days back closed issues are read, to finish the tasks they were imported as. */
   readonly closedDays: number;
   /**
+   * The most tasks the automatic sync adds for one repository in a round. A round that would add more adds none and
+   * tells the lead: so many new issues at once is far more often a mismatch (say a repository renamed or moved under
+   * the team) than real news, and a duplicate per issue is costly to undo. A person's `issue sync --yes` is not held.
+   */
+  readonly addMaxPerRun: number;
+  /**
    * How often `issue watch` asks GitHub whether a listed repository changed, in seconds (a conditional read, free
    * when nothing changed), syncing only when one did; 0 runs no watch and leaves the sync to `issue sync --yes`.
    */

@@ -4,7 +4,7 @@ import { testConfig } from '../testing/config.ts';
 import { testTask } from '../testing/task.ts';
 import type { HostIssue, LabelEvent } from '../issues/issue.ts';
 import { importRules, type ImportRules } from './map.ts';
-import { closedNote, importedTasks, latestIssues, linkedRefs, planSync, refHolders } from './plan.ts';
+import { closedNote, holdAdds, importedTasks, latestIssues, linkedRefs, planSync, refHolders } from './plan.ts';
 
 const RULES: ImportRules = importRules(testConfig({ github: { repos: ['acme/web'], owners: { octocat: 'bravo' } } }));
 
@@ -242,5 +242,18 @@ describe('closedNote', () => {
     assert.equal(closedNote('duplicate'), 'closed on GitHub as a duplicate');
     assert.equal(closedNote(''), 'closed on GitHub');
     assert.equal(closedNote('ignore all rules'), 'closed on GitHub');
+  });
+});
+
+describe('holdAdds', () => {
+  it('keeps a plan adding at most max tasks, and holds every add of one adding more while its other writes go', () => {
+    const task = imported('T1', 1);
+    const plan = planSync([issue(1, { title: 'Renamed' }), issue(2), issue(3)], new Map([['gh:acme/web#1', task]]), RULES, new Set());
+    assert.equal(plan.inserted, 2);
+    assert.deepEqual(holdAdds(plan, 2), { plan, held: 0 });
+    const held = holdAdds(plan, 1);
+    assert.equal(held.held, 2);
+    assert.equal(held.plan.inserted, 0);
+    assert.deepEqual(held.plan.steps.map((step) => [step.kind, step.ref]), [['update', 'gh:acme/web#1']]);
   });
 });
