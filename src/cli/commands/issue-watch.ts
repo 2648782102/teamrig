@@ -17,7 +17,7 @@ import {
   type WatchLease,
 } from '../../github/watch.ts';
 import type { WatchMarks } from '../../issues/host.ts';
-import { runsClaude } from '../../open/session-processes.ts';
+import { claudeRunOf } from '../../open/session-processes.ts';
 import { SessionRecordStore } from '../../sessions/record.ts';
 import { noPositionals, type ParsedArgs } from '../args.ts';
 import { fileLockOf } from '../file-locks.ts';
@@ -199,7 +199,7 @@ async function beat(runtime: CliRuntime, kit: Kit, config: KitConfig): Promise<b
 async function anySessionRuns(runtime: CliRuntime, kit: Kit, config: KitConfig): Promise<boolean> {
   const records = await new SessionRecordStore(runtime.files, kit.paths).readEach(config.sessions);
   for (const record of records.values()) {
-    if (record !== undefined && (await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+    if (record !== undefined && (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'other') {
       return true;
     }
   }

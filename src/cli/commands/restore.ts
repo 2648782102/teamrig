@@ -13,7 +13,7 @@ import { teamWindowOf } from '../../open/terminals.ts';
 import { encodePrompt } from '../../open/prompt.ts';
 import { shellCommand } from '../../open/quote.ts';
 import { plainSessionEnv } from '../../open/session-env.ts';
-import { runsClaude, type EndOutcome } from '../../open/session-processes.ts';
+import { claudeRunOf, type EndOutcome } from '../../open/session-processes.ts';
 import { RestoreArchive, restoreArchiveDir } from '../../restore/archive.ts';
 import type { RestoreEntry } from '../../restore/entry.ts';
 import { RestoreRegistry, restoreLogPath, restoreSessionsDir } from '../../restore/registry.ts';
@@ -170,12 +170,16 @@ function roomWaitMsOf(teams: ReadonlyMap<string, TreeTeam>): number {
 
 /**
  * Ends a hung session's Claude Code at once. Its pid is checked to still run Claude Code first, so a pid the system
- * gave another program since is never ended (`gone`).
+ * gave another program since is never ended (`gone`), nor one the system would not describe (`failed`).
  */
 async function endSession(runtime: CliRuntime, entry: RestoreEntry): Promise<EndOutcome> {
   const { pid } = entry;
-  if (pid === undefined || !(await runsClaude(runtime.sessionProcesses, pid))) {
+  const run = await claudeRunOf(runtime.sessionProcesses, pid);
+  if (pid === undefined || run === 'other') {
     return { kind: 'gone' };
+  }
+  if (run === 'unknown') {
+    return { kind: 'failed', error: `the system would not describe process ${pid}, so it is not ended` };
   }
   return runtime.sessionProcesses.end(pid, 'force');
 }
@@ -200,7 +204,7 @@ async function restoreDepsOf(runtime: CliRuntime, terminal: TerminalChoice | und
     projectsDir,
     platform: runtime.platform,
     roomWaitMs: roomWaitMsOf(teams),
-    stillRunning: (entry) => runsClaude(runtime.sessionProcesses, entry.pid),
+    stillRunning: async (entry) => (await claudeRunOf(runtime.sessionProcesses, entry.pid)) !== 'other',
     transcriptOf: (entry) => finder.find(entry),
     modifiedAt: (path) => runtime.files.modifiedAt(path),
     end: (entry) => endSession(runtime, entry),

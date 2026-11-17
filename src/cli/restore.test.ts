@@ -170,6 +170,16 @@ describe('teamrig restore check', () => {
     assert.deepEqual(result, { code: EXIT.ok, stdout: ['No Claude Code sessions to restore.'], stderr: [] });
     assert.deepEqual(processes.started, []);
   });
+
+  it('reopens no live tab the system would not describe, as on a host at full CPU (T3496)', async () => {
+    const kit = await restoreKit([entry(LIVE, 3, { pid: LIVE_PID })]);
+    const processes = new FakeProcesses().onStart('wt.exe', { kind: 'started', end: 'exited' });
+    const options = machine(kit, processes);
+    options.sessionProcesses.failLookups(1);
+    const result = await kit.run(['restore', 'check'], options);
+    assert.deepEqual(result, { code: EXIT.ok, stdout: ['No Claude Code sessions to restore.'], stderr: [] });
+    assert.deepEqual(processes.started, []);
+  });
 });
 
 describe('teamrig restore run', () => {

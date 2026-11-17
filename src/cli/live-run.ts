@@ -1,6 +1,6 @@
 import { treeOf } from '../delivery/processes.ts';
 import { KIT_NAME, type TeamPaths } from '../core/home.ts';
-import { runsClaude } from '../open/session-processes.ts';
+import { claudeRunOf } from '../open/session-processes.ts';
 import { KIND_TAIL_BYTES, transcriptKindOf } from '../restore/transcript-kind.ts';
 import { measureSessions, runningPlaces } from '../sessions/measure.ts';
 import { SessionRecordStore, type SessionRecord } from '../sessions/record.ts';
@@ -45,7 +45,7 @@ export async function liveRunOf(
 ): Promise<LiveRun | undefined> {
   const records = await new SessionRecordStore(runtime.files, paths).readEach(ids);
   const record = records.get(id);
-  if (record === undefined || record.claudePid === own || !(await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+  if (record === undefined || record.claudePid === own || (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'claude') {
     return undefined;
   }
   const rows = await runtime.memory.processes();

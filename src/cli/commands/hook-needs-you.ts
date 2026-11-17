@@ -4,7 +4,7 @@ import { LockBusyError } from '../../core/lock.ts';
 import { showNotice } from '../../meeting/notify.ts';
 import { MeetingStore, phaseOf } from '../../meeting/state.ts';
 import { focusTab, type FocusOutcome } from '../../open/focus.ts';
-import { runsClaude } from '../../open/session-processes.ts';
+import { claudeRunOf } from '../../open/session-processes.ts';
 import type { NeedKind } from '../../tabs/need-kind.ts';
 import { TabNeedStore } from '../../tabs/need.ts';
 import { asksFor, NeedsYouSent, offersFocus, type AskingTab } from '../../tabs/needs-you.ts';
@@ -61,7 +61,7 @@ async function liveAsks(runtime: CliRuntime, scope: Found, own: string | null): 
   const tabs = await new TabNeedStore(runtime.files, scope.kit.paths).readAll();
   const members = new Set(scope.roster.ids);
   const asks = asksFor(tabs, own, scope.config.needsYou.kinds).filter((need) => members.has(need.session));
-  const live = await Promise.all(asks.map(async (need) => need.pid === null || (await runsClaude(runtime.sessionProcesses, need.pid))));
+  const live = await Promise.all(asks.map(async (need) => need.pid === null || (await claudeRunOf(runtime.sessionProcesses, need.pid)) !== 'other'));
   return asks.filter((_, index) => live[index] === true);
 }
 

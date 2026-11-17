@@ -85,13 +85,25 @@ export interface SessionProcesses {
   feed(request: FeedRequest): Promise<FeedOutcome>;
 }
 
-/** Whether `pid` still runs Claude Code: a pid the system gave another program since does not count. */
-export async function runsClaude(processes: Pick<SessionProcesses, 'alive' | 'describe'>, pid: number | undefined): Promise<boolean> {
+/**
+ * What a recorded pid runs now: `claude` while it still runs Claude Code, `other` when nothing runs as it or the
+ * system gave it another program since, and `unknown` when a process runs as it but the system would not describe it
+ * (a lookup that failed or ran past its time limit, as on a host at full CPU). Each caller decides what `unknown`
+ * means for it, on the side that does no harm: a restore never reopens such a tab, nor ends its process.
+ */
+export type ClaudeRun = 'claude' | 'other' | 'unknown';
+
+/** Whether `pid` still runs Claude Code (`ClaudeRun`). */
+export async function claudeRunOf(processes: Pick<SessionProcesses, 'alive' | 'describe'>, pid: number | undefined): Promise<ClaudeRun> {
   if (pid === undefined || !processes.alive(pid)) {
-    return false;
+    return 'other';
   }
   const info = await processes.describe(pid);
-  return info !== undefined && isClaudeProcess(info);
+  if (info === undefined) {
+    // It was alive a moment ago: the lookup failed, or it ended in between; only a later look can tell which.
+    return processes.alive(pid) ? 'unknown' : 'other';
+  }
+  return isClaudeProcess(info) ? 'claude' : 'other';
 }
 
 export interface SessionProcessesOptions {

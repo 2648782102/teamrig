@@ -4,7 +4,7 @@ import type { KitConfig } from '../../config/types.ts';
 import type { JsonRecord } from '../../core/guards.ts';
 import type { TeamPaths } from '../../core/home.ts';
 import { splitRenameLog } from '../../names/rename.ts';
-import { runsClaude } from '../../open/session-processes.ts';
+import { claudeRunOf } from '../../open/session-processes.ts';
 import { readRegister } from '../../register/snapshot.ts';
 import { SessionRecordStore } from '../../sessions/record.ts';
 import { sessionFilesOf } from '../../setup/session-files.ts';
@@ -33,7 +33,7 @@ export async function liveSessionsOf(runtime: CliRuntime, paths: TeamPaths, ids:
   const records = await new SessionRecordStore(runtime.files, paths).readEach(ids);
   const live: LiveSession[] = [];
   for (const [id, record] of records) {
-    if (record !== undefined && (await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+    if (record !== undefined && (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'other') {
       live.push({ id, pid: record.claudePid });
     }
   }

@@ -11,6 +11,7 @@ import { FakeSweepHost } from '../testing/fake-sweep-host.ts';
 import { FakeWindowsPowerShell } from '../testing/fake-windows-powershell.ts';
 import {
   EXEC_STUB_MS,
+  claudeRunOf,
   isClaudeProcess,
   lineageOf,
   nodeSessionProcesses,
@@ -20,7 +21,6 @@ import {
   parseWindowsListing,
   parseWindowsProcess,
   parseWindowsProcesses,
-  runsClaude,
   type ListedProcess,
 } from './session-processes.ts';
 
@@ -35,10 +35,16 @@ describe('isClaudeProcess', () => {
   });
 });
 
-describe('runsClaude', () => {
+describe('claudeRunOf', () => {
   it('tells a pid that still runs Claude Code from none, a gone one and one another program has since', async () => {
     const processes = new FakeSessionProcesses().add({ pid: 41, parentPid: 1, name: 'claude.exe', commandLine: '' }).add({ pid: 42, parentPid: 1, name: 'notepad.exe', commandLine: '' });
-    assert.deepEqual(await Promise.all([41, 42, 43, undefined].map((pid) => runsClaude(processes, pid))), [true, false, false, false]);
+    assert.deepEqual(await Promise.all([41, 42, 43, undefined].map((pid) => claudeRunOf(processes, pid))), ['claude', 'other', 'other', 'other']);
+  });
+
+  it('names a live pid the system would not describe unknown, never other (T3496)', async () => {
+    const processes = new FakeSessionProcesses().add({ pid: 41, parentPid: 1, name: 'claude.exe', commandLine: '' }).failLookups(1);
+    assert.equal(await claudeRunOf(processes, 41), 'unknown');
+    assert.equal(await claudeRunOf(processes, 41), 'claude');
   });
 });
 
