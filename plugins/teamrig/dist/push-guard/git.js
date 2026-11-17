@@ -24,6 +24,14 @@ function readConfig(dir, key) {
         return error instanceof Error && 'status' in error && error.status === 1 ? { kind: 'unset' } : { kind: 'unreadable' };
     }
 }
+/** Each remote's URL: `git config --get-regexp` prints `remote.<name>.url <url>` a line, and exits 1 when none is set. */
+function remoteUrls(dir) {
+    const text = runGit(dir, ['config', '--get-regexp', '^remote\\..*\\.url$']) ?? '';
+    return text.split(/\r?\n/u).flatMap((line) => {
+        const space = line.indexOf(' ');
+        return space < 0 ? [] : [line.slice(space + 1)];
+    });
+}
 /** Repository state from the git CLI. */
 export const GIT_CLI = {
     // symbolic-ref names a branch before its first commit, and nothing on a detached HEAD.
@@ -32,6 +40,7 @@ export const GIT_CLI = {
     // A name starting with `-` would read as an option, so it has no push target the guard can ask for.
     pushTarget: (dir, branch) => (branch?.startsWith('-') === true ? undefined : readGit(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch ?? ''}@{push}`])),
     config: readConfig,
+    remoteUrls,
 };
 /** The newest commits of a range the size rule reads; older ones in a longer range go unchecked. */
 export const COMMIT_LOG_MAX = 200;

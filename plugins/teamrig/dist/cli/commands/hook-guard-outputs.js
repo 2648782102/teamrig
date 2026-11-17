@@ -209,10 +209,7 @@ export function ghGuardOutputOf(runtime, guard, payload) {
         cwd: runtime.cwd,
         home: runtime.userHome,
         repos: load?.status === 'loaded' ? load.config.github.repos : [],
-        originOf: (dir) => {
-            const url = runtime.git.config(dir, 'remote.origin.url');
-            return url.kind === 'set' ? githubRepoOf(url.value) : undefined;
-        },
+        remotesOf: (dir) => runtime.git.remoteUrls(dir).flatMap((url) => githubRepoOf(url) ?? []),
         platform: runtime.platform,
         command: KIT_NAME,
     });
