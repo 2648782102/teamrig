@@ -7,13 +7,13 @@ import { deliveryPlaces, detachedDirOf, detachedLogOf } from "../../delivery/pla
 import { passOf, PRE_PUSH_MAX_WAIT_MS, recordPass } from "../../delivery/push-pass.js";
 import { isStepKind, kindOfCommand, lineRequestOf, processRequest, STEP_KINDS, taskOfLabel } from "../../delivery/process-request.js";
 import { recordRefusal, runRecorded } from "../../delivery/recorded-step.js";
-import { treeFieldsOf, treeHeader, treeText } from "../../delivery/run-tree.js";
 import { stepNeedOf } from "../../delivery/step-need.js";
 import { causeOfLockWait, WaitLog } from "../../delivery/wait-log.js";
 import { queueCutoffReason, minutesText } from "../../delivery/schedule.js";
 import { endedText, startedByGit } from "../../delivery/starter-watch.js";
 import { exitCodeOf, STOPPED_EXIT, TIMED_OUT_EXIT } from "../../delivery/steps.js";
 import { errorMessage } from "../../core/guards.js";
+import { withoutCredentials } from "../../core/child-env.js";
 import { ENV } from "../../core/home.js";
 import { SecretScanner } from "../../core/secrets.js";
 import { postLine } from "../../inbox/inbox.js";
@@ -27,7 +27,7 @@ import { openTeamKit, reloadTeamConfig, requireConfig, rosterOf, sessionIdOf, te
 import { parentLockOf } from "../parent-lock.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { rerunAdvice, stoppedWhileWaiting, unlessStopped, watchStarters } from "../stoppable.js";
-import { shipTaskOfWords, shipToolOfWords, shipToolPinOf, shipToolStartRefusal } from "../ship-role-check.js";
+import { shipKindRefusal, shipTaskOfWords, shipToolOfWords, shipToolPinOf, shipToolStartRefusal } from "../ship-role-check.js";
 import { postUrgentLine } from "../urgent-line.js";
 import { envSession, markedSessionOf } from "./hook-input.js";
 import { inboxDepsOf } from "./inbox.js";
@@ -109,12 +109,17 @@ async function startRefusal(runtime, gate) {
  * The start check of a step that runs a configured ship tool (T3223): pinned as this run of queue begins, the --detach
  * call, its detached run and a hand-over's run each, so a tool whose checkout is not main's current code is refused
  * before it waits, and one whose checkout moved while it waited is refused at its start. Nothing is taken from the
- * arguments, so no flag can loosen it; a step that runs no ship tool has no check.
+ * arguments, so no flag can loosen it; a step that runs no ship tool has no check. A run whose kind does not fit it,
+ * a merge that would not take the ship slot or a run without --merge that would (T3414), is refused before it waits.
  */
-function shipToolCheckOf(runtime, kit, config, words) {
+function shipToolCheckOf(runtime, kit, config, words, kind) {
     const tool = shipToolOfWords(kit, config, words, runtime.cwd);
     if (tool === undefined) {
         return () => Promise.resolve(undefined);
+    }
+    const misfit = shipKindRefusal(kit, config, words, runtime.cwd, kind);
+    if (misfit !== undefined) {
+        return () => Promise.resolve(misfit);
     }
     const pin = shipToolPinOf(runtime.mergeGit, kit, config, tool);
     // A stale tool's refusal comes from the gate (`refuseUnstartable`), so a detached run refused before it waits still tells its session.
@@ -192,17 +197,6 @@ async function report(runtime, say, end, step) {
     return ended.code;
 }
 const UNREPORTED = { started: async () => undefined, opened: async () => undefined, ended: async () => undefined };
-/**
- * The tree the step runs on, read as it starts, for its ledger record (#708). A detached run's log began with the tree
- * it was started on; one changed while it waited is said, so the log names the head that ran.
- */
-function runTree(runtime, say, startTree) {
-    const tree = runtime.trees.ranIn(runtime.cwd);
-    if (startTree !== undefined && treeText(tree) !== treeText(startTree)) {
-        say(`the tree changed while it waited; it runs on ${treeText(tree)}`);
-    }
-    return tree;
-}
 /** Writes the detached run's record; a record that cannot be written is said in the log, never failing the step. */
 async function keepRunRecord(runtime, say, path, record) {
     try {
@@ -359,10 +353,10 @@ async function sessionOf(args, runtime, kit, roster, parent) {
  * holder as `holderText` writes it.
  */
 async function runUnderParent(runtime, say, parent, step) {
-    const { what, words, maxRunMinutes, watching } = step;
+    const { what, words, maxRunMinutes, watching, env } = step;
     say(`running: ${what} under the host lock of ${parent} (killed after ${minutesText(maxRunMinutes)})`);
     await step.reporting.started();
-    const end = await runtime.steps.run({ command: commandLine(words, runtime.platform), cwd: runtime.cwd, env: runtime.env, timeoutMs: maxRunMinutes * MINUTE_MS, stop: watching.stop });
+    const end = await runtime.steps.run({ command: commandLine(words, runtime.platform), cwd: runtime.cwd, env, timeoutMs: maxRunMinutes * MINUTE_MS, stop: watching.stop });
     return report(runtime, say, end, step);
 }
 /**
@@ -476,11 +470,6 @@ export async function queue(args, runtime) {
         refuseDetachUsage(args);
     }
     const detachedId = detachedRunIdOf(args);
-    // A detached run's log starts with the tree it was started on (#708): the log is what a reviewer is shown.
-    const startTree = detachedId === undefined ? undefined : runtime.trees.ranIn(runtime.cwd);
-    if (startTree !== undefined) {
-        runtime.out.stdout(treeHeader(runtime.cwd, startTree).trimEnd());
-    }
     const firstArrival = arrivedAtOf(args, runtime.clock.now());
     const kit = await openTeamKit(runtime);
     const config = requireConfig(kit, runtime, 'read');
@@ -494,7 +483,7 @@ export async function queue(args, runtime) {
     const lock = hostLockOf(runtime, places.hostLock, delivery.queue, config.open.headroom, teamAdmissionOf(config, () => reloadTeamConfig(runtime, kit)), zone);
     const parent = await parentLockOf(runtime, lock, say);
     const session = await sessionOf(args, runtime, kit, await rosterOf(runtime, kit, config), parent);
-    const gate = { cutoffUtc: delivery.schedule.queueCutoffUtc, pipelineFreezes: places.pipelineFreezes, kind: request.kind, zone, shipTool: shipToolCheckOf(runtime, kit, config, words) };
+    const gate = { cutoffUtc: delivery.schedule.queueCutoffUtc, pipelineFreezes: places.pipelineFreezes, kind: request.kind, zone, shipTool: shipToolCheckOf(runtime, kit, config, words, request.kind) };
     if (detach) {
         if (parent !== undefined) {
             throw new UsageError('--detach under a live host lock: a step a queued step starts runs at once under its lock, and that step waits for its result; run it without --detach');
@@ -508,7 +497,7 @@ export async function queue(args, runtime) {
         : await detachedReporting(runtime, kit, config, say, { id: detachedId, session, what, log: detachedLogOf(delivery, kit.paths, detachedId), record: runRecordPathOf(detachedDirOf(delivery, kit.paths), detachedId) });
     const watching = detachedId === undefined ? await watchStarters(runtime, say) : unwatched();
     try {
-        const step = { what, words, maxRunMinutes, watching, reporting };
+        const step = { what, words, maxRunMinutes, watching, reporting, env: withoutCredentials(runtime.env, delivery.passEnv) };
         const prePush = args.switches.has('pre-push') ? { command: commandLine(words, runtime.platform), before: runtime.trees.checked(runtime.cwd) } : undefined;
         if (prePush !== undefined && (await reusedPass(runtime, say, prePush, zone))) {
             return EXIT.ok;
@@ -560,11 +549,10 @@ export async function queue(args, runtime) {
             if (sharing !== undefined) {
                 say(sharing);
             }
-            const tree = runTree(runtime, say, startTree);
             say(`running: ${what} (killed after ${minutesText(maxRunMinutes)})`);
             await reporting.started();
-            const run = { command: commandLine(words, runtime.platform), cwd: runtime.cwd, env: underLock(runtime.env, taking.lock), timeoutMs: maxRunMinutes * MINUTE_MS, stop: watching.stop };
-            const mark = { ...owner, what, ...waited, ...(taking.sharing === undefined || taking.sharing.heavy ? {} : { shared: true }), ranIn: treeFieldsOf(runtime.cwd, tree), request: run };
+            const run = { command: commandLine(words, runtime.platform), cwd: runtime.cwd, env: underLock(step.env, taking.lock), timeoutMs: maxRunMinutes * MINUTE_MS, stop: watching.stop };
+            const mark = { ...owner, what, ...waited, ...(taking.sharing === undefined || taking.sharing.heavy ? {} : { shared: true }), request: run };
             const end = await runRecorded(runtime, { places, delivery, opened: (start) => reporting.opened({ ledger: places.ledger, start }) }, mark);
             const code = await report(runtime, say, end, step);
             return prePush === undefined ? code : await afterPrePush(runtime, prePush, what, code, waitedMs);
