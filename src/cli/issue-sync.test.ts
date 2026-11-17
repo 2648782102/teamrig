@@ -2,10 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
-import { isIssueQuery } from '../github/gh.ts';
+import { formatConfig } from '../config/load.ts';
+import { isIssueQuery, isRepoRead } from '../github/gh.ts';
 import { foldEvents, type Task } from '../register/fold.ts';
 import { readEvents } from '../register/snapshot.ts';
-import { CliHarness, EVENTS_PATH, TEAM, TEAM_HOME } from '../testing/cli-harness.ts';
+import { CliHarness, CONFIG_PATH, EVENTS_PATH, TEAM, TEAM_HOME } from '../testing/cli-harness.ts';
 import { FakeCredentials } from '../testing/fake-credentials.ts';
 import { FakeGh, ghIssue, ghPull, ghRepoOf } from '../testing/fake-gh.ts';
 import { EXIT } from './runtime.ts';
@@ -161,6 +162,24 @@ describe('teamrig issue sync', () => {
     await expectRun(kit, ['issue', 'sync', '--yes'], twoIssues(), EXIT.ok);
     const { tasks } = register(kit);
     assert.deepEqual([...tasks.values()].filter((task) => task.ref === 'gh:acme/web#7').map((task) => [task.id, task.source, task.status, task.title]), [['T1', 'bravo', 'open', 'Fix login']]);
+  });
+
+  it('adds no task again for the issues of a repository renamed or moved, matching the tasks under its old name (#1496)', async () => {
+    const kit = new CliHarness({ ...TEAM, github: { repos: ['acme/old'], owners: { octocat: 'bravo' } } });
+    const before = new FakeGh().holds('acme/old', [ghIssue('acme/old', 7, { title: 'Fix login' }), ghIssue('acme/old', 8, { title: 'Add search' })]);
+    await expectRun(kit, ['issue', 'sync', '--yes'], before, EXIT.ok);
+    await kit.files.write(CONFIG_PATH, formatConfig({ ...TEAM, github: { repos: ['acme/web'], owners: { octocat: 'bravo' } } }));
+    const after = new FakeGh().holds('acme/web', [ghIssue('acme/web', 7, { title: 'Fix login' }), ghIssue('acme/web', 8, { title: 'Add search' }), ghIssue('acme/web', 9, { title: 'New since' })]).moved('acme/old', 'acme/web');
+    const result = await kit.run(['issue', 'sync', '--yes'], { gh: after });
+    assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
+    assert.ok(result.stdout.includes('MOVED acme/old is now acme/web: its issues match the 2 task(s) holding refs under acme/old; teamrig refs apply points them at acme/web'), result.stdout.join('\n'));
+    assert.deepEqual([...register(kit).tasks.values()].map((task) => [task.id, task.ref]), [
+      ['T1', 'gh:acme/old#7'],
+      ['T2', 'gh:acme/old#8'],
+      ['T3', 'gh:acme/web#9'],
+    ]);
+    // The old name is read once, and only because the plan would have added its issues.
+    assert.equal(after.ran.filter((request) => isRepoRead(request.args)).length, 1);
   });
 
   it('reads nothing when the machine or the team has it off', async () => {

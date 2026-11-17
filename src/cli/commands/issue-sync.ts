@@ -5,7 +5,8 @@ import { addedTasks, type AddedTask, type RepoFailure } from '../../github/auto.
 import { followersOf, parseFollows } from '../../github/follows.ts';
 import { issueMarkStep, type IssueAudience, type IssueChangeRoute, type IssueMark } from '../../github/issue-marks.ts';
 import { importRules, issueOwner, issueRef } from '../../github/map.ts';
-import { importedTasks, linkedRefs, planSync, refHolders, type SyncPlan, type SyncStep } from '../../github/plan.ts';
+import { planRepo } from '../../github/moved.ts';
+import { importedTasks, refHolders, type SyncPlan, type SyncStep } from '../../github/plan.ts';
 import { withCiExcerpts } from '../../github/ci-excerpt.ts';
 import {
   firstMentionWatch,
@@ -23,7 +24,7 @@ import { securityIssues, type SecurityIssue } from '../../github/security-alert.
 import { eventsByRecipient, pullEvents, pullListeners, pullNewsText, pullRecipient, type PullEvent, type PullWatch } from '../../github/pull-news.ts';
 import { ourLogins } from '../../github/trust.ts';
 import { applySteps, closedSince, type StepOutcome } from '../../github/sync.ts';
-import type { IssueHost } from '../../issues/host.ts';
+import type { HostRepoName, IssueHost } from '../../issues/host.ts';
 import type { HostPull } from '../../issues/pull.ts';
 import { autoPushWrites, sessionLogins } from '../../issues/status-push.ts';
 import type { Task } from '../../register/fold.ts';
@@ -127,6 +128,8 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
   /** The open threads of the repositories read, for the response clock, and those repositories. */
   const threads: Thread[] = [];
   const clocked = new Set<string>();
+  /** The name each former repository name goes by now, read once a run. */
+  const formerNames = new Map<string, HostRepoName>();
   for (const repo of reposOf(config.github.repos, args.flags.get('repo'))) {
     const reach = await host.reach(repo, 'read');
     if (reach.kind === 'unreachable') {
@@ -149,9 +152,18 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       continue;
     }
     read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
-    const tasks = [...(await register.snapshot()).state.tasks.values()];
+    // Refs under a name the repository had before a rename or move match its issues, so none is added twice.
+    const planned = await planRepo(host, { repo, issues: read.issues, tasks: [...(await register.snapshot()).state.tasks.values()], listed: config.github.repos }, rules, formerNames);
+    if (planned.kind === 'failed') {
+      say(`FAILED ${repo}: ${planned.reason}; its tasks stay as they are`);
+      ends.push('failed');
+      failures.push({ repo, reason: planned.reason });
+      unread.add(repo);
+      continue;
+    }
+    planned.lines.forEach(say);
+    const { tasks, plan } = planned;
     const imported = importedTasks(tasks);
-    const plan = planSync(read.issues, imported, rules, linkedRefs(tasks));
     // A security issue goes to its task's owner, else where the import would route it; an outsider's left-out report too.
     security.set(repo, securityIssues(read.issues, (issue) => imported.get(issueRef(issue.repo, issue.number))?.owner ?? issueOwner(issue, rules)));
     leftOut.set(repo, plan.leftOut);
