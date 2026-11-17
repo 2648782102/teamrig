@@ -406,7 +406,7 @@
           "default": []
         },
         "webhookEnv": {
-          "description": "The name of the environment variable holding the webhook URL that every exec approval, refusal and run is posted to, never the URL itself. Absent: nothing is posted; named but unset: each would-be post warns.",
+          "description": "The name of the environment variable holding the webhook URL that every exec approval, refusal and run is posted to, never the URL itself. Only an https URL is posted to: any other warns instead. Absent: nothing is posted; named but unset: each would-be post warns.",
           "type": "string",
           "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
         }
@@ -915,6 +915,13 @@
           "minimum": 1,
           "maximum": 600,
           "default": 20
+        },
+        "passEnv": {
+          "description": "Credential variables the programs teamrig starts still get. teamrig leaves a fixed list (GH_TOKEN, GITHUB_TOKEN, NPM_TOKEN, NODE_AUTH_TOKEN, cloud and AI provider keys) out of the environment of queued and tested commands, merge, deploy and worktree hooks, refresh.endCommand and the team's sessions; a name here passes that one on, as a private registry's npm ci needs NPM_TOKEN. Only the owner sets it.",
+          "type": "array",
+          "maxItems": 32,
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+          "default": []
         },
         "freezes": {
           "description": "Deploy freezes (teamrig freeze), which hold deploys of their targets while a session measures them.",
@@ -1432,7 +1439,7 @@
           "default": 20
         },
         "watcher": {
-          "description": "The session that hears the pull request news no task owner takes: a pull request from a fork or by an author outside the repository, or from a branch that names no task. Unset, the lead.",
+          "description": "The session that hears the pull request news no task owner takes: a pull request from a fork or by an author outside the repository, or from a branch that names no task, and a mention no one else takes. Unset, the first holder of a service role holding issue comment, the session that answers on GitHub, else the lead.",
           "$ref": "#/$defs/sessionName"
         },
         "issueAtAdd": {

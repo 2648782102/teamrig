@@ -1282,9 +1282,9 @@ unmerged, or one that starts to conflict with its base, to fail its checks, or g
 and with [github.activity] on one whose checks pass after failing or running; each is told once, never again while
 it lasts, and the first read of a repository only marks what is there. It goes to the owner of the task the pull
 request's branch names (`t<id>-...`) when an author inside the repository pushed that branch to the repository
-itself, else to `[github.watcher]` (unset: the lead). With [github.activity] on, an unwoken copy also goes to the owner
-of the task holding the pull request or a same-repository issue it closes, and to each session following it
-(`teamrig follow`). A run by hand prints a
+itself, else to `[github.watcher]` (unset: the first holder of a service role holding `issue comment`, else the
+lead). With [github.activity] on, an unwoken copy also goes to the owner of the task holding the pull request or a
+same-repository issue it closes, and to each session following it (`teamrig follow`). A run by hand prints a
 `PULL NEWS <session>` line per session and keeps nothing; `--auto` posts it. Titles are outside input, quoted as data.
 A repository whose pull requests cannot be read gets a `FAILED <repo> pull requests:` line and exit 1; its issues still
 sync. Reading them needs Pull requests: Read-only on the token.
@@ -1298,7 +1298,8 @@ Flags:
   when every repository reads again, and one when it leaves out an outsider's issue it did not leave out before (by
   ref only, at most ten named), and one to each session with pull request news (at most eight pull requests named;
   it also wakes the session for a conflict, failing checks or changes requested on its own pull request, a `t<id>-` branch by the
-  repository's owner or a login in `github.owners`, or an outsider's new pull request, when `wake.enabled`). When its own pull request's checks start failing, it reads the
+  repository's owner or a login in `github.owners`, when `wake.enabled`; an outsider's new pull request wakes no one, as
+  it is the watcher's intake work). When its own pull request's checks start failing, it reads the
   end of each failed job's log (at most 5 a run) into `state/github-ci/<owner>-<name>-<number>.md` and the line names
   the job, its failed step and that file. An open issue labelled `security` wakes the session it routes to and pages
   the owner through the `alerts` page webhook, once per issue ever and for at most 3 issues a run (the rest go to the
@@ -1827,7 +1828,8 @@ A command that writes a database, calls a writing route, writes the cluster or a
 a request a reviewer approved: the session asks (`exec request`), the read-only dry run runs (`exec dry-run`), the
 security reviewer (`roles.securityReviewer`) or the owner reads it and approves, refuses or escalates it, and then
 the approved command runs once (`exec run`). Each step is one line of the team's exec audit log, and with
-`exec.webhookEnv` set, each review and run is posted to the security channel too. The examples have `api` asking and
+`exec.webhookEnv` set, each review and run is posted to the security channel too, only when the variable holds an
+https URL (any other warns `WARN <id> is logged, but not posted: the webhook address is not an https URL`). The examples have `api` asking and
 `lead` as the security reviewer. The guard that keeps a tab reviewing only as itself is
 [`hook exec-guard`](#teamrig-hook-exec-guard).
 
@@ -2920,6 +2922,11 @@ count line before its rows, which leave out its Other work. `MERGES` reads each 
 `delivery.dir` is the root's shares the root's rows, unlabelled; it shows when any team of the tree is gated. `GOALS`
 stays the root's ranked goals: a team's own goals are its lead's to steer, never the owner's scoreboard. `UNGATED`
 stays the root team's own.
+The day's first `meeting start` opens the owner's daily meeting. One started after it the same day, on the team's
+clock, is an extra meeting: it holds messages and prints the agenda as the daily one does, its start line says so
+(`MEETING started Thu 10-15 15:00 IDT, an extra meeting after the day's daily one: ...`) and the lead's status line
+reads `Meeting: extra`. The next day's first start opens the daily meeting again.
+
 
 With a meeting id, `meeting start M3` starts a scheduled meeting instead, one booked with `meeting schedule`: any
 session runs it, as the owner starts it from whichever tab is at hand. The session met gets the opening prompt (the
@@ -3522,7 +3529,9 @@ WAKES shop-web (session web) within about 15 s: an inbox line from owner asks it
 What a tab started by `open` runs: it sets the session's variables and starts Claude Code under the session's
 name, model and effort. You do not run it yourself; `open` writes it. When the automatic context refresh ends
 Claude Code for a fresh start, launch starts it again in the same tab, fresh, with a prompt to read its handover
-first.
+first. Claude Code starts without the credential variables (see [teamrig queue](#teamrig-queue)) but its own login
+(`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`) and those [delivery.passEnv] names, as the
+session's tools run the team's code.
 
 Flags:
 
@@ -3788,7 +3797,8 @@ the session still running, the mod holds the ask instead: the restart ends nothi
 again, and gives up an hour after it started. A mod that held an ask of the run and then answers none (as one did
 after a `/reload-plugins`) counts as holding too: it ends nothing. When no mod claims the ask
 within 10 seconds, it ends the session's Claude Code instead: `launch` starts it again in the same tab, and a tab
-teamrig did not open gets a new tab first; then it runs `refresh.endCommand`, if set. It ends no Claude Code that
+teamrig did not open gets a new tab first; then it runs [refresh.endCommand], if set, without the credential variables (see [teamrig queue](#teamrig-queue))
+but those [delivery.passEnv] names. It ends no Claude Code that
 still runs a background shell (a background command or a monitor), since the end would take that too; the session
 is told to type `/clear`, which keeps it. A prompt typed before then cancels it. A restart that did not happen, or an end command that failed, leaves a line in the session's inbox.
 One that ended without a word (its process was killed) is started again from the session's tab by `hook wake-check`,
@@ -4667,7 +4677,8 @@ upstream, then runs the repository's setup in it, such as a link to the main che
 worktree's folder is the branch's name with each `/` as `-`, in [delivery.repos.<name>.worktreeFolder] (default
 `.claude/worktrees` in the main checkout; a relative folder is in the main checkout). The setup, a program and its
 arguments in [delivery.repos.<name>.worktreeSetup], runs without a shell in the new worktree, with the main
-checkout's folder in `TEAMRIG_MAIN_CHECKOUT`, and is killed after 10 minutes; exit 0 is a success.
+checkout's folder in `TEAMRIG_MAIN_CHECKOUT` and without the credential variables (see [teamrig queue](#teamrig-queue))
+but those [delivery.passEnv] names, and is killed after 10 minutes; exit 0 is a success.
 
 The repository is the one `--repo` names, else the one the current folder belongs to, with the folder and setup of
 the delivery.repos entry whose `mainCheckout` is its main checkout; outside a team, or with no entry, it uses the
@@ -4783,7 +4794,13 @@ to link again by hand.
 ### teamrig queue
 
 Runs one queued step (a build, a test run, a database script) under the host lock, so the host's queued steps run one
-at a time instead of competing for its CPU and memory. It waits for the lock until its line has not moved
+at a time instead of competing for its CPU and memory. The step starts without the credential variables teamrig knows
+(`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+`GOOGLE_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `SLACK_TOKEN`, `SLACK_BOT_TOKEN`,
+`STRIPE_SECRET_KEY`, named in any case) but those the owner lists in [delivery.passEnv], as does each program teamrig
+starts for the team's code: `test`, the hooks of `merge`, `deploy` and `worktree add`, [refresh.endCommand] and the
+sessions `launch` starts. A build or a test runs the repository's code, which needs none of the session's tokens. It waits for the lock until its line has not moved
 for `delivery.queue.waitMinutes` (60 by default). Waiters take it in their turn: each joins a line of tickets in `<lock>.queue` and only the
 first live one may take the lock, looking every 2 s; the rest look every `delivery.wait.pollSeconds` (30). With
 `delivery.queue.admission` `pipeline` the line is in admission order: a p0 step first, then by class
@@ -5192,6 +5209,8 @@ UNFROZEN F3 2030-01-09 02:00 IST → 2030-01-09 04:00 IST, all steps, by lead (b
 
 Merges the branch checked out in the current folder, a worktree or a plain checkout, into origin's default branch (the
 one `origin/HEAD` names), so every session merges its work one way: checked, pushed under the host lock and recorded.
+The hooks and command its delivery.repos entry names start without the credential variables (see
+[teamrig queue](#teamrig-queue)) but those [delivery.passEnv] names; its own git and gh calls keep them.
 Its old name, integrate, is refused with this one (exit 64).
 
 REFUSED (exit 2) before any change for a folder outside git, a detached HEAD, uncommitted changes, the default branch
@@ -5431,7 +5450,8 @@ merges, and is recorded when the next `teamrig merge` finishes the merge.
 ### teamrig deploy
 
 Brings what was pushed to a repository's default branch to the running system, one deploy on the host at a time, the
-same way for every session: checked, pulled under the host lock, deployed and recorded.
+same way for every session: checked, pulled under the host lock, deployed and recorded. The programs its deploy block
+names start without the credential variables (see [teamrig queue](#teamrig-queue)) but those [delivery.passEnv] names.
 
 The repository is an entry of `delivery.repos` with a `deploy` block: the one `--repo` names, else the one whose
 `mainCheckout` this folder is in, else the only one with a deploy block.
@@ -5724,7 +5744,8 @@ model little. The whole output goes to a numbered log, `test-<session>-<n>.log` 
 the counts, the time and the log's path, and for a failed run each failing test in full within
 `tests.maxFailureChars` (4,000 characters by default), or the output's last 40 lines when no test runner is
 recognised. It reads the Node.js test runner (spec and TAP), Jest and Vitest. Exit 0 when the command passed,
-1 otherwise.
+1 otherwise. The command starts without the credential variables (see [teamrig queue](#teamrig-queue)) but those
+[delivery.passEnv] names.
 
 Everything after `--` is the command. One quoted word runs as written, so `"npm run build && npm test"` works;
 several words are passed on as typed, globs included. An empty command is REFUSED (exit 64), as a shell would run
@@ -6412,7 +6433,8 @@ reset, and over the seven days before the week's reset only until those hooks na
 team, or once the reading's week reset, no pace is shown. The team config's `statusLine` turns `folder`, `branch` and `pace` off one by one (each is
 on by default; with `branch` off, git is never asked). While the owner's meeting is open on a team or a team above
 it (`teamrig meeting start`, until `meeting end` or its lapse), the lead's tab that started it leads its line with
-`Meeting: daily | ` and every other tab, a sub-team's too, adds `meeting.statusLine.heldText` (`meeting on: held`)
+`Meeting: daily | ` (`Meeting: extra | ` for one started after the day's daily meeting) and every other tab, a
+sub-team's too, adds `meeting.statusLine.heldText` (`meeting on: held`)
 last; only that mark takes `meeting.statusLine.colour` (`#8b57e3`, teamrig's purple, by default), and
 `meeting.statusLine.enabled: false` turns both off. The tab of a session the owner meets in a booked or on-the-spot
 meeting, any session's, a worker's too, leads its line with `Meeting: <its title> | `, what the meeting is about cut

@@ -228,7 +228,8 @@ export interface ExecConfig {
   readonly path: readonly string[];
   /**
    * The name of the environment variable that holds the webhook URL every approval, refusal and run is posted to
-   * (spec §10), never the URL itself, which is a secret. Absent: nothing is posted.
+   * (spec §10), never the URL itself, which is a secret. Only an https URL is posted to; any other warns. Absent:
+   * nothing is posted.
    */
   readonly webhookEnv?: string;
 }
@@ -720,7 +721,8 @@ export interface GithubConfig {
   readonly followMax: number;
   /**
    * The session that hears the pull request news no task owner takes: a pull request from a fork or by an author
-   * outside the repository, or from a branch that names no task. Unset, the lead.
+   * outside the repository, or from a branch that names no task. Unset, the first holder of a service role holding
+   * `issue comment` (github/watcher.ts), else the lead.
    */
   readonly watcher?: string;
   /**
@@ -1201,6 +1203,12 @@ export interface DeliveryConfig {
   readonly wait: DeliveryWaitConfig;
   /** A deploy's check still running after this many seconds is stopped, and the deploy waits. */
   readonly checkTimeoutSeconds: number;
+  /**
+   * Credential variables (core/child-env.ts CREDENTIAL_VARIABLES) the programs teamrig starts still get: queued and
+   * tested commands, merge, deploy and worktree hooks, `refresh.endCommand` and the team's sessions. The rest of that
+   * list is left out of each one's environment.
+   */
+  readonly passEnv: readonly string[];
   readonly freezes: FreezesConfig;
   readonly stablePeriods: StablePeriodsConfig;
   readonly branches: BranchesConfig;
