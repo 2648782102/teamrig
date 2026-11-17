@@ -496,6 +496,8 @@ interface RunFixture {
   work?: Readonly<Record<string, readonly WorkCommit[]>>;
   /** How many of main's fetches after the merge call fail on a ref-store race with another fetch (#1452); none unless given. */
   racedFetches?: number;
+  /** The text of the branch's task file of pull request text (PULL_TEXT unless given); null when there is no such file. */
+  pullText?: string | null;
 }
 
 /** The head a catch-up pushes: BRANCH rebased onto MOVED. */
@@ -517,6 +519,9 @@ const REBASED_WORK: readonly WorkCommit[] = [
 /** The git folder as git names it for a linked worktree: absolute on every OS ('C:/repo/.git' is relative on POSIX). */
 const GIT_DIR = resolve('/repo/.git');
 const RECORD_PATH = join(GIT_DIR, 'local-ci', 'tree-checked.json').replaceAll('\\', '/');
+/** The branch's task file of pull request text (pull-text.ts, T3420), and what it says unless a fixture says otherwise. */
+const PULL_TEXT_PATH = 'C:/tasks/T9/pr.md';
+const PULL_TEXT = 'Reach: teamrig development (tools/ship)\n\n## What\nA change.\n';
 const LOCAL_PROFILE = '"local":{"runner":"tools/ci/local.ts"}';
 const RUNNER = 'runner tools/ci/local.ts';
 
@@ -526,7 +531,7 @@ interface FakeGate {
   written: string[];
 }
 
-function fakeGate(local: NonNullable<RunFixture['local']>, log: (line: string) => void): FakeGate {
+function fakeGate(local: NonNullable<RunFixture['local']>, log: (line: string) => void, pullText: string | null = PULL_TEXT): FakeGate {
   const runs: string[] = [];
   const written: string[] = [];
   const answers: Record<string, string> = {
@@ -542,7 +547,11 @@ function fakeGate(local: NonNullable<RunFixture['local']>, log: (line: string) =
       return answer;
     },
     exists: path => path.replaceAll('\\', '/') === 'C:/repo/tools/ci/local.ts',
-    readText: path => (path.replaceAll('\\', '/') === RECORD_PATH ? (local.record ?? null) : null),
+    readText: path => {
+      const at = path.replaceAll('\\', '/');
+      if (at === PULL_TEXT_PATH) return pullText;
+      return at === RECORD_PATH ? (local.record ?? null) : null;
+    },
     writeText: (path, text) => written.push(`${path.replaceAll('\\', '/')} ${text}`),
     run: check => {
       runs.push(check.name);
@@ -607,7 +616,7 @@ function runFixture(fixture: RunFixture = {}): {
   let mainReads = 0;
   let mainFetches = 0;
   let raced = fixture.racedFetches ?? 0;
-  const local = fakeGate(fixture.local ?? {}, line => out.push(line));
+  const local = fakeGate(fixture.local ?? {}, line => out.push(line), fixture.pullText === undefined ? PULL_TEXT : fixture.pullText);
   const ghFor = mock.fn((_token: string): Gh => gh);
   const renamedCallers = mock.fn((_base: string, _tip: string, _repo: string): string | null => fixture.renamedCallers ?? null);
   const sweep = mock.fn<MergeDeps['sweep']>(() => undefined);
@@ -657,6 +666,7 @@ function runFixture(fixture: RunFixture = {}): {
       beat: () => undefined,
       end: () => undefined,
     },
+    pullTextFile: () => PULL_TEXT_PATH,
     out: line => out.push(line),
     err: line => err.push(line),
   };
@@ -1094,14 +1104,41 @@ test('--note-file opens the body of the pull request it opens, and a missing not
   assert.equal(pullBody(['cli: a'], ' \n'), pullBody(['cli: a']));
 
   const { deps, ghWrites } = runFixture();
-  const gate: GateDeps = { ...deps.gate, readText: path => (path === 'C:/notes/gap.md' ? '## Gap\nmacOS unchecked\n' : null) };
+  const note = 'Reach: teamrig development\n\n## Gap\nmacOS unchecked\n';
+  const gate: GateDeps = { ...deps.gate, readText: path => (path === 'C:/notes/gap.md' ? note : null) };
   assert.equal(await runMerge({ ...ARGS, noteFile: 'C:/notes/gap.md' }, { ...deps, gate }), 0);
   const opened = ghWrites.find(args => args[1] === `repos/${REPO}/pulls`);
-  assert.ok(opened?.includes('body=## Gap\nmacOS unchecked\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)'));
+  assert.ok(opened?.includes(`body=${note.trim()}\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`));
 
   const missing = runFixture();
   await assert.rejects(runMerge({ ...ARGS, noteFile: 'C:/notes/none.md' }, missing.deps), /--note-file C:\/notes\/none\.md: no such file/);
   assert.equal(missing.ghFor.mock.callCount(), 0);
+});
+
+test("with no --note-file the pull request takes the branch's task text, its What, Why and Reach above the commits (T3420)", async () => {
+  const text = '## What\nA merge says what it changes.\n\n## Why\nReviewers read it.\n\n## Reach\nteamrig development (tools/ship)\n';
+  const { deps, ghWrites } = runFixture({ pullText: text });
+  assert.equal(await runMerge(ARGS, deps), 0);
+  const opened = ghWrites.find(args => args[1] === `repos/${REPO}/pulls`);
+  assert.ok(opened?.includes(`body=${text.trim()}\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`));
+});
+
+test('a merge with no pull request text, or one stating no Reach, is refused before the approval, the token or any GitHub call (T3420)', async () => {
+  const cases: readonly [string | null, RegExp][] = [
+    [null, /^REFUSED the pull request this merge opens has no text: write the pull request text \(What, Why and a Reach line.*\) in C:\/tasks\/T9\/pr\.md, or pass --note-file <path>$/],
+    ['## What\nA change.\n\n## Reach\n<!-- All users, teamrig development or one team -->\n\n## Tests\nnone\n', /^REFUSED C:\/tasks\/T9\/pr\.md states no Reach: add a `Reach:` line or fill its `## Reach` section/],
+  ];
+  for (const [pullText, refusal] of cases) {
+    const { deps, gitCalls, out, err, ghFor, clearMerge, catchUp } = runFixture({ pullText });
+    assert.equal(await runMerge(ARGS, deps), 1);
+    assert.deepEqual(out, []);
+    assert.equal(err.length, 1);
+    assert.match(err[0] ?? '', refusal);
+    assert.equal(clearMerge.mock.callCount(), 0);
+    assert.equal(catchUp.mock.callCount(), 0);
+    assert.deepEqual(gitCalls.filter(call => call.startsWith('push')), []);
+    assert.equal(ghFor.mock.callCount(), 0);
+  }
 });
 
 const FLAKY: RequiredChecks = { names: ['gates', 'test'], summary: null, flaky: ['test'] };

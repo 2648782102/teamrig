@@ -14,7 +14,7 @@ import { realShipDeps } from './ship-deps.ts';
  *
  * Proves a repo dir's checked-out tree with its local checks (a pass record, else a run that writes one):
  *   node ship.ts check <repo dir>
- * And merges a pushed change branch into main (merge.ts: PR, its head proven by the repo's gate, rebase):
+ * And merges a pushed change branch into main (merge.ts: PR, its text from --note-file or the task's pr.md, its head proven by the repo's gate, rebase):
  *   node ship.ts merge <repo dir> [--head <branch>, default the checked-out one] [--timeout-min 45] [--interval-s 30]
  * And opens the pull request of an approved head already pushed, with no gate and no merge (open-pull.ts):
  *   node ship.ts pr <repo dir> --head <branch> --approved <sha> [--note-file <path>]

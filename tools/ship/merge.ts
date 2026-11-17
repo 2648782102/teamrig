@@ -11,6 +11,7 @@ import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
+import { pullTextOf, taskPullTextFile } from './pull-text.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
 import { type GateDeps, proveTree, realGateDeps } from './local-gate.ts';
@@ -524,6 +525,8 @@ export interface MergeDeps {
   share: StepShare;
   /** This merge's place in the repo's line: once its checks pass, it waits for older merges to land (landing-turn.ts, T4196). */
   turn: LandingTurn;
+  /** The task file holding the pull request text of `head` when no --note-file names one (pull-text.ts, T3420), or null. */
+  pullTextFile: (head: string) => string | null;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -639,8 +642,11 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   if (git('rev-parse', `refs/remotes/origin/${head}`) !== sha) throw new Error(`${head} ${sha.slice(0, 7)} is not pushed: push it first`);
   const subjects = git('log', '--reverse', '--format=%s', `refs/remotes/origin/${profile.main}..${sha}`).split('\n').filter(line => line !== '');
   if (subjects.length === 0) throw new Error(`${head} has nothing that ${profile.main} lacks`);
-  const note = args.noteFile === null ? null : deps.gate.readText(args.noteFile);
-  if (args.noteFile !== null && note === null) throw new Error(`--note-file ${args.noteFile}: no such file`);
+  const pullText = pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText);
+  if (pullText.kind === 'refused') {
+    deps.err(`REFUSED ${pullText.reason}`);
+    return done(1);
+  }
   const unapproved = await gate(head, sha);
   if (unapproved !== null) {
     deps.err(`REFUSED ${unapproved}`);
@@ -663,7 +669,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
       ? awayDuring(inTurn(ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 }), deps.turn), deps.share)
       : { proof: localProof(args.dir, profile.local, deps.gate), away: () => false };
   const result = await mergeThroughPull(
-    { repo, head, base: profile.main, sha, title: pullTitle(head, profile.main, subjects.length), body: pullBody(subjects, note), lacks: missingSections(note, profile.pullSections) },
+    { repo, head, base: profile.main, sha, title: pullTitle(head, profile.main, subjects.length), body: pullBody(subjects, pullText.text), lacks: missingSections(pullText.text, profile.pullSections) },
     gh,
     mainBranchOf(git, profile.main),
     proof.proof,
@@ -733,6 +739,7 @@ export function realMergeDeps(dir: string): MergeDeps {
     },
     share: stepShareOf(process.env, runOwnCli),
     turn: processLandingTurn(dir, git),
+    pullTextFile: head => taskPullTextFile(process.env, homedir(), head),
     out,
     err,
   };
