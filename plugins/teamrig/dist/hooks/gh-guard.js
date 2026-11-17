@@ -90,7 +90,8 @@ function optionValue(words, short, long, valued) {
             value = word.slice(long.length + 1);
         }
         else if (short !== undefined && word.startsWith(short) && !word.startsWith('--') && word.length > short.length) {
-            value = word.slice(short.length);
+            // gh's flag parser reads `-R=x` as `x`, as it reads `-Rx`.
+            value = word.slice(short.length).replace(/^=/u, '');
         }
     }
     return value;
@@ -157,9 +158,10 @@ function commandOf(words) {
 /**
  * The repository a group call acts on: its `-R`/`--repo` in any form gh takes, else `named` (a repository argument),
  * else the folder's team remote. Undefined for a repository known only when the line runs, or one on another host.
+ * `valued` holds the command's options that take a value, which are skipped while reading `-R`.
  */
-function repoOf(rest, named, folderRepo) {
-    const flag = optionValue(rest, '-R', '--repo', ITEM_VALUED);
+function repoOf(rest, valued, named, folderRepo) {
+    const flag = optionValue(rest, '-R', '--repo', valued);
     if (flag === null) {
         return undefined;
     }
@@ -175,6 +177,25 @@ const ITEM_VALUED = new Set([
     '--add-label', '--remove-label', '--add-assignee', '--remove-assignee', '--add-project', '--remove-project', '--add-reviewer', '--remove-reviewer', '-A', '--author',
     '--duplicate-of', '--mention', '--app',
 ]);
+/**
+ * Per `gh issue`/`gh pr` command, its switches that share a spelling with an option of ITEM_VALUED: there they take no
+ * value, so the word after them is read, never skipped (`gh pr merge 12 -s -R acme/web` squashes on acme/web).
+ */
+const ITEM_SWITCHES = new Map([
+    ['pr merge', ['-m', '-r', '-s']],
+    ['pr review', ['-a', '-c', '--comment', '-r']],
+    ['issue develop', ['-c', '-l']],
+]);
+/** The options of `gh <group> <sub>` that take a value. */
+function itemValued(group, sub) {
+    const switches = ITEM_SWITCHES.get(`${group} ${sub}`);
+    return switches === undefined ? ITEM_VALUED : new Set([...ITEM_VALUED].filter((option) => !switches.includes(option)));
+}
+/**
+ * The options skipped while reading `-R` on any other group's command: none. Their switches share letters with
+ * ITEM_VALUED (`gh release create -p`, `gh cache delete -a`), and a skip that is wrong hides the repository.
+ */
+const NO_VALUED = new Set();
 /** The repository and number one issue or pull request argument names: a URL names both, a number only itself. */
 function itemOf(word) {
     if (word === undefined) {
@@ -199,8 +220,8 @@ function shellQuote(text) {
  * `gh issue close --duplicate-of` as `teamrig issue close` takes it, `owner/name#n`: a URL names its own repository, a
  * number one in `repo`. Undefined for none, or one known only when the line runs.
  */
-function duplicateOf(words, repo) {
-    const value = optionValue(words, undefined, '--duplicate-of', ITEM_VALUED);
+function duplicateOf(words, valued, repo) {
+    const value = optionValue(words, undefined, '--duplicate-of', valued);
     if (typeof value !== 'string') {
         return undefined;
     }
@@ -209,22 +230,23 @@ function duplicateOf(words, repo) {
 }
 /** The teamrig commands that take a `gh issue <sub>` or `gh pr <sub>` step on `target` (`acme/web#12`, or the repository). */
 function itemCommands(group, sub, words, repo, target) {
+    const valued = itemValued(group, sub);
     switch (sub) {
         case 'comment':
-            return [`issue comment ${target} --body ${shellQuote(optionValue(words, '-b', '--body', ITEM_VALUED) ?? '<text>')}`];
+            return [`issue comment ${target} --body ${shellQuote(optionValue(words, '-b', '--body', valued) ?? '<text>')}`];
         case 'close': {
-            const comment = optionValue(words, '-c', '--comment', ITEM_VALUED);
-            const duplicate = duplicateOf(words, repo);
+            const comment = optionValue(words, '-c', '--comment', valued);
+            const duplicate = duplicateOf(words, valued, repo);
             // gh closes a duplicate with the reason duplicate, whatever --reason says.
-            const reason = duplicate === undefined ? optionValue(words, '-r', '--reason', ITEM_VALUED) : 'duplicate';
+            const reason = duplicate === undefined ? optionValue(words, '-r', '--reason', valued) : 'duplicate';
             return [
                 `issue close ${target}${typeof comment === 'string' ? ` --comment ${shellQuote(comment)}` : ''}${typeof reason === 'string' ? ` --reason ${shellQuote(reason.replace(/\s+/gu, '-'))}` : ''}${duplicate === undefined ? '' : ` --duplicate-of ${duplicate}`}`,
             ];
         }
         case 'edit': {
             const commands = [];
-            const add = labelList(optionValues(words, undefined, '--add-label', ITEM_VALUED));
-            const remove = labelList(optionValues(words, undefined, '--remove-label', ITEM_VALUED));
+            const add = labelList(optionValues(words, undefined, '--add-label', valued));
+            const remove = labelList(optionValues(words, undefined, '--remove-label', valued));
             if (add !== '' || remove !== '') {
                 commands.push(`issue label ${target}${add === '' ? '' : ` --add ${shellQuote(add)}`}${remove === '' ? '' : ` --remove ${shellQuote(remove)}`}`);
             }
@@ -245,8 +267,9 @@ function itemStep(group, words, folderRepo) {
     if (sub === undefined || PASSING_STEPS.get(group)?.has(sub) === true) {
         return undefined;
     }
-    const item = itemOf(positionals(rest, ITEM_VALUED)[0]);
-    const repo = repoOf(rest, item.repo, folderRepo);
+    const valued = itemValued(group, sub);
+    const item = itemOf(positionals(rest, valued)[0]);
+    const repo = repoOf(rest, valued, item.repo, folderRepo);
     if (repo === undefined) {
         return undefined;
     }
@@ -329,7 +352,7 @@ function groupStep(group, words, folderRepo) {
         return undefined;
     }
     const named = group === 'repo' ? positionals(rest, ITEM_VALUED)[0] : undefined;
-    const repo = repoOf(rest, named === undefined ? undefined : repoName(named), folderRepo);
+    const repo = repoOf(rest, NO_VALUED, named === undefined ? undefined : repoName(named), folderRepo);
     return repo === undefined ? undefined : { repo, shape: `gh ${group} ${sub}`, commands: [] };
 }
 /**
