@@ -4,7 +4,7 @@ import type { RepoFailure } from '../../github/auto.ts';
 import { closedSince } from '../../github/sync.ts';
 import { targetText, type IssueHost } from '../../issues/host.ts';
 import { applyPush } from '../../issues/push-apply.ts';
-import { changeLine, changeWrites, planPush, SESSION_PUSH, sessionLogins, type PushLimits, type PushPlan, type SessionLogins } from '../../issues/status-push.ts';
+import { changeLine, changeWrites, planPush, SESSION_PUSH, sessionLogins, type PushAssignees, type PushLimits, type PushPlan } from '../../issues/status-push.ts';
 import type { Task } from '../../register/fold.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import { noPositionals, type ParsedArgs } from '../args.ts';
@@ -58,7 +58,7 @@ export async function issuePush(args: ParsedArgs, runtime: CliRuntime): Promise<
       tasks: async () => (await team.register.snapshot()).state.tasks.values(),
       send,
       limits: SESSION_PUSH,
-      logins: sessionLogins(config.github.owners),
+      assignees: { sessions: sessionLogins(config.github.owners), design: config.github.designAssignees },
       told: new Set(),
     },
     say,
@@ -79,8 +79,8 @@ export interface PushRun {
   readonly send: boolean;
   /** The writes the whole run sends at most, over every repository, in their order, and whether it may close. */
   readonly limits: PushLimits;
-  /** Each session's GitHub login, so an unassigned issue is assigned (status-push.ts assigneeOf). */
-  readonly logins: SessionLogins;
+  /** Who an unassigned issue is assigned to: its session's login, or the design assignees (status-push.ts PushAssignees). */
+  readonly assignees: PushAssignees;
   /** The scopes whose ACCESS line was already printed, so each is printed once per command. */
   readonly told: Set<string>;
 }
@@ -120,7 +120,7 @@ export async function pushRepos(run: PushRun, say: (line: string) => void): Prom
       continue;
     }
     read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
-    const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.logins);
+    const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.assignees);
     planLines(plan).forEach(say);
     const planned = plan.changes.reduce((sum, change) => sum + changeWrites(change), 0);
     left -= planned;
