@@ -1,15 +1,20 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
 import { ENV } from '../../src/core/home.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
+import { createGit } from '../lib/git.ts';
+import type { ScrubRule } from '../scrub/rules.ts';
+import { scrubRules } from '../scrub/run.ts';
 import { type ClearMerge, clearMergeFrom } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
+import { postedTextRefusal } from './pull-scrub.ts';
 import { pullTextOf, taskPullTextFile } from './pull-text.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
@@ -455,6 +460,8 @@ export interface MergeDeps {
   share: StepShare;
   /** The task file holding the pull request text of `head` when no --note-file names one (pull-text.ts, T3420), or null. */
   pullTextFile: (head: string) => string | null;
+  /** The private-data scrub's rules for the repo (generic, then its denylist), or why they cannot be loaded (T3442). */
+  scrubRules: () => Promise<readonly ScrubRule[] | string>;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -553,6 +560,18 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
     deps.err(`REFUSED ${pullText.reason}`);
     return done(1);
   }
+  const title = `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`;
+  // Everything the pull request posts: its title, and its body's commit subjects and text (pullBody adds only fixed words).
+  const posted = [
+    { source: 'the pull request title', text: title },
+    { source: 'the commit subjects', text: subjects.join('\n') },
+    { source: pullText.source, text: pullText.text },
+  ];
+  const unscrubbed = postedTextRefusal(posted, await deps.scrubRules());
+  if (unscrubbed !== null) {
+    deps.err(`REFUSED ${unscrubbed}`);
+    return done(1);
+  }
   const unapproved = await gate(head, sha);
   if (unapproved !== null) {
     deps.err(`REFUSED ${unapproved}`);
@@ -575,7 +594,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
       ? awayDuring(ciProof(gh, repo, head, { names: profile.checks, summary: profile.summary, flaky: profile.flaky }, deps.waiter, { timeoutMs: args.timeoutMin * 60_000, intervalMs: args.intervalS * 1000 }), deps.share)
       : { proof: localProof(args.dir, profile.local, deps.gate), away: () => false };
   const result = await mergeThroughPull(
-    { repo, head, base: profile.main, sha, title: `Merge ${head} into ${profile.main}: ${subjects.length} commit(s)`, body: pullBody(subjects, pullText.text) },
+    { repo, head, base: profile.main, sha, title, body: pullBody(subjects, pullText.text) },
     gh,
     mainBranchOf(git, profile.main),
     proof.proof,
@@ -636,6 +655,7 @@ export function realMergeDeps(dir: string): MergeDeps {
       ),
     share: stepShareOf(process.env, runOwnCli),
     pullTextFile: head => taskPullTextFile(process.env, homedir(), head),
+    scrubRules: () => scrubRules(undefined, { git: createGit(dir), readFile: path => readFile(path) }),
     out,
     err,
   };

@@ -12,8 +12,8 @@ import { taskOfBranch } from './approval.ts';
 /** The file in a task's folder that holds its pull request text. */
 export const PULL_TEXT_FILE = 'pr.md';
 
-/** Where the pull request text was looked for and why it cannot open one, or the text itself. */
-export type PullText = { readonly kind: 'found'; readonly text: string } | { readonly kind: 'refused'; readonly reason: string };
+/** Where the pull request text was looked for and why it cannot open one, or the text and the file it came from. */
+export type PullText = { readonly kind: 'found'; readonly text: string; readonly source: string } | { readonly kind: 'refused'; readonly reason: string };
 
 const HTML_COMMENT = /<!--[\s\S]*?-->/g;
 const REACH_LINE = /^Reach:[ \t]*(.*)$/m;
@@ -55,18 +55,18 @@ export function pullTextOf(noteFile: string | null, taskFile: string | null, rea
   if (noteFile !== null) {
     const text = readText(noteFile);
     if (text === null) throw new Error(`--note-file ${noteFile}: no such file`);
-    return withReach(text, `--note-file ${noteFile}`);
+    return withReach(text, noteFile, `--note-file ${noteFile}`);
   }
   const text = taskFile === null ? null : readText(taskFile);
   if (text === null) {
     const where = taskFile === null ? 'pass --note-file <path>, as this branch names no task of a set team' : `in ${taskFile}, or pass --note-file <path>`;
     return { kind: 'refused', reason: `the pull request this merge opens has no text: ${ASK} ${where}` };
   }
-  return withReach(text, taskFile ?? '');
+  return withReach(text, taskFile ?? '', taskFile ?? '');
 }
 
-function withReach(text: string, source: string): PullText {
+function withReach(text: string, source: string, named: string): PullText {
   return reachOf(text) === null
-    ? { kind: 'refused', reason: `${source} states no Reach: add a \`Reach:\` line or fill its \`## Reach\` section (all users, teamrig development or one team, CONTRIBUTING.md, Where a change lives)` }
-    : { kind: 'found', text };
+    ? { kind: 'refused', reason: `${named} states no Reach: add a \`Reach:\` line or fill its \`## Reach\` section (all users, teamrig development or one team, CONTRIBUTING.md, Where a change lives)` }
+    : { kind: 'found', text, source };
 }

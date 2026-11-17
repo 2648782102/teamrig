@@ -8,6 +8,8 @@ import type { Credential } from './keychain.ts';
 import type { GateDeps } from './local-gate.ts';
 import { type MainBranch, type MergeArgs, type MergeDeps, type MergeRequest, type MergeResult, type Waiter, MERGE_ATTEMPTS, ciProof,mainBranchOf, mergeBranch, mergeCommand, mergeRun, mergeThroughPull, parseArgs, pullBody, runMerge, stepShareOf, waitForChecks } from './merge.ts';
 import { parseProfiles } from './repos.ts';
+import { GENERIC_RULES, type ScrubRule } from '../scrub/rules.ts';
+import { parseDenylist } from '../scrub/denylist.ts';
 
 const REPO = 'Owner/repo';
 const GH_SECRET = ['github', '_pat_', 'x'].join('');
@@ -444,6 +446,8 @@ interface RunFixture {
   movesDuringWait?: boolean;
   /** The text of the branch's task file of pull request text (PULL_TEXT unless given); null when there is no such file. */
   pullText?: string | null;
+  /** The scrub's rules for the repo, or why they could not be loaded; the generic rules unless said. */
+  scrubRules?: readonly ScrubRule[] | string;
 }
 
 /** The head a catch-up pushes: BRANCH rebased onto MOVED. */
@@ -583,6 +587,7 @@ function runFixture(fixture: RunFixture = {}): {
       },
     },
     pullTextFile: () => PULL_TEXT_PATH,
+    scrubRules: () => Promise.resolve(fixture.scrubRules ?? GENERIC_RULES),
     out: line => out.push(line),
     err: line => err.push(line),
   };
@@ -972,6 +977,29 @@ test('a merge with no pull request text, or one stating no Reach, is refused bef
   ];
   for (const [pullText, refusal] of cases) {
     const { deps, gitCalls, out, err, ghFor, clearMerge, catchUp } = runFixture({ pullText });
+    assert.equal(await runMerge(ARGS, deps), 1);
+    assert.deepEqual(out, []);
+    assert.equal(err.length, 1);
+    assert.match(err[0] ?? '', refusal);
+    assert.equal(clearMerge.mock.callCount(), 0);
+    assert.equal(catchUp.mock.callCount(), 0);
+    assert.deepEqual(gitCalls.filter(call => call.startsWith('push')), []);
+    assert.equal(ghFor.mock.callCount(), 0);
+  }
+});
+
+test('private data in the pull request text, its title or the commit subjects is refused before the approval, the token or any GitHub call (T3442)', async () => {
+  const denylist = [...GENERIC_RULES, ...parseDenylist('acme-internal\n')];
+  const cases: readonly [RunFixture, RegExp][] = [
+    [
+      { pullText: 'Reach: teamrig development\n\n## What\nThe acme-internal feed.\n', scrubRules: denylist },
+      /^REFUSED the pull request text fails the private-data scrub, 1 finding\(s\): C:\/tasks\/T9\/pr\.md:4:5 denylist:1: private denylist term "acme-internal"; take each out/,
+    ],
+    [{ subjects: 'cli: a\nfix: the Acme-Internal feed', scrubRules: denylist }, /^REFUSED the pull request text fails the private-data scrub, 1 finding\(s\): the commit subjects:2:10 denylist:1: /],
+    [{ scrubRules: 'cannot read the private denylist (gone); refusing to scan without it' }, /^REFUSED the pull request text was not scrubbed for private data: cannot read the private denylist \(gone\)/],
+  ];
+  for (const [fixture, refusal] of cases) {
+    const { deps, gitCalls, out, err, ghFor, clearMerge, catchUp } = runFixture(fixture);
     assert.equal(await runMerge(ARGS, deps), 1);
     assert.deepEqual(out, []);
     assert.equal(err.length, 1);

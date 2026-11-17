@@ -49,8 +49,8 @@ describe('pullTextOf', () => {
   const read = (path: string): string | null => files[path] ?? null;
 
   it('takes --note-file over the task file, and the task file without one', () => {
-    assert.deepEqual(pullTextOf('C:/notes/pr.md', 'C:/tasks/T1/pr.md', read), { kind: 'found', text: 'Reach: all users\n' });
-    assert.deepEqual(pullTextOf(null, 'C:/tasks/T1/pr.md', read), { kind: 'found', text: '## Reach\nteamrig development\n' });
+    assert.deepEqual(pullTextOf('C:/notes/pr.md', 'C:/tasks/T1/pr.md', read), { kind: 'found', text: 'Reach: all users\n', source: 'C:/notes/pr.md' });
+    assert.deepEqual(pullTextOf(null, 'C:/tasks/T1/pr.md', read), { kind: 'found', text: '## Reach\nteamrig development\n', source: 'C:/tasks/T1/pr.md' });
   });
 
   it('throws for a missing --note-file, as a usage error', () => {
