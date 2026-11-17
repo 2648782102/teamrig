@@ -4,7 +4,7 @@ import { EXIT_CLEAN, EXIT_FINDINGS, EXIT_USAGE } from '../lib/exit.ts';
 import { FakeGit } from '../lib/fake-git.ts';
 import { GitError } from '../lib/git.ts';
 import { GENERIC_RULES } from './rules.ts';
-import { runScrub, type ScrubOptions } from './run.ts';
+import { runScrub, scrubRules, type ScrubOptions } from './run.ts';
 import type { ReadFile } from './sources.ts';
 
 const INSIDE = 'rev-parse --is-inside-work-tree';
@@ -23,6 +23,22 @@ function harness(gitResponses: Readonly<Record<string, string | GitError>>, file
   };
   return { lines, deps: { git: new FakeGit({ [INSIDE]: 'true\n', ...gitResponses }), readFile, out: (line: string) => lines.push(line) } };
 }
+
+describe('scrubRules', () => {
+  it('gives the generic rules, then the denylist git config names, for a caller that scans text of its own (T3442)', async () => {
+    const { deps } = harness({ [CONFIG_GET]: 'deny.txt\n' }, { 'deny.txt': 'acme\n' });
+    const rules = await scrubRules(undefined, deps);
+    assert.ok(typeof rules !== 'string', String(rules));
+    assert.deepEqual(rules.map(rule => rule.id), [...GENERIC_RULES.map(rule => rule.id), 'denylist:1']);
+  });
+
+  it('says why instead outside a work tree, or with a configured denylist it cannot read, so no caller scans on the generic rules alone', async () => {
+    const outside = harness({ [INSIDE]: 'false\n' }, {});
+    assert.match(String(await scrubRules(undefined, outside.deps)), /^not inside a git work tree, where git config teamrig\.scrubDenylist names the private denylist/);
+    const gone = harness({ [CONFIG_GET]: 'gone.txt\n' }, {});
+    assert.match(String(await scrubRules(undefined, gone.deps)), /^cannot read the private denylist \(.*\); refusing to scan without it$/);
+  });
+});
 
 describe('runScrub', () => {
   it('refuses to run with nothing selected', async () => {

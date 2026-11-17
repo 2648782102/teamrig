@@ -37,16 +37,11 @@ export async function runScrub(options: ScrubOptions, deps: ScrubDeps): Promise<
     deps.out('scrub: nothing to scan; pass --staged, --tree, --message <file> or --range <revisions>');
     return EXIT_USAGE;
   }
-  if (!(await insideWorkTree(deps.git))) {
-    deps.out(`scrub: not inside a git work tree, where git config ${DENYLIST_CONFIG_KEY} names the private denylist; run it from inside the repo`);
+  const rules = await scrubRules(options.denylistPath, deps);
+  if (typeof rules === 'string') {
+    deps.out(`scrub: ${rules}`);
     return EXIT_USAGE;
   }
-  const denylist = await loadDenylist(options.denylistPath, deps);
-  if (typeof denylist === 'string') {
-    deps.out(`scrub: ${denylist}`);
-    return EXIT_USAGE;
-  }
-  const rules: readonly ScrubRule[] = [...GENERIC_RULES, ...denylist];
   const inputs = await collectInputs(options, deps);
   const findings: Finding[] = [];
   let binaries = 0;
@@ -62,9 +57,26 @@ export async function runScrub(options: ScrubOptions, deps: ScrubDeps): Promise<
   }
   const scope =
     `${inputs.length - binaries} input(s), ${binaries} binary skipped, ` +
-    `${GENERIC_RULES.length} generic + ${denylist.length} private rule(s)`;
+    `${GENERIC_RULES.length} generic + ${rules.length - GENERIC_RULES.length} private rule(s)`;
   deps.out(findings.length === 0 ? `scrub: clean (${scope})` : `scrub: ${findings.length} finding(s) (${scope})`);
   return findings.length === 0 ? EXIT_CLEAN : EXIT_FINDINGS;
+}
+
+/** What `scrubRules` reads: the repo's git config, and the denylist file it names. */
+export type RuleDeps = Pick<ScrubDeps, 'git' | 'readFile'>;
+
+/**
+ * The rules every scan runs: the generic ones, then the private denylist (`denylistPath`, else the repo's git config
+ * `teamrig.scrubDenylist`). Returns why it cannot, instead, outside a work tree or with a configured list it cannot
+ * use, so no caller scans on the generic rules alone where a denylist was meant to apply (ship's pull request text,
+ * T3442, scans with these too).
+ */
+export async function scrubRules(denylistPath: string | undefined, deps: RuleDeps): Promise<readonly ScrubRule[] | string> {
+  if (!(await insideWorkTree(deps.git))) {
+    return `not inside a git work tree, where git config ${DENYLIST_CONFIG_KEY} names the private denylist; run it from inside the repo`;
+  }
+  const denylist = await loadDenylist(denylistPath, deps);
+  return typeof denylist === 'string' ? denylist : [...GENERIC_RULES, ...denylist];
 }
 
 /**
@@ -83,7 +95,7 @@ async function insideWorkTree(git: Git): Promise<boolean> {
 }
 
 /** Returns the denylist rules, or an error message. A configured list that is missing or empty fails closed. */
-async function loadDenylist(explicitPath: string | undefined, deps: ScrubDeps): Promise<ScrubRule[] | string> {
+async function loadDenylist(explicitPath: string | undefined, deps: RuleDeps): Promise<ScrubRule[] | string> {
   const path = explicitPath ?? (await deps.git.text(['config', '--default', '', '--get', DENYLIST_CONFIG_KEY])).trim();
   if (path === '') {
     return [];
