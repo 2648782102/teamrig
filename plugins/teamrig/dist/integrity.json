@@ -196,7 +196,7 @@
     "dist/cli/commands/team-ask.js": "75790960a6c5dd9de543dfc5ec94306a9c2dce6f4e1ec7791d845f133f0e634f",
     "dist/cli/commands/team-split-write.js": "801f5ae97b9c09e2748ad40bc4cf014008d1843b11dc42ab3f72f4a1d1a88ccc",
     "dist/cli/commands/team-split.js": "b2f90031d492aad983e55109af80e2e0830bf69d1df3756ffdd75df93d63a009",
-    "dist/cli/commands/team.js": "34d3574eaf2afe7648a5660ea139aceae754f5fb0ec4ebababee4bf19cbe0678",
+    "dist/cli/commands/team.js": "7306489981f8434ab50a96b233f25c188e788579ef73c515cb8c610091abf4d4",
     "dist/cli/commands/test.js": "1ec69c9c481a61e1830f54601d2e58eb26dfc5da9c7ca856bd2c63f03d14e6d4",
     "dist/cli/commands/verify-queue.js": "ab3c2b6d8e5b295b61d6d6e50bcf1070037eb4e60d4fb9a4730df9b191cf36f6",
     "dist/cli/commands/withdraw.js": "b9a42754ea38eb4f99c0579987391c52faf903713ee51b1de8b3ea86b9004218",
