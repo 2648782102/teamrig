@@ -1,16 +1,17 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nodeFiles } from '../../src/core/files.ts';
 import { ENV } from '../../src/core/home.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
+import type { SecretScanner } from '../../src/core/secrets.ts';
 import { type ClearMerge, clearMergeFrom } from './approval.ts';
 import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
-import { pullTextOf, taskPullTextFile } from './pull-text.ts';
+import { pullTextOf, taskPullTextFile, teamSecretScanner } from './pull-text.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
 import { type GateDeps, proveTree, realGateDeps } from './local-gate.ts';
@@ -455,6 +456,8 @@ export interface MergeDeps {
   share: StepShare;
   /** The task file holding the pull request text of `head` when no --note-file names one (pull-text.ts, T3420), or null. */
   pullTextFile: (head: string) => string | null;
+  /** The secret scan a pull request text passes before it is published (pull-text.ts). */
+  pullTextScanner: SecretScanner;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -548,7 +551,7 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   if (git('rev-parse', `refs/remotes/origin/${head}`) !== sha) throw new Error(`${head} ${sha.slice(0, 7)} is not pushed: push it first`);
   const subjects = git('log', '--reverse', '--format=%s', `refs/remotes/origin/${profile.main}..${sha}`).split('\n').filter(line => line !== '');
   if (subjects.length === 0) throw new Error(`${head} has nothing that ${profile.main} lacks`);
-  const pullText = pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText);
+  const pullText = pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText, deps.pullTextScanner);
   if (pullText.kind === 'refused') {
     deps.err(`REFUSED ${pullText.reason}`);
     return done(1);
@@ -636,6 +639,7 @@ export function realMergeDeps(dir: string): MergeDeps {
       ),
     share: stepShareOf(process.env, runOwnCli),
     pullTextFile: head => taskPullTextFile(process.env, homedir(), head),
+    pullTextScanner: teamSecretScanner(process.env, homedir(), path => (existsSync(path) ? readFileSync(path, 'utf8') : null)),
     out,
     err,
   };

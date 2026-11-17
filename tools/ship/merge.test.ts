@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { mock, test } from 'node:test';
+import { SecretScanner } from '../../src/core/secrets.ts';
 import type { MergeClearance } from './approval.ts';
 import type { CatchUp } from './catch-up.ts';
 import type { Gh, RequiredChecks } from './github.ts';
@@ -583,6 +584,7 @@ function runFixture(fixture: RunFixture = {}): {
       },
     },
     pullTextFile: () => PULL_TEXT_PATH,
+    pullTextScanner: new SecretScanner(['tok_[a-z0-9]{8}']),
     out: line => out.push(line),
     err: line => err.push(line),
   };
@@ -965,10 +967,14 @@ test("with no --note-file the pull request takes the branch's task text, its Wha
   assert.ok(opened?.includes(`body=${text.trim()}\n\n## Commits\n- cli: a\n- docs: b\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`));
 });
 
-test('a merge with no pull request text, or one stating no Reach, is refused before the approval, the token or any GitHub call (T3420)', async () => {
+test('a merge with no pull request text, one stating no Reach, or one holding a secret or private data, is refused before the approval, the token or any GitHub call (T3420)', async () => {
+  const secret = ['tok', 'abcd1234'].join('_');
+  const host = ['ci-runner', 'corp'].join('.');
   const cases: readonly [string | null, RegExp][] = [
     [null, /^REFUSED the pull request this merge opens has no text: write the pull request text \(What, Why and a Reach line.*\) in C:\/tasks\/T9\/pr\.md, or pass --note-file <path>$/],
     ['## What\nA change.\n\n## Reach\n<!-- All users, teamrig development or one team -->\n\n## Tests\nnone\n', /^REFUSED C:\/tasks\/T9\/pr\.md states no Reach: add a `Reach:` line or fill its `## Reach` section/],
+    [`Reach: all users\n\nRan with ${secret} set.\n`, /^REFUSED C:\/tasks\/T9\/pr\.md looks like it holds a secret \(secret pattern from the team config\); refer to where it is kept instead, as the pull request is public$/],
+    [`Reach: all users\n\nSeen on ${host}.\n`, /^REFUSED C:\/tasks\/T9\/pr\.md holds private data \(internal host name\): take it out, as the pull request is public$/],
   ];
   for (const [pullText, refusal] of cases) {
     const { deps, gitCalls, out, err, ghFor, clearMerge, catchUp } = runFixture({ pullText });
