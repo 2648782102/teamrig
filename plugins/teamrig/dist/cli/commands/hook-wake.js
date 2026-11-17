@@ -1,7 +1,8 @@
 import { activeBurst, activeRush } from "../../budget/burst.js";
 import { parseLedger } from "../../delivery/ledger.js";
-import { deliveryPlaces } from "../../delivery/places.js";
-import { decideRushPoke, rushPokePrompt, rushPokeToast, stepRunningFor } from "../../wake/rush-poke.js";
+import { liveRunsOf } from "../../delivery/detached-runs.js";
+import { deliveryPlaces, detachedDirOf } from "../../delivery/places.js";
+import { changedSincePoke, decideRushPoke, pokeMarkOf, queuedTasksOf, rushPokePrompt, rushPokeToast, stepRunningFor } from "../../wake/rush-poke.js";
 import { BurstLog } from "../../budget/burst-log.js";
 import { claudeProjectsDir, lastWriteOf } from "../../budget/discover.js";
 import { autoRestartOf } from "../../config/refresh.js";
@@ -159,7 +160,9 @@ async function restartHoldsWake(runtime, store, rearm) {
  * The rush poke (src/wake/rush-poke.ts), checked when nothing else wakes the tab: only in a rush that lists the
  * session, never for the lead (it talks with the owner, and a poke would cut into that). The ledger, a large file, is
  * read only once a poke is due: a queued step of the session running now puts the poke off by one idle span, since
- * the step's end posts a line that wakes the tab anyway.
+ * the step's end posts a line that wakes the tab anyway. The detached runs are read then too: a task one of them is for
+ * is not poked for (T3168). After a poke, another comes only once something changed for the session since
+ * (`changedSincePoke`, T3407), the inbox read for that too only once a poke is due.
  */
 async function pokeOf(runtime, scope, tasks, elsewhere, state, now) {
     const { config, kit, id, tab } = scope;
@@ -173,7 +176,23 @@ async function pokeOf(runtime, scope, tasks, elsewhere, state, now) {
     const startable = startableTasks(tasks, elsewhere, id, now, teamZone(config, runtime), parkRulesOf(config));
     const lastTurnAt = await lastWriteOf(runtime.transcripts, claudeProjectsDir(runtime.env, runtime.userHome), [tab]);
     const idleMs = config.rush.pokeAfterMinutes * MINUTE_MS;
-    const verdict = decideRushPoke({ rush, startable, lastTurnAt, now, idleMs, lastPokeAt: state.settled.poke });
+    const pokeInput = { rush, startable, lastTurnAt, now, idleMs, lastPokeAt: state.settled.poke, queued: new Set() };
+    const due = decideRushPoke(pokeInput);
+    if (due.kind !== 'poke') {
+        return due;
+    }
+    const seen = {
+        session: id,
+        lines: ((await inboxDepsOf(runtime, kit.paths).inboxes.lines(id)) ?? []).length,
+        startable,
+        own: [...tasks.values()].filter((task) => task.owner === id),
+    };
+    if (state.settled.poke !== undefined && !changedSincePoke(state.settled.pokeMark, state.settled.poke, seen)) {
+        return { kind: 'none' };
+    }
+    const runs = await liveRunsOf({ files: runtime.files, alive: (pid) => runtime.sessionProcesses.alive(pid) }, detachedDirOf(config.delivery, kit.paths), kit.paths.team);
+    const queued = queuedTasksOf(runs, id);
+    const verdict = queued.size === 0 ? due : decideRushPoke({ ...pokeInput, queued });
     if (verdict.kind !== 'poke') {
         return verdict;
     }
@@ -184,7 +203,7 @@ async function pokeOf(runtime, scope, tasks, elsewhere, state, now) {
     if (stepRunningFor(ledger, id, now, config.delivery.queue.maxRunMinutes * MINUTE_MS)) {
         return { kind: 'later', at: now + idleMs };
     }
-    return { kind: 'poke', rush, task: verdict.task, idleMs: verdict.idleMs, lastTurnAt };
+    return { kind: 'poke', rush, task: verdict.task, idleMs: verdict.idleMs, lastTurnAt, mark: pokeMarkOf(seen) };
 }
 /** The earliest of the times given; null with none. */
 function earliest(...times) {
@@ -320,7 +339,7 @@ async function decide(runtime, scope, store, fresh, login) {
             await store.write(id, day.state);
             return { kind: 'fresh' };
         }
-        await store.write(id, poke.kind === 'poke' ? { ...day.state, settled: { ...day.state.settled, poke: now } } : day.state);
+        await store.write(id, poke.kind === 'poke' ? { ...day.state, settled: { ...day.state.settled, poke: now, pokeMark: poke.mark } } : day.state);
         if (poke.kind === 'poke') {
             return poke;
         }

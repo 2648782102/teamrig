@@ -1,6 +1,8 @@
 import type { Rush } from '../budget/burst.ts';
 import { KIT_NAME } from '../core/home.ts';
+import type { DetachedRunRecord } from '../delivery/detached-runs.ts';
 import type { LedgerRecord } from '../delivery/ledger.ts';
+import { taskOfLabel } from '../delivery/process-request.ts';
 import type { Task } from '../register/fold.ts';
 import { costText, type WakeCost } from './decide.ts';
 
@@ -24,6 +26,8 @@ export interface PokeInput {
   readonly idleMs: number;
   /** The last poke of the session, epoch ms (`SettledMoments.poke`). */
   readonly lastPokeAt: number | undefined;
+  /** The tasks a queued run of the session is for, waiting for its turn or running (`queuedTasksOf`). */
+  readonly queued: ReadonlySet<string>;
 }
 
 export type PokeVerdict =
@@ -47,14 +51,16 @@ function topTaskOf(tasks: readonly Task[], goal: string): Task | undefined {
 /**
  * Whether to poke the tab now, later, or not at all. One poke per idle stretch: a poke at or after the tab's last turn
  * blocks another until the tab has a new turn, so a tab that ignores a poke (or whose poke was dropped) is not poked
- * again and again. Nothing is due past the rush's end.
+ * again and again. Nothing is due past the rush's end. A task with a queued run of the session is not poked for: its
+ * next move is that run's end, whose line wakes the tab anyway. Poking for one cost a tab about 281k W each idle
+ * stretch while its ship gate waited in line and it had nothing else to do (T3168); its other work is still poked for.
  */
 export function decideRushPoke(input: PokeInput): PokeVerdict {
-  const { rush, lastTurnAt, now, idleMs, lastPokeAt } = input;
+  const { rush, lastTurnAt, now, idleMs, lastPokeAt, queued } = input;
   if (rush === undefined || lastTurnAt === undefined) {
     return { kind: 'none' };
   }
-  const task = topTaskOf(input.startable.filter(isWorkLeft), rush.goal);
+  const task = topTaskOf(input.startable.filter((candidate) => isWorkLeft(candidate) && !queued.has(candidate.id)), rush.goal);
   if (task === undefined || (lastPokeAt !== undefined && lastPokeAt >= lastTurnAt)) {
     return { kind: 'none' };
   }
@@ -63,6 +69,50 @@ export function decideRushPoke(input: PokeInput): PokeVerdict {
     return { kind: 'none' };
   }
   return now < dueAt ? { kind: 'later', at: dueAt } : { kind: 'poke', task, idleMs: now - lastTurnAt };
+}
+
+/** What a session had at its last poke, kept with that poke (`SettledMoments.pokeMark`), so a later check sees what changed. */
+export interface PokeMark {
+  /** The lines in its inbox. */
+  readonly lines: number;
+  /** The ids of the tasks it could start. */
+  readonly startable: readonly string[];
+}
+
+/** What a check sees of the session now, weighed against its last poke's mark. */
+export interface PokeNow {
+  readonly session: string;
+  /** The lines in its inbox. */
+  readonly lines: number;
+  /** The tasks it can start now (`startableTasks`). */
+  readonly startable: readonly Task[];
+  /** The tasks it owns. */
+  readonly own: readonly Task[];
+}
+
+/** The mark a poke keeps: what the session had when it was poked. */
+export function pokeMarkOf(now: PokeNow): PokeMark {
+  return { lines: now.lines, startable: now.startable.map((task) => task.id) };
+}
+
+/**
+ * Whether something changed for the session since its last poke at `pokedAt`: a line posted to its inbox (a queued
+ * run's end posts one), a register event on one of its tasks by anyone else (a new task, a handover, an answer, an
+ * approval), or a task it can start that it could not then (a time wait or an `after` cleared). Its own note or
+ * status write is no change. A session that answered a poke with "nothing can move" and left its task open was poked
+ * again every idle span, a full wake each time, for the same state (T3407). With no mark (a poke kept before marks
+ * were), anything counts as a change, as before.
+ */
+export function changedSincePoke(mark: PokeMark | undefined, pokedAt: number, now: PokeNow): boolean {
+  if (mark === undefined) {
+    return true;
+  }
+  const before = new Set(mark.startable);
+  return (
+    now.lines !== mark.lines ||
+    now.own.some((task) => task.updatedBy !== now.session && Date.parse(task.updatedAt) > pokedAt) ||
+    now.startable.some((task) => !before.has(task.id))
+  );
 }
 
 /**
@@ -86,6 +136,21 @@ export function stepRunningFor(records: readonly LedgerRecord[], session: string
   return [...started].some(([id, at]) => !ended.has(id) && now - at < maxRunMs);
 }
 
+/**
+ * The tasks `session`'s queued runs are for: the task each run's label names (`taskOfLabel`), the one
+ * `teamrig queue --task` defaults to. A run whose label names no task is for none.
+ */
+export function queuedTasksOf(runs: readonly DetachedRunRecord[], session: string): ReadonlySet<string> {
+  const tasks = new Set<string>();
+  for (const run of runs) {
+    const task = run.session === session ? taskOfLabel(run.what) : undefined;
+    if (task !== undefined) {
+      tasks.add(task);
+    }
+  }
+  return tasks;
+}
+
 function minutesText(ms: number): string {
   return `${Math.round(ms / 60_000)} min`;
 }
@@ -95,7 +160,7 @@ export function rushPokePrompt(session: string, rush: Rush, task: Task, idleMs: 
   return [
     `Rush on ${rush.goal}: this tab sat idle ${minutesText(idleMs)} with work left and no queued step of its own running.`,
     `Start or continue ${task.id} (${task.title}) now, or your top task if another comes first; a run still waiting in the queue is no reason to wait.`,
-    `If nothing can move, write why in its note (\`${KIT_NAME} set ${task.id} --session ${session} --status <status> --note "..."\`). This poke costs ${costText(cost)}.`,
+    `If nothing can move, set it waiting with its reason (\`${KIT_NAME} set ${task.id} --session ${session} --status waiting --waits <reason> --note "..."\`): no poke comes again until something changes for you. This poke costs ${costText(cost)}.`,
   ].join(' ');
 }
 

@@ -138,8 +138,10 @@ const SHIP_WORKTREE = '/repo/app/.claude/worktrees/t1-cli';
 /** The team's tasks folder with forward slashes, as a role call's line spells a path on every OS. */
 const TASKS = join(TEAM_HOME, 'tasks').replaceAll('\\', '/');
 const TASK_FILES = `${TASKS}/T1`;
-const SHIP = `teamrig queue --kind ship --what "ship T1" --task T1 --session alpha -- node ${SHIP_TOOL} ${SHIP_WORKTREE} ${TASK_FILES}/plan.json`;
-const MERGE = `${SHIP} --merge --approved 0123456 --note-file ${TASK_FILES}/pr.md`;
+/** A ship without --merge, a test step that takes no ship slot (T3414); a merge runs under --kind ship. */
+const SHIP = `teamrig queue --kind test --what "ship T1" --task T1 --session alpha -- node ${SHIP_TOOL} ${SHIP_WORKTREE} ${TASK_FILES}/plan.json`;
+const MERGING = SHIP.replace('--kind test', '--kind ship');
+const MERGE = `${MERGING} --merge --approved 0123456 --note-file ${TASK_FILES}/pr.md`;
 
 /** A team whose `ship` role gives every session the ship tool of repo app, which its tab bound to alpha runs on T1, alpha's. */
 async function shipKit(extra: JsonRecord = {}): Promise<{ kit: CliHarness; git: FakeMergeGit }> {
@@ -178,7 +180,9 @@ describe('hook route-allow: the ship role (T2984)', () => {
     const { kit, git } = await shipKit();
     const lines = [
       SHIP.replace('--task T1', '--task T2'),
-      `${SHIP} --merge --note-file ${TASKS}/T2/pr.md`,
+      `${MERGING} --merge --note-file ${TASKS}/T2/pr.md`,
+      MERGING,
+      `${SHIP} --merge --approved 0123456`,
       SHIP.replace(`${TASK_FILES}/plan.json`, '/tmp/plan.json'),
       SHIP.replace(SHIP_WORKTREE, '/w/feat'),
       SHIP.replace(SHIP_TOOL, '/repo/app/tools/ship/ship.ts'),
@@ -225,6 +229,12 @@ describe('hook route-allow: the ship role (T2984)', () => {
     same.git.heads.set('/repo/ship', 'rebuilt');
     same.git.trees.set('rebuilt', 'tree-base');
     assert.equal(decisionOf(await same.kit.run(HOOK, { stdin: call(SHIP), env: ALPHA, mergeGit: same.git })), 'allow', "another commit that makes main's tree");
+  });
+
+  it("gives no ship when git does not answer a read of the tool's checkout (C5 fails closed, T3368)", async () => {
+    const { kit, git } = await shipKit();
+    git.unanswered.push('git rev-parse in /repo/ship did not answer: stopped by SIGTERM');
+    assert.deepEqual(await kit.run(HOOK, { stdin: call(SHIP), env: ALPHA, mergeGit: git }), NOTHING);
   });
 
   it('gives no ship to a team whose repository names no ship tool', async () => {

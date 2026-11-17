@@ -93,6 +93,11 @@ describe('runCli: meeting schedule', () => {
     const long = await kit.run(['meeting', 'schedule', '--meets', 'alpha', '--at', '2030-01-08 14:00', '--about', 'x'.repeat(201), '--session', 'lead']);
     assert.equal(long.code, EXIT.usage);
     assert.match(said(long), /--about holds 201 characters: at most 200/);
+    for (const about of ['plan \u001b[2J', 'plan ‮evil']) {
+      const marked = await kit.run(['meeting', 'schedule', '--meets', 'alpha', '--at', '2030-01-08 14:00', '--about', about, '--session', 'lead']);
+      assert.equal(marked.code, EXIT.usage, about);
+      assert.match(said(marked), /--about holds a control character or bidi mark: type it as plain text/);
+    }
     for (const minutes of ['0', '481', '1.5']) {
       const result = await kit.run([...BOOK, '--minutes', minutes, '--session', 'lead']);
       assert.equal(result.code, EXIT.usage, minutes);
@@ -305,6 +310,16 @@ describe('runCli: meeting start <id>', () => {
     kit.clock.advance(MS_PER_MINUTE);
     assert.equal((await kit.run(['meeting', 'drop', 'M2', '--note', 'settled by mail', '--session', 'lead'])).code, EXIT.ok);
     assert.deepEqual(await spotlitOf(kit), { id: 'M2', startedAt: '2030-01-08T10:01:00.000Z', endedAt: '2030-01-08T10:02:00.000Z' });
+  });
+
+  it("opens a closed child team's lead for its meeting, as it opens any session's tab (T3387)", async () => {
+    const kit = await team({ ...TEAM, team: { id: 'app', parent: 'org' }, roles: { lead: 'alpha' } });
+    await booked(kit, '--session', 'alpha');
+    const processes = new FakeProcesses().onStart('wt.exe', { kind: 'started', end: 'exited' });
+    const result = await kit.run(['meeting', 'start', 'M1', '--session', 'bravo'], { platform: 'win32', processes, probe: new FakePathProbe({ folders: [APP] }) });
+    assert.equal(result.code, EXIT.ok, said(result));
+    // The lead's tab opens on the lead's model and effort.
+    assert.ok(result.stdout.some((line) => line.startsWith(`OPENED app-alpha (session alpha) in a new Windows Terminal tab in ${APP}, on model`) && line.endsWith('; its first prompt opens the meeting')), said(result));
   });
 
   it('opens the tab of a session that runs none, the opening prompt ahead of its own first prompt, and leaves no ask behind', async () => {
