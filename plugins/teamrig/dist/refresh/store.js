@@ -79,14 +79,22 @@ export class RefreshStore {
     async setCancel(id, cancel) {
         await this.files.write(this.cancelPath(id), formatRestartCancel(cancel));
     }
-    /** What cancelled the session's pending restart, removed as it is read; undefined when nothing was recorded. */
-    async takeCancel(id) {
+    /**
+     * What cancelled the session's restart request of `at`, removed as it is read; undefined when nothing was recorded for
+     * it. A record of another request stays for that request's runner (an old runner still waiting must not spend the
+     * record of the request that replaced its own); a damaged one is removed.
+     */
+    async takeCancel(id, at) {
         const text = await this.files.read(this.cancelPath(id));
         if (text === undefined) {
             return undefined;
         }
+        const cancel = parseRestartCancel(text);
+        if (cancel !== undefined && cancel.at !== at) {
+            return undefined;
+        }
         await this.files.remove(this.cancelPath(id));
-        return parseRestartCancel(text);
+        return cancel;
     }
     /** The restart held back until work comes; undefined when none, or the file is damaged. */
     async parked(id) {

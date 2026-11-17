@@ -226,7 +226,7 @@ function promptOriginOf(value) {
         return undefined;
     }
     const kind = value['kind'];
-    if (kind === 'person' || kind === 'wake') {
+    if (kind === 'person' || kind === 'wake' || kind === 'unknown') {
         return { kind };
     }
     const from = nullableString(value, 'from');
