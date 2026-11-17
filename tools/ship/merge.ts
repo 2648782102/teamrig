@@ -11,6 +11,7 @@ import { buildScriptOf, buildSteps } from './build-steps.ts';
 import { type CatchUp, type CatchUpRequest, catchUp } from './catch-up.ts';
 import { type CheckOutcome, type Gh, type RequiredChecks, ghWithToken, readChecks, rerunFailedJobs, verdictOf } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
+import { pullTextOf, taskPullTextFile } from './pull-text.ts';
 import { type MergeOutcome, type PullRequest, findOpenPull, openPull, rebaseMerge } from './pulls.ts';
 import { type MergedHead, pullsOfHead, sweepAfterMerge } from './leftovers.ts';
 import { type GateDeps, proveTree, realGateDeps } from './local-gate.ts';
@@ -574,6 +575,8 @@ export interface MergeDeps {
   share: StepShare;
   /** This merge's place in the repo's line: once its checks pass, it waits for older merges to land (landing-turn.ts, T4196). */
   turn: LandingTurn;
+  /** The task file holding the pull request text of `head` when no --note-file names one (pull-text.ts, T3420), or null. */
+  pullTextFile: (head: string) => string | null;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -742,12 +745,17 @@ export async function mergeRun(args: MergeArgs, deps: MergeDeps, gate: MergeGate
   const { head, sha, opens, refusal } = args.release === null ? changeHead(args, deps, profile) : releaseHead(deps, profile, repo);
   const subjects = git('log', '--reverse', '--format=%s', `refs/remotes/origin/${profile.main}..${sha}`).split('\n').filter(line => line !== '');
   if (subjects.length === 0) throw new Error(`${head} has nothing that ${profile.main} lacks`);
-  const note = args.noteFile === null ? null : deps.gate.readText(args.noteFile);
-  if (args.noteFile !== null && note === null) throw new Error(`--note-file ${args.noteFile}: no such file`);
   if (refusal !== null) {
     deps.err(`REFUSED ${refusal}`);
     return done(1);
   }
+  // The release pull request is opened by its release tool, with its own text, so only a change head needs one.
+  const pullText = opens ? pullTextOf(args.noteFile, deps.pullTextFile(head), deps.gate.readText) : null;
+  if (pullText?.kind === 'refused') {
+    deps.err(`REFUSED ${pullText.reason}`);
+    return done(1);
+  }
+  const note = pullText === null ? null : pullText.text;
   const unapproved = await gate(head, sha);
   if (unapproved !== null) {
     deps.err(`REFUSED ${unapproved}`);
@@ -851,6 +859,7 @@ export function realMergeDeps(dir: string): MergeDeps {
     },
     share: stepShareOf(process.env, runOwnCli),
     turn: processLandingTurn(dir, git),
+    pullTextFile: head => taskPullTextFile(process.env, homedir(), head),
     out,
     err,
   };
