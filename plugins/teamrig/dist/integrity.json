@@ -273,7 +273,7 @@
     "dist/cli/urgent-line.js": "bdbc20d51a2ab0b5401c48e326b9dd5d54d7dce5868c62304e396dd64fb80875",
     "dist/cli/wake-opened.js": "0574a5b013139d88e7ca2924ed79ad336b8ca1c275e04e561ee494e78ce610c2",
     "dist/config/config-lock.js": "158582e4062053f24ae710077dfa1cd9fc67412f0ecae43b4bc978c7082a6c99",
-    "dist/config/defaults.js": "bf7279446dc961afcb0b36facc00e7b4d6cb164ddb0e9a5ede8de0e1901c16b9",
+    "dist/config/defaults.js": "c0292f135536ffccd404c47f05a5b8dde1642383d90bef0e8439cf08bd858e01",
     "dist/config/launch.js": "89acfc81a8cdee4c93dbc263ff519e032ca1f1622255f549c6c0da42b9ed74b1",
     "dist/config/lead-edits.js": "785f948ea02fe6eb0b66da64128f0832a428c7a378d69a0ab3d37c10642a11eb",
     "dist/config/lead-keys.js": "bfb10d32a49b2dc9ddee5a173b6304ca1d241f2a18f995aa39e7663c124398f1",
