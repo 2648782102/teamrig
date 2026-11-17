@@ -33,11 +33,12 @@ import {
   LabelFileReads,
   labelCreateArgs,
   userReadArgs,
+  repoReadArgs,
   type GhRequest,
   type GhResult,
   type GhRunner,
 } from './gh.ts';
-import { GitHubIssueHost, issueIdIn, loginIn } from './host.ts';
+import { fullNameIn, GitHubIssueHost, issueIdIn, loginIn } from './host.ts';
 import { ISSUE_LIMIT, issuePageArgs } from './issues.ts';
 import { CLOSED_ISSUES_QUERY, PULL_PAGE_SIZE } from './queries.ts';
 import { PULL_LIMIT } from './pulls.ts';
@@ -441,6 +442,23 @@ describe('GitHubIssueHost', () => {
     const other = new FakeGh().answersUserRead({ end: { kind: 'exited', code: 0 }, stdout: '{"login":"mallory"}', stderr: '' });
     assert.deepEqual(await hostWith(other).assigneeExists('acme/web', 'octocat'), { kind: 'failed', reason: 'gh printed no login octocat for the GitHub user octocat' });
     assert.equal(other.ran.length, 1);
+  });
+
+  it('reads the name a repository goes by now with the access of the listed one, missing on Not Found', async () => {
+    const gh = new FakeGh().moved('acme/old', 'acme/web');
+    const host = hostWith(gh);
+    assert.deepEqual(await host.repoName('acme/web', 'acme/old'), { kind: 'found', name: 'acme/web' });
+    assert.deepEqual(await host.repoName('acme/web', 'acme/gone'), { kind: 'missing' });
+    assert.deepEqual(gh.ran.map((request) => request.args), [repoReadArgs('acme/old'), repoReadArgs('acme/gone')]);
+    const odd = new FakeGh().answers('acme/old', { end: { kind: 'exited', code: 0 }, stdout: '{"id":1}', stderr: '' });
+    assert.deepEqual(await hostWith(odd).repoName('acme/web', 'acme/old'), { kind: 'failed', reason: 'gh printed no repository name for acme/old' });
+  });
+
+  it('takes as a repository name only a string of that shape in the printed repository', () => {
+    assert.equal(fullNameIn('{"full_name":"Acme/Web","id":1}'), 'Acme/Web');
+    for (const stdout of ['', 'not json', 'null', '[]', '{}', '{"full_name":7}', '{"full_name":"acme"}', '{"full_name":"acme/.."}']) {
+      assert.equal(fullNameIn(stdout), undefined, stdout);
+    }
   });
 
   it("takes as a login only a string of a login's shape in the printed user", () => {

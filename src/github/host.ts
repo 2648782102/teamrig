@@ -5,6 +5,7 @@ import {
   type CloseReason,
   type HostEnd,
   type HostAssignee,
+  type HostRepoName,
   type HostComments,
   type HostIssueId,
   type HostJobLog,
@@ -45,12 +46,14 @@ import {
   jobLogArgs,
   labelReadArgs,
   isLogin,
+  isRepoName,
   labelCreateArgs,
   labelFileReadArgs,
   subIssueAddArgs,
   WATCH_PATHS,
   watchProbeArgs,
   userReadArgs,
+  repoReadArgs,
   type GhResult,
   type GhRunner,
   type WatchPath,
@@ -325,6 +328,15 @@ export class GitHubIssueHost implements IssueHost {
     return read.kind === 'found' ? { kind: 'found', login: spelled } : read;
   }
 
+  async repoName(via: string, repo: string): Promise<HostRepoName> {
+    const read = await this.read(via, repoReadArgs(repo), `the repository ${repo}`);
+    if (read.kind !== 'found') {
+      return read;
+    }
+    const name = fullNameIn(read.stdout);
+    return name === undefined ? { kind: 'failed', reason: `gh printed no repository name for ${repo}` } : { kind: 'found', name };
+  }
+
   /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
   private async read(repo: string, args: readonly string[], what: string): Promise<HostRead> {
     const access = await this.tokens.accessFor(repo);
@@ -510,6 +522,21 @@ export function loginIn(stdout: string): string | undefined {
   }
   const { login } = parsed;
   return typeof login === 'string' && isLogin(login) ? login : undefined;
+}
+
+/** The `full_name` of a repository as GitHub's REST API prints it, when it is a repository name, else undefined. */
+export function fullNameIn(stdout: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || !('full_name' in parsed)) {
+    return undefined;
+  }
+  const { full_name: name } = parsed;
+  return typeof name === 'string' && isRepoName(name) ? name : undefined;
 }
 
 /** The `id` of an issue as GitHub's REST API prints it: a positive safe integer, else undefined. */

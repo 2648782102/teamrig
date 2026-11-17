@@ -47,6 +47,11 @@ export function isIssueQuery(args: readonly string[]): boolean {
  */
 const REPO_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
 
+/** Whether `name` is a repository name, `owner/name`, of the shape the runner takes in a path. */
+export function isRepoName(name: string): boolean {
+  return REPO_NAME.test(name);
+}
+
 /** The field gh sends as one item of the issue's label list. */
 const LABEL_FIELD = 'labels[]';
 
@@ -178,6 +183,11 @@ export function assigneeReadArgs(repo: string, login: string): string[] {
 /** The command line that reads one GitHub user, whose `login` is spelled in the case GitHub keeps; it fails when there is no such user. */
 export function userReadArgs(login: string): string[] {
   return ['api', `users/${login}`];
+}
+
+/** The command line that reads one repository, which GitHub answers under its name now when it was renamed or moved. */
+export function repoReadArgs(repo: string): string[] {
+  return ['api', `repos/${repo}`];
 }
 
 /** The command line that makes `label` in `repo`: its name, colour and description, each a raw field. */
@@ -380,6 +390,18 @@ const USER_PATH = /^users\/([^/]+)$/u;
 export function isUserRead(args: readonly string[]): boolean {
   const match = USER_PATH.exec(args[1] ?? '');
   return args[0] === 'api' && args.length === 2 && match !== null && isLogin(match[1] ?? '');
+}
+
+/** `repos/<owner>/<name>`: one repository. */
+const REPO_PATH = /^repos\/([^/]+\/[^/]+)$/u;
+
+/**
+ * True for `gh api repos/<owner>/<name>` and nothing more: a read, gh's default GET, of one repository, which GitHub
+ * answers under the name it has now when it was renamed or moved. A method, a field or a path below it is refused.
+ */
+export function isRepoRead(args: readonly string[]): boolean {
+  const match = REPO_PATH.exec(args[1] ?? '');
+  return args[0] === 'api' && args.length === 2 && match !== null && REPO_NAME.test(match[1] ?? '');
 }
 
 /** `repos/<owner>/<name>/labels`: the labels of a repository, where a POST makes one. */
@@ -673,6 +695,7 @@ export function isAllowedGh(args: readonly string[]): boolean {
     isIssueUnassign(args) ||
     isAssigneeRead(args) ||
     isUserRead(args) ||
+    isRepoRead(args) ||
     isLabelCreate(args) ||
     isLinkAdd(args) ||
     isWatchProbe(args) ||

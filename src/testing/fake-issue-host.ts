@@ -1,4 +1,4 @@
-import type { CloseReason, HostAssignee, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLabelFile, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
+import type { CloseReason, HostAssignee, HostRepoName, HostComments, HostEnd, HostIssueId, HostJobLog, HostLabel, HostLabelFile, HostLinks, HostList, HostOpen, HostPulls, HostReach, HostUse, HostWatch, IssueDraft, IssueHost, IssueTarget, LabelSpec, WatchMarks } from '../issues/host.ts';
 import type { LinkedIssue } from '../issues/issue.ts';
 import type { HostPost, HostPosts } from '../issues/post.ts';
 import type { HostPull } from '../issues/pull.ts';
@@ -51,6 +51,7 @@ export class FakeIssueHost implements IssueHost {
   private readonly spellings = new Map<string, string>();
   private assigneeRead: HostAssignee | undefined;
   private assignEnd: HostEnd = { kind: 'done' };
+  private readonly moves = new Map<string, string>();
   private unassignEnd: HostEnd = { kind: 'done' };
 
   /** From now on, taking an assignee off fails for `reason`. */
@@ -74,6 +75,12 @@ export class FakeIssueHost implements IssueHost {
   /** From now on, every read of whether a login may be assigned ends as `end`. */
   readsAssignee(end: HostAssignee): this {
     this.assigneeRead = end;
+    return this;
+  }
+
+  /** From now on, the repository `from` goes by the name `to`, as one renamed or moved. */
+  moved(from: string, to: string): this {
+    this.moves.set(from.toLowerCase(), to);
     return this;
   }
 
@@ -329,6 +336,12 @@ export class FakeIssueHost implements IssueHost {
   assign(target: IssueTarget, logins: readonly string[]): Promise<HostEnd> {
     this.calls.push({ kind: 'assign', target, logins });
     return Promise.resolve(this.assignEnd);
+  }
+
+  /** The name a test moved the repository to, else missing: the fake holds no repository of its own. */
+  repoName(_via: string, repo: string): Promise<HostRepoName> {
+    const name = this.moves.get(repo.toLowerCase());
+    return Promise.resolve(name === undefined ? { kind: 'missing' } : { kind: 'found', name });
   }
 
   /** Each repository changed when no marks are given (it holds no issue to change later), else unchanged. */
