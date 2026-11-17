@@ -1,12 +1,16 @@
 import { join } from 'node:path';
-import { ENV, type Env, resolveKitHome, taskFolder } from '../../src/core/home.ts';
+import { parseConfigText } from '../../src/config/text.ts';
+import { ENV, type Env, resolveKitHome, taskFolder, teamHome } from '../../src/core/home.ts';
+import { privateShapeIn } from '../../src/core/private-shapes.ts';
+import { SecretScanner } from '../../src/core/secrets.ts';
 import { taskOfBranch } from './approval.ts';
 
 /**
  * The text of the pull request a merge opens (T3420): What, Why and Reach, as `.github/pull_request_template.md`
  * asks, so a ship-made pull request says what a hand-opened one does. It comes from `--note-file`, else from the
  * `pr.md` in the folder of the branch's task (`teamrig files T<id>`), where a session writes it before asking for
- * approval. A merge with no such text, or one whose Reach is empty, is refused before any GitHub call.
+ * approval. A merge with no such text, one whose Reach is empty, or one holding a secret's shape or private data, is
+ * refused before any GitHub call: the task folder is private and holds logs and notes, while the pull request is public.
  */
 
 /** The file in a task's folder that holds its pull request text. */
@@ -48,24 +52,41 @@ const ASK =
   'write the pull request text (What, Why and a Reach line: all users, teamrig development or one team, CONTRIBUTING.md, Where a change lives)';
 
 /**
- * The pull request text: `--note-file` when given (a missing one throws, as a usage error), else the task's file when
- * it exists; refused when there is none, or when it states no Reach.
+ * The secret scan for the team the merge runs for (`TEAMRIG_TEAM`): the built-in shapes plus its
+ * `register.secretPatterns`, as `teamrig issue` scans an issue; the built-in shapes alone when no team is set or its
+ * config cannot be read, so a text is never published unscanned.
  */
-export function pullTextOf(noteFile: string | null, taskFile: string | null, readText: (path: string) => string | null): PullText {
+export function teamSecretScanner(env: Env, userHome: string, readText: (path: string) => string | null): SecretScanner {
+  const team = env[ENV.team]?.trim() ?? '';
+  const text = team === '' ? null : readText(join(teamHome(resolveKitHome(env, userHome), team), 'config.json'));
+  const read = text === null ? null : parseConfigText(text);
+  return new SecretScanner(read?.status === 'loaded' ? read.config.register.secretPatterns : []);
+}
+
+/**
+ * The pull request text: `--note-file` when given (a missing one throws, as a usage error), else the task's file when
+ * it exists; refused when there is none, when it holds a secret's shape or private data, or when it states no Reach.
+ */
+export function pullTextOf(noteFile: string | null, taskFile: string | null, readText: (path: string) => string | null, scanner: SecretScanner): PullText {
   if (noteFile !== null) {
     const text = readText(noteFile);
     if (text === null) throw new Error(`--note-file ${noteFile}: no such file`);
-    return withReach(text, `--note-file ${noteFile}`);
+    return publishable(text, `--note-file ${noteFile}`, scanner);
   }
   const text = taskFile === null ? null : readText(taskFile);
   if (text === null) {
     const where = taskFile === null ? 'pass --note-file <path>, as this branch names no task of a set team' : `in ${taskFile}, or pass --note-file <path>`;
     return { kind: 'refused', reason: `the pull request this merge opens has no text: ${ASK} ${where}` };
   }
-  return withReach(text, taskFile ?? '');
+  return publishable(text, taskFile ?? '', scanner);
 }
 
-function withReach(text: string, source: string): PullText {
+/** The text when a public pull request may carry it: no secret's shape, no private data, and a Reach. Names the shape, never the match. */
+function publishable(text: string, source: string, scanner: SecretScanner): PullText {
+  const secret = scanner.refusal(source, text);
+  if (secret !== undefined) return { kind: 'refused', reason: `${secret}, as the pull request is public` };
+  const shape = privateShapeIn(text);
+  if (shape !== undefined) return { kind: 'refused', reason: `${source} holds private data (${shape.description}): take it out, as the pull request is public` };
   return reachOf(text) === null
     ? { kind: 'refused', reason: `${source} states no Reach: add a \`Reach:\` line or fill its \`## Reach\` section (all users, teamrig development or one team, CONTRIBUTING.md, Where a change lives)` }
     : { kind: 'found', text };
