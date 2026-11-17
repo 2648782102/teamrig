@@ -1,6 +1,6 @@
 import { DEFAULT_COMMITS } from '../../src/config/defaults.ts';
 import { pathMatcher, weighCommit, type CommitWeight, type FileChange } from '../../src/push-guard/commit-size.ts';
-import { workChanges, type ClearMerge, type WorkCommit } from './approval.ts';
+import { clearanceText, workChanges, type ClearMerge, type WorkCommit } from './approval.ts';
 import { freeBranch } from './branch-names.ts';
 import type { BuildStep } from './build-steps.ts';
 import type { GateVerdict } from './local-gate.ts';
@@ -149,10 +149,10 @@ async function clearedChange(args: ShipArgs, branch: string, deps: ShipDeps): Pr
   const clearance = await deps.clearMerge(branch, approvedHead, args.approved);
   if (clearance.kind === 'refused') throw new Error(`REFUSED ${clearance.reason}`);
   if (clearance.kind === 'self') {
-    deps.log(`merge of ${branch} ${head.slice(0, 9)}: the caller's own, a root team's lead`);
+    deps.log(`merge of ${branch} ${head.slice(0, 9)}: ${clearanceText(clearance)}`);
     return null;
   }
-  deps.log(`merge of ${branch} ${approvedHead.slice(0, 9)}: approved by ${clearance.by}`);
+  deps.log(`merge of ${branch} ${approvedHead.slice(0, 9)}: ${clearanceText(clearance)}`);
   return { head: approvedHead, patch: deps.patchOf(approvedHead) };
 }
 
