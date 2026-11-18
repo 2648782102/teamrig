@@ -205,6 +205,8 @@ stateDiagram-v2
   of them has used. So a wait or an `after` may name another team's task of the tree: `set` and `update` take it,
   `list`, `check`, `plan` and `verify` hold the task while that one is open, `show` prints it read-only, and the
   wake check, the idle pass and keep-working wake, reopen or send its owner on once that team finishes it. A team
+  of the tree whose idle pass went 5 minutes unrun, as once it closed the team's last session, is passed from another
+  team's idle tab, so its closed sessions still reopen for work handed to them. A team
   outside a tree reads only its own log: the others are read only when an active task names an id its own list
   lacks.
 - The task list is one log that only grows, a line for every move. `teamrig compact` archives it: the log becomes
@@ -235,7 +237,7 @@ turns this off: `register.autoArchive: false` in the team's `config.json`, after
   home on one Claude account (`budget.account`, else the one the teams on its Claude config dir name, else that dir;
   each team's dir is the one its sessions last started in, kept in `state/usage/claude-config-dir.json`) split each
   day by weight: a session's weight is its share times its top queued task's weight (by priority, not how many
-  tasks it has queued), a team's its sessions' summed, and each session's part of its team's
+  tasks it has queued), plus 1 for each answer another session waits on it for, up to 5, a team's its sessions' summed, and each session's part of its team's
   part comes after the lifts. With sub-leads (`leads`), a team's part splits first among its sub-leads' groups and
   the sessions the lead leads directly, a group's weight its sessions' summed, and each group splits its part the
   same way.

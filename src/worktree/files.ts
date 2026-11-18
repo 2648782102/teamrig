@@ -1,7 +1,9 @@
-import { lstat, readdir, readlink, rmdir, symlink, unlink } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { lstat, readdir, readFile, readlink, rename, rmdir, symlink, unlink } from 'node:fs/promises';
 import { realpathSync, type Dirent } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { errorCode } from '../core/guards.ts';
+import { errorCode, errorMessage } from '../core/guards.ts';
 
 /** What is at a path as lstat sees it: a link (a symlink or a Windows junction) is never followed. */
 export type EntryKind = 'link' | 'folder' | 'other';
@@ -10,6 +12,37 @@ export interface TreeEntry {
   readonly name: string;
   readonly kind: EntryKind;
 }
+
+/** A running program and the folder it runs in. */
+export interface Program {
+  readonly pid: number;
+  readonly name: string;
+  /** Its working folder, as the system spells it. */
+  readonly folder: string;
+}
+
+/** The working folder of every other program the system lets this user read, or why it cannot tell (#797). */
+export type ProgramsRead = { readonly kind: 'read'; readonly programs: readonly Program[] } | { readonly kind: 'unknown'; readonly reason: string };
+
+/**
+ * Whether the system lets a folder move, as a probe for a program inside it on Windows (#797), which gives no plain way
+ * to read another program's working folder but refuses to rename a folder a program runs in or holds a file of open:
+ * `movable` once renamed and back; `held` when the rename was refused so; `stuck` when the rename back failed, the
+ * folder left at `moved`; `unknown` when the rename failed some other way; `not-needed` where the working folders are
+ * read instead (Linux, macOS).
+ */
+export type MoveProbe =
+  | { readonly kind: 'movable' }
+  | { readonly kind: 'held'; readonly code: string }
+  | { readonly kind: 'stuck'; readonly moved: string; readonly reason: string }
+  | { readonly kind: 'unknown'; readonly reason: string }
+  | { readonly kind: 'not-needed' };
+
+/** The codes Windows refuses a folder's rename with while a program runs inside it or holds a file in it open. */
+const HELD_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/** How long `lsof` may take to list every program's working folder. */
+const LSOF_TIMEOUT_MS = 10_000;
 
 /**
  * The file steps `teamrig worktree remove` takes. None of them deletes through a link or a folder: `unlinkLink`
@@ -33,6 +66,10 @@ export interface WorktreeFiles {
   removeEmptyFolder(path: string): Promise<void>;
   /** The one spelling of an existing path (its case, separators and links resolved), to compare two spellings; undefined when nothing is there. */
   canonical(path: string): Promise<string | undefined>;
+  /** The working folder of every other running program, so a worktree one runs in is not removed partway (#797). */
+  workingFolders(): Promise<ProgramsRead>;
+  /** On Windows, renames `folder` to a sibling and straight back, since the rename fails while a program runs inside it (#797). */
+  moveProbe(folder: string): Promise<MoveProbe>;
 }
 
 /** A folder's listing; undefined when the folder does not exist. */
@@ -106,4 +143,159 @@ export const NODE_WORKTREE_FILES: WorktreeFiles = {
       return undefined;
     }
   },
+  async workingFolders() {
+    return await readWorkingFolders(NODE_PROGRAM_SYSTEM);
+  },
+  async moveProbe(folder) {
+    return await probeMove(folder, NODE_PROGRAM_SYSTEM);
+  },
 };
+
+/** What a program run ended with: its error (null on exit 0) and what it printed, kept on a failure too. */
+export interface ProgramOutput {
+  readonly error: Error | null;
+  readonly stdout: string;
+}
+
+/**
+ * The parts of the system the check for programs inside a worktree reads (#797), so each system's reader runs under
+ * test on any system rather than only on the one it is for.
+ */
+export interface ProgramSystem {
+  /** The system this runs on, as `process.platform` names it. */
+  readonly platform: NodeJS.Platform;
+  /** This program's process id, left out of every read. */
+  readonly pid: number;
+  /** A folder's entry names; throws when it cannot be read. */
+  listFolder(path: string): Promise<readonly string[]>;
+  /** Where the link at `path` points, as the system spells it. */
+  readLink(path: string): Promise<string>;
+  /** A text file's contents, read as UTF-8. */
+  readText(path: string): Promise<string>;
+  /** Runs `program`, settling, never throwing, once it exits or `timeoutMs` passes. */
+  run(program: string, args: readonly string[], timeoutMs: number): Promise<ProgramOutput>;
+  /** Renames `from` to `to`. */
+  move(from: string, to: string): Promise<void>;
+  /** A short random suffix, so a probe's aside path is one no one uses. */
+  uniqueSuffix(): string;
+}
+
+/** The real system through Node. */
+export const NODE_PROGRAM_SYSTEM: ProgramSystem = {
+  platform: process.platform,
+  pid: process.pid,
+  async listFolder(path) {
+    return await readdir(path);
+  },
+  async readLink(path) {
+    return await readlink(path);
+  },
+  async readText(path) {
+    return await readFile(path, 'utf8');
+  },
+  async run(program, args, timeoutMs) {
+    return await new Promise((settle) => {
+      execFile(program, [...args], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+        settle({ error, stdout });
+      });
+    });
+  },
+  async move(from, to) {
+    await rename(from, to);
+  },
+  uniqueSuffix() {
+    return randomUUID().slice(0, 8);
+  },
+};
+
+/** The working folder of every other program: Linux reads /proc, macOS lsof; any other system says it cannot tell. */
+export async function readWorkingFolders(system: ProgramSystem): Promise<ProgramsRead> {
+  if (system.platform === 'linux') {
+    return await procWorkingFolders(system);
+  }
+  if (system.platform === 'darwin') {
+    return await lsofWorkingFolders(system);
+  }
+  return { kind: 'unknown', reason: `${system.platform === 'win32' ? 'Windows' : system.platform} gives no plain way to read another program's working folder` };
+}
+
+/** On Windows, the rename probe of `folder` through a sibling no one uses; elsewhere the working folders are read instead. */
+export async function probeMove(folder: string, system: ProgramSystem): Promise<MoveProbe> {
+  if (system.platform !== 'win32') {
+    return { kind: 'not-needed' };
+  }
+  return await renameProbe(folder, `${folder}.teamrig-check-${system.uniqueSuffix()}`, (from, to) => system.move(from, to));
+}
+
+/**
+ * Renames `folder` to `aside`, a sibling no one uses, and straight back with `move` (#797): Windows refuses the first
+ * rename exactly when a program runs inside the folder or holds a file in it open, which is what makes `git worktree
+ * remove` stop partway there. Nothing else is touched; a failed rename back is reported, never retried elsewhere.
+ */
+export async function renameProbe(folder: string, aside: string, move: (from: string, to: string) => Promise<void> = rename): Promise<MoveProbe> {
+  try {
+    await move(folder, aside);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== undefined && HELD_CODES.has(code)) {
+      return { kind: 'held', code };
+    }
+    return { kind: 'unknown', reason: `${folder} could not be renamed to check (${errorMessage(error)})` };
+  }
+  try {
+    await move(aside, folder);
+  } catch (error) {
+    return { kind: 'stuck', moved: aside, reason: errorMessage(error) };
+  }
+  return { kind: 'movable' };
+}
+
+/** Linux: each `/proc/<pid>/cwd` link this user may read; a program that ended, or another user's, is skipped. */
+async function procWorkingFolders(system: ProgramSystem): Promise<ProgramsRead> {
+  let pids: string[];
+  try {
+    pids = (await system.listFolder('/proc')).filter((name) => /^\d+$/u.test(name));
+  } catch (error) {
+    return { kind: 'unknown', reason: `/proc cannot be read (${errorMessage(error)})` };
+  }
+  const programs: Program[] = [];
+  for (const id of pids) {
+    const pid = Number(id);
+    if (pid === system.pid) {
+      continue;
+    }
+    try {
+      const folder = await system.readLink(`/proc/${id}/cwd`);
+      programs.push({ pid, name: (await system.readText(`/proc/${id}/comm`)).trim(), folder });
+    } catch {
+      // Ended since the listing, or another user's: neither is read.
+    }
+  }
+  return { kind: 'read', programs };
+}
+
+/** macOS: `lsof -d cwd`, whose exit is 1 when it could not read some program, though it lists the rest. */
+async function lsofWorkingFolders(system: ProgramSystem): Promise<ProgramsRead> {
+  const { error, stdout } = await system.run('lsof', ['-n', '-P', '-d', 'cwd', '-F', 'pcn'], LSOF_TIMEOUT_MS);
+  const programs = parseLsofFolders(stdout, system.pid);
+  return error !== null && programs.length === 0 ? { kind: 'unknown', reason: `lsof did not list them (${errorMessage(error)})` } : { kind: 'read', programs };
+}
+
+/** `lsof -F pcn` output: a `p<pid>` line opens each program, then its `c<name>`, and `n<folder>` for its cwd; `self` is left out. */
+export function parseLsofFolders(text: string, self: number): Program[] {
+  const programs: Program[] = [];
+  let pid: number | undefined;
+  let name = '';
+  for (const line of text.split('\n')) {
+    const field = line.slice(1);
+    if (line.startsWith('p')) {
+      pid = Number(field);
+      name = '';
+    } else if (line.startsWith('c')) {
+      name = field;
+    } else if (line.startsWith('n') && pid !== undefined && Number.isInteger(pid) && pid !== self) {
+      programs.push({ pid, name, folder: field });
+    }
+  }
+  return programs;
+}

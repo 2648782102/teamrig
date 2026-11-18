@@ -303,7 +303,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       group leaves you out; a comma-separated list posts the line to each receiver once
       --wake now: also wakes each receiver idle at its prompt within about 3 minutes and says what
       that costs; a group only from a leader, another team only from a team lead: a team below its
-      own, any team's lead, or a session its config names in roles
+      own, any team's lead, or a session its config names in roles; a receiver teamrig closed has
+      its reopen started at once when the host has room (REOPENS), else CLOSED says why
       --wake-by <time>: wakes each receiver at that time instead, only if it has not seen the line by
       then and its tab is idle; the same gate
       --from host:<job>: a line from a host scheduled job, which runs as no session: no --session,
@@ -557,12 +558,13 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       one and empty its target, then runs git worktree remove; a folder git no longer lists, directly in
       a worktree folder and holding only folders and links (a removal git stopped partway), any session
       clears the same way, its folders removed once empty; REFUSED before any change for the main
-      checkout, a dirty tree or a real node_modules folder, and in a team for another session's worktree:
-      a session removes its own (its t<id>- branch names a task it owns) and those of the sessions it
-      leads, the lead any, and any session one on a detached HEAD whose every commit is on the branch
-      origin/HEAD names, as teamrig merge leaves it. --delete-branch: deletes its branch too, once every
-      commit of it is on --base (default the branch origin/HEAD names), even when git stops partway, as
-      a rerun no longer knows the branch; --dry-run: prints the steps
+      checkout, a dirty tree, a real node_modules folder or another program running inside it (read on
+      Linux and macOS; on Windows a rename aside and back fails), and in a team for another session's
+      worktree: a session removes its own (its t<id>- branch names a task it owns) and those of the
+      sessions it leads, the lead any, and any session one on a detached HEAD whose every commit is on
+      the branch origin/HEAD names, as teamrig merge leaves it. --delete-branch: deletes its branch too,
+      once every commit of it is on --base (default the branch origin/HEAD names), even when git stops
+      partway, as a rerun no longer knows the branch; --dry-run: prints the steps
   queue --what <label> [--session <id|name>] [--max-minutes <n>] [--kind <kind>] [--task <T id>] [--memory-mb <MB>] [--small] [--exclusive] [--pre-push] [--detach] -- <command ...>   runs one queued step
       (a build, a test run, a database script) in its turn under the host lock, so the host runs only what its memory allows, and at
       below-normal CPU priority (nice 10 on POSIX), which every process it starts inherits, so your
@@ -701,9 +703,10 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       has pushed but not deployed (it fetches each main checkout)
   test [--session <id|name>] -- <command ...>   runs a test command in the shell, writes all it printed
       to a log (each session keeps its newest 20) and prints one PASS or FAIL line, then each failing
-      test within tests.maxFailureChars; exit 0 when the command passed, 1 otherwise. One quoted word
-      runs as a shell line ("npm run build && npm test"); several run as one command, each word passed
-      as is, so a word that is only &&, || or ; is REFUSED before anything runs
+      test within tests.maxFailureChars; in a team through teamrig queue --kind test, one node spec
+      file as --small, anything more as a heavy step; exit 0 when the command passed, 1 otherwise. One
+      quoted word runs as a shell line ("npm run build && npm test"); several run as one command, each
+      word passed as is, so a word that is only &&, || or ; is REFUSED before anything runs
   hook push-guard | hook package-guard | hook secret-guard | hook db-write-guard | hook exec-guard | hook pass-record-guard | hook service-role-guard | hook cold-send | hook failed-send | hook missing-cli | hook route-reminder | hook loop-nudge | hook secret-redact | hook helper-gate | hook inbox-reminder | hook session-start | hook stop | hook subagent-start | hook subagent-stop | hook refresh-wake | hook restore-track | hook effort-writeback | hook tab-status | hook pre-compact | hook tool-end | hook readonly-allow | hook picker-guard | hook prompt-refuse | hook route-allow
       (run by Claude Code, hook JSON on stdin)
   hook clear-dir | hook clear-claim [--hold [--why <reason>]] [--end]
@@ -715,7 +718,7 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
   hook needs-you | hook needs-you-focus
       (run by the plugin's mod: the band naming another tab that asks the user something, and its Focus)
   hook meeting-panel
-      (run by the plugin's mod: the agenda panel beside the lead's chat while the owner's meeting is open)
+      (run by the plugin's mod: the agenda panel beside the chat of the lead's daily meeting or a started M<n>)
   hook update-check | hook update-dismiss | hook update-apply
       (run by the plugin's mod: the band telling of a newer teamrig or teamrig-pane, its Update and Dismiss)
   hook refresh-mid | hook compact-check

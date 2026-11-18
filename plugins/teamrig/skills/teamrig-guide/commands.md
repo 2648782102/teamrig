@@ -38,6 +38,11 @@ Flags:
   says so (`NOTE api has an inbox line: ...`). A p0 also wakes the owner at its idle prompt, its team's wake check
   reading the task from its register (on another team's too), and stderr says so: `NOTE api is woken at its idle
   prompt for T1, a p0, so no --wake now is needed` (none while the owner's team has `wake.enabled` false).
+  With `open.idle.reopenForDueToday` on (off by default), a task due today (or overdue) handed to a session teamrig
+  closed gets a wake ask and its reopen at once, whatever its priority, when you may wake that session as
+  `inbox add --wake now` allows, and stderr says `REOPENS <id>` or `CLOSED: <id> was not woken: <why>`, ending
+  `(T1 is due today)`; from a session that may not wake it, only the line is posted and a NOTE says why. One reopen
+  per session runs at a time: a wake while one is under way starts none.
 - `--source <session>|owner`: who asked; default you. `--source owner` marks an order from the human
   (`register.ownerSource`).
 - `--ref <where it was asked>`: a pointer to the ask, such as a file and line or an inbox date; at most 300
@@ -1394,7 +1399,9 @@ Flags:
   line, so a new repository needs no hand step; the push makes no other label. The first failed write
   stops that repository, and the next run plans it again from GitHub as it is. It refuses `--auto`: the hooks' sync
   sends the push itself when `github.statusPush` is on. When a team task
-  and an imported one hold the same issue, the team task speaks for it.
+  and an imported one hold the same issue, the team task speaks for it; when two or more active team tasks hold it,
+  the push writes nothing to it and a `SHARED` line names them. One active team task speaks over finished ones; with
+  none active, the newest finished one speaks.
 
 Example:
 
@@ -1858,12 +1865,15 @@ Flags:
   most, within how many minutes, what that costs (a warm cache is about 27k W, a cold one about 210k W, and the
   share of the week at today's W per percent, as `teamrig budget` prices today's rows, once teamrig knows it) and
   whose budget line pays. A receiver whose team has
-  `wake.enabled` false gets the line and no wake, and the `WAKES` line says so.
+  `wake.enabled` false gets the line and no wake, and the `WAKES` line says so. A receiver teamrig closed has no tab
+  to wake, so it is never counted in `WAKES`: its reopen starts at once through the idle pass's own reopen, judged and
+  limited as the pass does, and `REOPENS <id>` says so, or `CLOSED: <id> was not woken: <why>` when the host has no room,
+  an install is not settled or the idle pass is off; the next pass tries again each minute, or `teamrig open <id>`.
 - `--wake-by <time>`: wakes each receiver at that time instead (`HH:MM` on the team's clock, or `YYYY-MM-DD HH:MM`),
   and only if it has not seen the line by then: a receiver that read it, or was shown it at a prompt or a tool
   call's end, before the time is not woken. One idle at its prompt then is woken at its tab's next wake check, one busy in a
-  turn is shown the line at its next tool call's end, and a closed one is reopened at the next idle pass. The
-  `WAKES` line names the time; a wake long after the receiver's last turn is priced cold. Until the time, the line
+  turn is shown the line at its next tool call's end, and a closed one is reopened at the first idle pass after it,
+  which a `CLOSED` line says in place of `WAKES`. The `WAKES` line names the time; a wake long after the receiver's last turn is priced cold. Until the time, the line
   keeps no idle session open. It takes the same gate as `--wake now`, and one or the other, not both.
 - `--from host:<job>`: the sender is a host scheduled job (cron, launchd, Task Scheduler), which runs as no session;
   `<job>` names it, as an id does. It takes no `--session` and no `--wake` or `--wake-by`, and `--to` names sessions
@@ -4154,7 +4164,9 @@ WARN launch-effort shop-web (session web) launches on model opus with no effort,
 
 `allow-wide` counts the allow rules off [permissions.keepAllow] that approve a whole tool or program, or hold a
 credential (Claude Code saves an approved command whole, so a password typed into one stays in the rule), in every
-settings file `teamrig permissions trim` reads, by class and never by text. `check` shows it too, as a warning no
+settings file `teamrig permissions trim` reads, by class and never by text; rules in a committed settings file are
+counted apart, since only a commit changes them, and `--yes` is advised only while the person's own files hold
+some. `check` shows it too, as a warning no
 session owns, so the lead's `start` shows it and its inbox gets one line on it.
 
 ```text
@@ -4501,8 +4513,9 @@ same two in each worktree Claude Code made under `.claude/worktrees`. A rule on 
 stays (`:*` and ` *` read the same, a kept `Bash(x *)` keeps `Bash(x)` too, and a shell rule's leading
 `MSYS_NO_PATHCONV=1 ` reads as absent); by default only the rules off it that approve a whole tool or program or
 hold a credential (text in a secret's shape: the built-in shapes and [register.secretPatterns]) go, and with `--all`
-every rule off it goes. A committed `.claude/settings.json` is only reported: change it by a commit
-in its repo. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig permissions trim --yes` in a tab, or runs it in their own terminal.
+every rule off it goes. A `.claude/settings.json` its repository tracks is only reported: change it by a commit
+in its repo. One git ignores or never added is the person's own and is trimmed like a local file; where git
+cannot tell (no repository, no answer), it counts as committed. Its `--yes` changes a permission, the owner's to make, so it is refused where Claude Code runs it (an agent's tool call, a `!` line, a script it runs or a hook: `$CLAUDECODE` is set there), and the [exec guard](hooks.md#before-a-shell-command-the-exec-guard) refuses a tool call that runs it; its preview stays open. The owner types `/teamrig permissions trim --yes` in a tab, or runs it in their own terminal.
 
 It never prints a rule, since a rule can hold a value such as a password: each file shows its counts before and
 after, and the rules it removes or keeps off the list as counts by class (the tool, `mcp`, `other` or
@@ -4905,9 +4918,15 @@ when git stops partway: the branch was proven on its base before the removal. A 
 the end of the failure, with the `git branch -D` to run by hand.
 
 It refuses (exit 2) before any change for: the main checkout; a path inside a worktree instead of its top folder;
-a locked worktree; a run from inside the worktree; a real `node_modules` folder (removing the worktree would delete
-it); a link with tracked files under it; and uncommitted changes or untracked files, the files behind a link left
-out. It resolves `<path>` against the current folder.
+a locked worktree; a run from inside the worktree; another program whose working folder is inside it, named by its
+process id and name (Windows cannot delete a folder a program runs in, so git would stop partway); a real
+`node_modules` folder (removing the worktree would delete it); a link with tracked files under it; and uncommitted
+changes or untracked files, the files behind a link left out. It reads other programs' working folders from `/proc`
+on Linux and with `lsof` on macOS. On Windows, which gives no plain way to read them, it renames the worktree's folder
+to a sibling and straight back first: Windows refuses that while a program runs inside it or holds a file in it open,
+so it refuses naming the folder (no process id), and should the rename back fail it stops, naming both paths, with
+nothing else changed. Where it cannot check at all, a `NOTE` line says so and the removal goes on. It resolves `<path>`
+against the current folder.
 
 In a team, a session removes only its own worktrees and those of the sessions it leads; the lead removes any. A
 worktree is the session's whose branch names a task it owns: `t12-parser` is T12's. One on a branch that names no
@@ -4984,7 +5003,9 @@ no queued step runs, as only memory outside the queue holds it then, and for its
 ends free goes to it (0 passes no one). A step that passes still waits on its own memory. That `pipeline` order is
 the default; with `serial` (for a team whose own deploy tool takes the lock
 file without first waiting for the shares to end) the line is in arrival order with no cap. It
-prints a line for each new holder or place in line (`...; 2 ahead in line`). Its ticket says what it waits on and
+prints a line for each new holder or place in line (`...; 2 ahead in line`). Behind another waiter it names that waiter
+and what it waits on (`<session> (<purpose>), next in line, waiting on host memory since <minute>`); a later step that
+admission order ranks ahead raises the count, and the line says so (`3 ahead in line (1 arrived after this step)`). Its ticket says what it waits on and
 since when (`waitingOn`: the holder and place in line, or the memory numbers), rewritten only when that changes, so
 `teamrig pipeline` shows every waiter's cause. A ticket whose process is gone or whose
 wait ran out is removed by the next waiter. The line moved when a step it stood behind (a waiter ahead, the lock's
@@ -5138,8 +5159,8 @@ by `--detach` and the hand-over only.
 
 Everything after `--` is the command, read as `teamrig test` reads it: one quoted word runs as a shell line, several
 run as one command with each word passed as is, and a word that is only `&&`, `||` or `;` is REFUSED (exit 64) before
-the step joins the line. Run a test run as
-`teamrig queue ... -- teamrig test -- <command>`: it then gets both the lock and the short summary.
+the step joins the line. In a team, `teamrig test` queues its own command (`--small` for one spec file, else heavy);
+wrap it as `teamrig queue ... -- teamrig test -- <command>` only to set the queue's flags yourself.
 
 A step's processes get `$TEAMRIG_HOST_LOCK`, the lock's id, and so do `merge`'s push, `deploy`'s
 afterPull hooks and command, and a `deploy --targets` run's command. A `teamrig queue` started under a lock that id still names runs at once, in the
@@ -5962,7 +5983,14 @@ model little. The whole output goes to a numbered log, `test-<session>-<n>.log` 
 the counts, the time and the log's path, and for a failed run each failing test in full within
 `tests.maxFailureChars` (4,000 characters by default), or the output's last 40 lines when no test runner is
 recognised. It reads the Node.js test runner (spec and TAP), Jest and Vitest. Exit 0 when the command passed,
-1 otherwise. The command starts without the credential variables (see [teamrig queue](#teamrig-queue)) but those
+1 otherwise.
+
+In a team, the command runs through [teamrig queue](#teamrig-queue) `--kind test`, so it waits its turn for host
+memory and the host lock and runs below normal priority, as every queued step does: one spec file run by node
+(`node --test src/a.test.ts`, flags allowed) as a `--small` step, anything more (a glob, a folder, a second file, a
+package script such as `npm test`) as a heavy one. The queue's wait lines go to the log too. Under a queued step
+(`teamrig queue ... -- teamrig test -- <command>`) it runs at once, as part of that step. Outside a team, or when the
+team's config cannot be read, it runs bare. The command starts without the credential variables (see [teamrig queue](#teamrig-queue)) but those
 [delivery.passEnv] names.
 
 Everything after `--` is the command. One quoted word runs as written, so `"npm run build && npm test"` works;
@@ -6093,7 +6121,7 @@ time to the pace end (`budget.paceEndHoursBeforeReset` before the reset; quiet h
 `budget.quietHours.paceWeight`), times today's active time. The teams of the kit home on one Claude account
 (`budget.account`, else the one the teams on its Claude config dir name, else that dir; each team's dir is the one
 its sessions last started in, kept in `state/usage/claude-config-dir.json`) split that day by weight: a session's
-weight is its share times its top queued task's weight (by priority, not how many tasks it has queued), a team's
+weight is its share times its top queued task's weight (by priority, not how many tasks it has queued), plus 1 for each answer another session waits on it for, up to 5, a team's
 its sessions' summed. Past 100% of the week, what is left in the extra-usage
 pool takes the place of that remainder (see [teamrig budget extra](#teamrig-budget-extra)). With sub-leads
 (`leads`), the team's budget splits first among their groups and the sessions the lead leads directly, a group's
@@ -7607,12 +7635,16 @@ Windows kept another app's window in front), `{"kind":"refused","why"}` or `{"ki
 
 ### teamrig hook meeting-panel
 
-Run by the plugin's mod in a team session's tab, when the meeting file (`<team>/state/meeting.json`) or a register the
-meeting covers changed. It answers only in the tab of a root team's lead, while the owner's meeting it started is open
-and `meeting.panel.enabled` is on: the owner's cards of the lead's register and of every team under it, as the agenda
-asks them, the ones the lead recorded a decision on since the start (`update <id> --decided --note "..."`) checked off
-first in the order decided, with the decision; the first card still asked is the one on the table now. It writes
-nothing. Stdin: `{"session_id", "cwd"}`.
+Run by the plugin's mod in a team session's tab, when the meeting file (`<team>/state/meeting.json`), the booked
+meetings file (`<team>/state/meetings.jsonl`) or a register the meeting covers changed; only with
+`meeting.panel.enabled` on. While a booked meeting (`meeting start M<n>`) meets this tab's session, in any team, it
+answers with that meeting's cards: the owner's cards among the meeting's `--tasks` and the tasks they need first, of
+the session's own register, the Improvements batch and a dedicated session's cards included, since the owner booked
+the time. Otherwise it answers only in the tab of a team's lead, a sub-team's too, while the owner's daily meeting it
+started is open: the owner's cards of the lead's register and of every team under it, as the agenda asks them. Either way, the
+cards the session recorded a decision on since the start (`update <id> --decided --note "..."`) are checked off first
+in the order decided, with the decision; the first card still asked is the one on the table now. It writes nothing.
+Stdin: `{"session_id", "cwd"}`.
 
 Flags: none.
 
@@ -7625,7 +7657,8 @@ teamrig hook meeting-panel < session.json
 Output: one JSON line, exit 0: `{"kind":"open","startedAt","items","current","left","watch"}` (`items`: each card as
 `{"id","title","settled","decision"}`, a team under the lead's naming its card `<team>/<id>`; `current`: the card on
 the table, null once every one is settled; `left`: how many are still to decide; ask again once a `watch` file
-changes), or `{"kind":"off","why","watch"}` (`watch` names the meeting file in the lead's tab, nothing in another).
+changes), or `{"kind":"off","why","watch"}` (`watch` names the booked meetings file in every team session's tab, the
+daily meeting file too in a team lead's; nothing outside a team session or with the panel off).
 
 ### teamrig hook update-check
 

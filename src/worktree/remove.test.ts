@@ -1,10 +1,13 @@
+import { type ChildProcess, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { TempRepo } from '../../tools/lib/temp-repo.ts';
 import { FakeWorktreeFiles, FakeWorktreeGit, type FakeGitAnswers, type FakeNode } from '../testing/fake-worktrees.ts';
-import { NODE_WORKTREE_FILES, type WorktreeFiles } from './files.ts';
+import { FakeProgramSystem } from '../testing/fake-program-system.ts';
+import { NODE_PROGRAM_SYSTEM, NODE_WORKTREE_FILES, parseLsofFolders, probeMove, readWorkingFolders, renameProbe, type WorktreeFiles } from './files.ts';
 import { GIT_WORKTREES, type GitOutcome, type WorktreeEntry } from './git.ts';
 import {
   carryOut,
@@ -663,6 +666,298 @@ function realWorld(prefix: string): { repo: TempRepo; worktree: string; modules:
 }
 
 const REAL: WorktreePorts = { git: GIT_WORKTREES, files: NODE_WORKTREE_FILES };
+
+describe('other programs running inside the worktree (#797)', () => {
+  const HOLDERS = `other programs run inside ${TOP}: 4242 claude (in ${resolve(TOP, 'src')}); a folder a program runs in cannot be deleted on Windows, so git would stop partway: close them or move them out of it, then run this again`;
+
+  it('refuses before any change, naming each program whose working folder is inside it', async () => {
+    const { files, git, ports } = world();
+    files.programs = { kind: 'read', programs: [{ pid: 4242, name: 'claude', folder: resolve(TOP, 'src') }, { pid: 7, name: 'bash', folder: resolve('/w') }, { pid: 8, name: 'vim', folder: resolve('/w/t40') }] };
+    assert.equal(await refusal(planRemoval(request(), ports)), HOLDERS);
+    assert.equal(await refusal(planRemoval(request({ deleteBranch: true }), ports)), HOLDERS, 'a dry run or a branch delete is refused the same');
+    assert.deepEqual([files.unlinked, git.steps], [[], []]);
+  });
+
+  it('names the first few and counts the rest', async () => {
+    const { files, ports } = world();
+    files.programs = { kind: 'read', programs: [1, 2, 3, 4, 5, 6, 7].map((pid) => ({ pid, name: 'node', folder: resolve(TOP) })) };
+    assert.match(await refusal(planRemoval(request(), ports)), new RegExp(`^other programs run inside ${TOP}: 1 node \\(in .+\\), .*5 node \\(in .+\\), and 2 more; `));
+  });
+
+  it('goes on as before when no other program runs inside it', async () => {
+    const { files, ports } = world();
+    files.programs = { kind: 'read', programs: [{ pid: 7, name: 'bash', folder: resolve('/w') }] };
+    assert.equal(planOf(await planRemoval(request(), ports)).unchecked, undefined);
+  });
+
+  it('goes on, saying in one line it could not check, where the system cannot tell another program\'s folder', async () => {
+    const { files, ports } = world();
+    files.programs = { kind: 'unknown', reason: 'this system gives no plain way to read another program\'s working folder' };
+    const plan = planOf(await planRemoval(request(), ports));
+    assert.equal(plan.unchecked, `could not check for other programs running inside ${TOP}: this system gives no plain way to read another program's working folder; going on`);
+  });
+
+  it('refuses the leftover of a stopped removal the same way, and notes an unchecked one', async () => {
+    const held = leftoverWorld();
+    held.files.programs = { kind: 'read', programs: [{ pid: 4242, name: 'claude', folder: resolve(PACKAGES) }] };
+    assert.match(await refusal(planRemoval(leftoverRequest(), held.ports)), new RegExp(`^other programs run inside ${HUSK}: 4242 claude `));
+    assert.deepEqual(held.files.unlinked, []);
+    const unknown = leftoverWorld();
+    unknown.files.programs = { kind: 'unknown', reason: 'no lsof' };
+    assert.equal(leftoverOf(await planRemoval(leftoverRequest(), unknown.ports)).unchecked, `could not check for other programs running inside ${HUSK}: no lsof; going on`);
+  });
+
+  it('on Windows, refuses before any change a worktree the system will not move, naming the folder', async () => {
+    const { files, git, ports } = world();
+    files.probe = { kind: 'held', code: 'EBUSY' };
+    files.programs = { kind: 'unknown', reason: 'not read on Windows' };
+    const reason = `Windows refused to move ${TOP} (EBUSY): a program runs inside it or holds a file in it open, so git would stop partway; close that program or move it out of the folder, then run this again`;
+    assert.equal(await refusal(planRemoval(request(), ports)), reason);
+    assert.deepEqual(files.probed, [resolve(TOP)], 'the worktree itself is probed');
+    assert.deepEqual([files.unlinked, git.steps], [[], []]);
+    const held = leftoverWorld();
+    held.files.probe = { kind: 'held', code: 'EPERM' };
+    assert.match(await refusal(planRemoval(leftoverRequest(), held.ports)), new RegExp(`^Windows refused to move ${HUSK} \\(EPERM\\)`));
+    assert.deepEqual(held.files.unlinked, []);
+  });
+
+  it('on Windows, stops naming both paths when the probe cannot rename the folder back', async () => {
+    const { files, git, ports } = world();
+    files.probe = { kind: 'stuck', moved: `${TOP}.teamrig-check-1a2b3c4d`, reason: 'EPERM: operation not permitted' };
+    assert.equal(
+      await refusal(planRemoval(request(), ports)),
+      `checking ${TOP} for programs inside it renamed it to ${TOP}.teamrig-check-1a2b3c4d, and renaming it back failed (EPERM: operation not permitted); nothing else was changed: rename ${TOP}.teamrig-check-1a2b3c4d back to ${TOP}, then run this again`,
+    );
+    assert.deepEqual([files.unlinked, git.steps], [[], []]);
+  });
+
+  it('on Windows, goes on with no note once the folder moved and came back, and notes a probe that could not run', async () => {
+    const { files, ports } = world();
+    files.probe = { kind: 'movable' };
+    files.programs = { kind: 'unknown', reason: 'not read on Windows' };
+    assert.equal(planOf(await planRemoval(request(), ports)).unchecked, undefined);
+    files.probe = { kind: 'unknown', reason: `${TOP} could not be renamed to check (ENAMETOOLONG)` };
+    assert.equal(planOf(await planRemoval(request(), ports)).unchecked, `could not check for other programs running inside ${TOP}: ${TOP} could not be renamed to check (ENAMETOOLONG); going on`);
+  });
+});
+
+/** Stops `child` and waits until it is gone: on Windows its working folder stays held, and cannot be removed, until then. */
+async function stopped(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  const exit = once(child, 'exit');
+  child.kill();
+  await exit;
+}
+
+describe('renameProbe, the Windows check for a program inside a folder (#797)', () => {
+  /** A rename that fails with `codes` in turn (undefined: it renames), recording each call. */
+  function moves(codes: readonly (string | undefined)[], calls: string[][]): (from: string, to: string) => Promise<void> {
+    let call = 0;
+    return async (from, to) => {
+      calls.push([from, to]);
+      const code = codes[call++];
+      if (code !== undefined) {
+        throw Object.assign(new Error(`${code}: refused`), { code });
+      }
+    };
+  }
+
+  it('renames the folder aside and straight back', async () => {
+    const calls: string[][] = [];
+    assert.deepEqual(await renameProbe('/w/t4', '/w/t4.x', moves([], calls)), { kind: 'movable' });
+    assert.deepEqual(calls, [['/w/t4', '/w/t4.x'], ['/w/t4.x', '/w/t4']]);
+  });
+
+  it('reads a refused first rename as held, and touches nothing more', async () => {
+    for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+      const calls: string[][] = [];
+      assert.deepEqual(await renameProbe('/w/t4', '/w/t4.x', moves([code], calls)), { kind: 'held', code });
+      assert.equal(calls.length, 1);
+    }
+  });
+
+  it('reads another failure as unknown, and a failed rename back as stuck at the aside path', async () => {
+    assert.deepEqual(await renameProbe('/w/t4', '/w/t4.x', moves(['ENOENT'], [])), { kind: 'unknown', reason: '/w/t4 could not be renamed to check (ENOENT: refused)' });
+    const calls: string[][] = [];
+    assert.deepEqual(await renameProbe('/w/t4', '/w/t4.x', moves([undefined, 'EPERM'], calls)), { kind: 'stuck', moved: '/w/t4.x', reason: 'EPERM: refused' });
+    assert.equal(calls.length, 2, 'the rename back is not retried elsewhere');
+  });
+
+  it('moves a real folder and back, its files kept; on Windows a program inside it holds it, elsewhere no probe runs', async () => {
+    const repo = new TempRepo('worktree-probe');
+    const folder = join(repo.dir, 'wt');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'a.txt'), 'a\n');
+    try {
+      assert.deepEqual(await renameProbe(folder, `${folder}.aside`), { kind: 'movable' });
+      assert.deepEqual([readFileSync(join(folder, 'a.txt'), 'utf8'), existsSync(`${folder}.aside`)], ['a\n', false]);
+      if (process.platform !== 'win32') {
+        assert.deepEqual(await NODE_WORKTREE_FILES.moveProbe(folder), { kind: 'not-needed' });
+        return;
+      }
+      assert.deepEqual(await NODE_WORKTREE_FILES.moveProbe(folder), { kind: 'movable' });
+      const child = spawn(process.execPath, ['-e', 'process.stdout.write("ready\\n"); setTimeout(() => {}, 30000)'], { cwd: folder, stdio: ['ignore', 'pipe', 'ignore'] });
+      try {
+        // 'spawn' fires once CreateProcess returns, before the child opens its working folder: wait for its own line.
+        await new Promise((settle) => child.stdout.once('data', settle));
+        const probe = await NODE_WORKTREE_FILES.moveProbe(folder);
+        assert.equal(probe.kind, 'held');
+        assert.ok(existsSync(folder));
+      } finally {
+        await stopped(child);
+      }
+    } finally {
+      repo.remove();
+    }
+  });
+});
+
+describe('NODE_WORKTREE_FILES reads the working folder of other programs (#797)', () => {
+  it('reads lsof -F pcn output, each program with its name and folder, leaving itself out', () => {
+    const text = ['p1', 'claunchd', 'fcwd', 'n/', 'p4242', 'cclaude', 'fcwd', 'n/srv/wt/t5 dir', 'p77', 'cnode', 'fcwd', 'n/w', ''].join('\n');
+    assert.deepEqual(parseLsofFolders(text, 77), [
+      { pid: 1, name: 'launchd', folder: '/' },
+      { pid: 4242, name: 'claude', folder: '/srv/wt/t5 dir' },
+    ]);
+    assert.deepEqual(parseLsofFolders('', 77), []);
+  });
+
+  it('lists a child program running in a folder, by its process id, on Linux and macOS; says why it cannot elsewhere', async () => {
+    const repo = new TempRepo('worktree-holders');
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { cwd: repo.dir, stdio: 'ignore' });
+    try {
+      await new Promise((settle) => child.once('spawn', settle));
+      const read = await NODE_WORKTREE_FILES.workingFolders();
+      if (process.platform !== 'linux' && process.platform !== 'darwin') {
+        assert.equal(read.kind, 'unknown');
+        return;
+      }
+      if (process.platform === 'darwin' && !existsSync('/usr/sbin/lsof')) {
+        assert.match(read.kind === 'unknown' ? read.reason : read.kind, /^lsof did not list them/);
+        return;
+      }
+      assert.equal(read.kind, 'read');
+      const mine = read.kind === 'read' ? read.programs.find((program) => program.pid === child.pid) : undefined;
+      assert.equal(mine?.folder, realpathSync(repo.dir));
+      assert.ok(read.kind === 'read' && !read.programs.some((program) => program.pid === process.pid), 'never this program itself');
+    } finally {
+      await stopped(child);
+      repo.remove();
+    }
+  });
+});
+
+describe('readWorkingFolders reads each system its own way, on any system (#797)', () => {
+  const LSOF = ['p1', 'claunchd', 'fcwd', 'n/', 'p4242', 'cclaude', 'fcwd', 'n/srv/wt/t5', ''].join('\n');
+
+  it('Linux: each /proc/<pid>/cwd it may read, the name trimmed, itself and an unreadable program skipped', async () => {
+    const system = new FakeProgramSystem({
+      platform: 'linux',
+      pid: 1000,
+      folders: { '/proc': ['1', '42', '77', '1000', 'self', 'meminfo'] },
+      links: { '/proc/1/cwd': '/', '/proc/42/cwd': '/srv/wt/t5', '/proc/1000/cwd': '/srv/wt/t5' },
+      texts: { '/proc/1/comm': 'systemd\n', '/proc/42/comm': 'claude\n', '/proc/1000/comm': 'node\n' },
+    });
+    assert.deepEqual(await readWorkingFolders(system), {
+      kind: 'read',
+      programs: [
+        { pid: 1, name: 'systemd', folder: '/' },
+        { pid: 42, name: 'claude', folder: '/srv/wt/t5' },
+      ],
+    });
+    assert.deepEqual(system.runs, [], 'Linux runs no program');
+  });
+
+  it('Linux: an unreadable /proc is unknown, naming why', async () => {
+    assert.deepEqual(await readWorkingFolders(new FakeProgramSystem({ platform: 'linux' })), {
+      kind: 'unknown',
+      reason: "/proc cannot be read (ENOENT: no such file or directory, '/proc')",
+    });
+  });
+
+  it('macOS: runs lsof for every working folder and reads its listing, leaving itself out', async () => {
+    const system = new FakeProgramSystem({ platform: 'darwin', pid: 1, output: { error: null, stdout: LSOF } });
+    assert.deepEqual(await readWorkingFolders(system), { kind: 'read', programs: [{ pid: 4242, name: 'claude', folder: '/srv/wt/t5' }] });
+    assert.deepEqual(system.runs, [{ program: 'lsof', args: ['-n', '-P', '-d', 'cwd', '-F', 'pcn'], timeoutMs: 10_000 }]);
+  });
+
+  it('macOS: a failed lsof that still listed programs is read; one that listed none is unknown, naming why', async () => {
+    const listed = new FakeProgramSystem({ platform: 'darwin', output: { error: new Error('Command failed: lsof (exit 1)'), stdout: LSOF } });
+    assert.equal((await readWorkingFolders(listed)).kind, 'read');
+    const none = new FakeProgramSystem({ platform: 'darwin', output: { error: new Error('spawn lsof ENOENT'), stdout: '' } });
+    assert.deepEqual(await readWorkingFolders(none), { kind: 'unknown', reason: 'lsof did not list them (spawn lsof ENOENT)' });
+  });
+
+  it('Windows and any other system say they cannot tell, reading nothing', async () => {
+    const windows = new FakeProgramSystem({ platform: 'win32' });
+    assert.deepEqual(await readWorkingFolders(windows), { kind: 'unknown', reason: "Windows gives no plain way to read another program's working folder" });
+    const freebsd = new FakeProgramSystem({ platform: 'freebsd' });
+    assert.deepEqual(await readWorkingFolders(freebsd), { kind: 'unknown', reason: "freebsd gives no plain way to read another program's working folder" });
+    assert.deepEqual([windows.runs, freebsd.runs], [[], []]);
+  });
+});
+
+describe('probeMove renames a folder aside and back on Windows only (#797)', () => {
+  it('is not needed off Windows, moving nothing', async () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      const system = new FakeProgramSystem({ platform });
+      assert.deepEqual(await probeMove('/w/t4', system), { kind: 'not-needed' });
+      assert.deepEqual(system.moves, []);
+    }
+  });
+
+  it('on Windows, moves the folder to a suffixed sibling and straight back', async () => {
+    const system = new FakeProgramSystem({ platform: 'win32', suffix: 'abcd1234' });
+    assert.deepEqual(await probeMove('C:\\w\\t4', system), { kind: 'movable' });
+    assert.deepEqual(system.moves, [
+      ['C:\\w\\t4', 'C:\\w\\t4.teamrig-check-abcd1234'],
+      ['C:\\w\\t4.teamrig-check-abcd1234', 'C:\\w\\t4'],
+    ]);
+  });
+
+  it('on Windows, a refused move is held, and nothing more moves', async () => {
+    const system = new FakeProgramSystem({ platform: 'win32', moveCodes: ['EBUSY'] });
+    assert.deepEqual(await probeMove('C:\\w\\t4', system), { kind: 'held', code: 'EBUSY' });
+    assert.equal(system.moves.length, 1);
+  });
+});
+
+describe('NODE_PROGRAM_SYSTEM is the real system (#797)', () => {
+  it('names this system and program', () => {
+    assert.deepEqual([NODE_PROGRAM_SYSTEM.platform, NODE_PROGRAM_SYSTEM.pid], [process.platform, process.pid]);
+  });
+
+  it('lists a folder, reads a file and a link, and moves a file', async () => {
+    const repo = new TempRepo('program-system');
+    try {
+      const target = join(repo.dir, 'target');
+      mkdirSync(target);
+      writeFileSync(join(repo.dir, 'a.txt'), 'a\n');
+      symlinkSync(target, join(repo.dir, 'link'), 'junction');
+      assert.deepEqual([...(await NODE_PROGRAM_SYSTEM.listFolder(repo.dir))].sort(), ['a.txt', 'link', 'target']);
+      assert.equal(await NODE_PROGRAM_SYSTEM.readText(join(repo.dir, 'a.txt')), 'a\n');
+      assert.equal(realpathSync(await NODE_PROGRAM_SYSTEM.readLink(join(repo.dir, 'link'))), realpathSync(target));
+      await NODE_PROGRAM_SYSTEM.move(join(repo.dir, 'a.txt'), join(repo.dir, 'b.txt'));
+      assert.deepEqual([existsSync(join(repo.dir, 'a.txt')), readFileSync(join(repo.dir, 'b.txt'), 'utf8')], [false, 'a\n']);
+    } finally {
+      repo.remove();
+    }
+  });
+
+  it('runs a program, keeping what it printed, and settles with its error on a failed exit', async () => {
+    assert.deepEqual(await NODE_PROGRAM_SYSTEM.run(process.execPath, ['-e', 'process.stdout.write("ok")'], 10_000), { error: null, stdout: 'ok' });
+    const failed = await NODE_PROGRAM_SYSTEM.run(process.execPath, ['-e', 'process.stdout.write("partial"); process.exit(3)'], 10_000);
+    assert.deepEqual([failed.error instanceof Error, failed.stdout], [true, 'partial']);
+  });
+
+  it('gives a new 8-character suffix each time', () => {
+    const [first, second] = [NODE_PROGRAM_SYSTEM.uniqueSuffix(), NODE_PROGRAM_SYSTEM.uniqueSuffix()];
+    assert.deepEqual([first.length, second.length], [8, 8]);
+    assert.notEqual(first, second);
+  });
+});
 
 describe('removing a real worktree with a real node_modules link', () => {
   it('unlinks the link, removes the worktree and its merged branch, and keeps every file the link pointed to', async () => {

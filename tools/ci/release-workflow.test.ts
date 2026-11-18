@@ -28,9 +28,8 @@ function readRecord(path: string): JsonRecord {
 }
 
 describe('release.yml', () => {
-  it('runs by hand only, until pull requests stop raising the version themselves', () => {
-    assert.match(workflow, /^on:\n(?: {2}#.*\n)*? {2}workflow_dispatch:\n {4}inputs:\n {6}main-as-is:\n(?: {8}.+\n)+\n/m);
-    assert.doesNotMatch(workflow, /^ {2}push:$/m);
+  it('runs on each push to main, and by hand', () => {
+    assert.match(workflow, /^on:\n(?: {2}#.*\n)*? {2}push:\n {4}branches: \[main\]\n {2}workflow_dispatch:\n {4}inputs:\n {6}main-as-is:\n(?: {8}.+\n)+\n/m);
   });
 
   it("can publish main as it stands, for the first release, never by default", () => {
@@ -127,6 +126,11 @@ describe('release-please-config.json', () => {
     assert.equal(root['include-component-in-tag'], true);
   });
 
+  it('raises the minor for a breaking change while the version is 0.x, as the patch is for a fix', () => {
+    assert.equal(root['bump-minor-pre-major'], true);
+    assert.equal(root['bump-patch-for-minor-pre-major'], undefined);
+  });
+
   it('signs off its commits as the Actions bot, which the DCO gate reads as their author', () => {
     assert.equal(stringField(config, 'signoff'), 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>');
   });
@@ -135,7 +139,10 @@ describe('release-please-config.json', () => {
     assert.match(stringField(config, 'bootstrap-sha') ?? '', /^[0-9a-f]{40}$/);
   });
 
-  it('holds the version the next release raises from in its manifest', () => {
-    assert.match(stringField(readRecord('.release-please-manifest.json'), '.') ?? '', /^\d+\.\d+\.\d+$/);
+  it("holds main's version in its manifest, the one plugin.json and version.ts hold: only a release pull request raises it", () => {
+    const released = stringField(readRecord('.release-please-manifest.json'), '.') ?? '';
+    assert.match(released, /^\d+\.\d+\.\d+$/);
+    assert.equal(stringField(readRecord('plugins/teamrig/.claude-plugin/plugin.json'), 'version'), released, 'plugin.json');
+    assert.match(read('src/core/version.ts'), new RegExp(`^export const KIT_VERSION = '${released.replaceAll('.', '\\.')}';`, 'm'), 'version.ts');
   });
 });

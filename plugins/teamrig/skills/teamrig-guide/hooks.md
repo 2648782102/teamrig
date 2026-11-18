@@ -1,7 +1,7 @@
 # Hooks and permissions
 
 The plugin's `hooks/hooks.json` registers twenty-nine Claude Code hooks, one row each below however many events a hook runs on, and one mod ([the /teamrig command](#the-mod-the-teamrig-command), [the refresh's /clear](#the-mod-the-refreshs-clear), [the reload after an install](#the-mod-the-reload-after-an-install), [the wake on urgent work](#the-mod-the-wake-on-urgent-work), [the update notice](#the-mod-the-update-notice)). Each runs
-`node <plugin>/dist/cli/main.js hook <name>` with a 15 second timeout (`hook refresh-wake` 30, `hook tool-end` 5); the `PreToolUse` guards that can refuse a call run `node <plugin>/dist/cli/guard-main.js hook <name>`, which blocks the call when the guard [cannot answer](#a-guard-that-cannot-answer). Outside a project tied to a team (no `$TEAMRIG_TEAM` and no `.teamrig.json`)
+`node <plugin>/dist/cli/main.js hook <name>` with a 15 second timeout (`hook refresh-wake` 30, `hook tool-end` 5); the `PreToolUse` guards that can refuse a call run `node <plugin>/dist/cli/guard-main.js hook <name>`, which blocks the call when the guard [cannot answer](#a-guard-that-cannot-answer). A hook waiting on a file lock another tab holds gives up 3 seconds before its time limit (a guard: before its runner's 12 seconds), even under a longer `lock.waitMs`, so it still answers. Outside a project tied to a team (no `$TEAMRIG_TEAM` and no `.teamrig.json`)
 they all stay silent, but `hook restore-track` and `hook tool-end` still record the session ([the restore tracker](#every-session-the-restore-tracker)) and `hook missing-cli` still answers a shell that [no longer finds the bare command](#after-a-shell-call-the-cli-by-its-path).
 
 | Claude Code event | teamrig hook | What it does |
@@ -31,7 +31,7 @@ they all stay silent, but `hook restore-track` and `hook tool-end` still record 
 | The mod, while a tab is idle | `hook wake-check`, `hook wake-dropped` | Wakes the tab's session when unblocked urgent work is handed to it, [batched, with its cost shown](#the-mod-the-wake-on-urgent-work), and runs the team's [idle pass](#the-idle-pass), at most once a minute |
 | The mod, every 30 s in each tab | `hook meeting-due` | Sends a scheduled meeting's notices before, at and past its time (OS notification, tab toast, a missed one to the lead), from one tab of the team ([a scheduled meeting's notification](#the-mod-a-scheduled-meetings-notification)) |
 | The mod, every 10 s in each tab | `hook needs-you`, `hook needs-you-focus` | Names another tab of the team that asks the user something (a permission prompt, a question, a decision line) in a toast and a band above the prompt, whose Focus brings that tab to the front ([the needs-you band](#the-mod-the-needs-you-band)) |
-| The mod, every 15 s in each tab | `hook meeting-panel` | While the owner's meeting is open, shows its cards in a pane beside the root team lead's chat, in sections (on the table, up next, decided), each with a one-line summary and a decided one with its decision ([the meeting's agenda panel](#the-mod-the-meetings-agenda-panel)) |
+| The mod, every 15 s in each tab | `hook meeting-panel` | While the owner's daily meeting is open, shows its cards in a pane beside the chat of the team's lead that started it, and while a booked `M<n>` is started, its cards beside the chat of the session it meets, in sections (on the table, up next, decided), each with a one-line summary and a decided one with its decision ([the meeting's agenda panel](#the-mod-the-meetings-agenda-panel)) |
 | The mod, a minute after a tab starts and every 10 minutes, and when an install changes `installed_plugins.json` | `hook update-check`, `hook update-dismiss`, `hook update-apply` | Tells, in a band above the prompt, of a newer teamrig or teamrig-pane than the one installed, and runs the band's Update or Dismiss ([the update notice](#the-mod-the-update-notice)) |
 | `PreCompact` (a compaction Claude Code runs on its own) | `hook pre-compact` | While the session's handover is asked for or written, holds the compaction under `refresh.compactCeilingTokens`, where a managed mod keeps the plugin's mod from holding it ([the hold within a turn](#the-mod-the-refresh-within-a-turn)) |
 | `Stop` (end of each turn) | `hook stop` | Sends the session back once to [a skill edit it dropped](#end-of-a-turn-or-a-helper-a-dropped-skill-edit), once to [a hand step typed into its reply](#end-of-a-turn-a-hand-step-typed-into-the-reply), and after a task is set waiting, once to [its other work](#end-of-a-turn-keep-working-while-a-task-waits); asks for a handover when a context refresh is due, then starts the automatic restart; writes [an `/effort` the user typed](#end-of-a-turn-a-typed-effort-becomes-the-launch-effort) to the session's `launch` entry; tells the user of another effort than `launch` asks, or of a model Claude Code switched to; shows the budget lines; names a verifying task whose verify-by day has come; starts the team's `issue watch` hidden in the background when none runs; every 10 minutes for the whole team, tells the lead of [a tab that runs without its hooks](#end-of-a-turn-hookless-tabs); with tab status on, sets the tab's ready circle, or the decision circle after a turn that asks the user to decide |
@@ -524,7 +524,16 @@ nested shells, `cd`, pipes and substitutions) and refuses a call that would prin
   key stores `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks` and `**/*.keystore`, the private keys
   `**/id_rsa`, `**/id_ecdsa` and `**/id_ed25519` (their `.pub` halves are not listed), and Terraform's state
   `**/*.tfstate` and `**/*.tfstate.backup` (it holds secrets in plain text); `.env.example`, `.env.sample` and
-  `~/.ssh/*.pub` stay readable. A word with
+  `~/.ssh/*.pub` stay readable. A `.pub.pem` file is read before it is refused: while its text holds PEM blocks
+  labelled exactly `PUBLIC KEY` or `RSA PUBLIC KEY`, each one a public key Node's crypto parses, and nothing else, it
+  is no secret, so a committed public key (`keys/archive.pub.pem`) can be read and committed. The text read is the
+  one the call prints or commits: the working file for a direct read, and the copy the commit holds at commit and push
+  (`git cat-file`, never the copy on disk). A git call that prints another revision (`git show <rev>:<path>`,
+  `git diff`, `git log -p`) is judged by the name alone, so it stays refused. A private key block, any other label, a
+  public key label around anything but a public key, any other text, a file that cannot be read or is over 64 KB, and
+  a word with wildcards (`cat keys/*.pub.pem`) stay refused, and so does a `.pub.pem` that a team glob in
+  `secretGuard.paths` names after `**/*.pem`. A team that lists `**/*.pem` itself still gets the content check, so
+  to keep every `.pem` refused, list `**/*.pub.pem`. A word with
   wildcards counts when a secret name fits them (`cat .env*`, `cat .env.ex*`, which also fits `.env.export`), unless
   they meet only where each one's wildcard covers the other's text: `grep x *.ts` fits `.env.*` only as `.env.ts`,
   and passes. So a session no longer reads, nor edits, a
@@ -1292,7 +1301,7 @@ Before it claims, the mod holds the `/clear` for the person at the tab, with `--
 `refresh.restartDelaySeconds` later. It holds while the prompt box holds a draft, or Claude Code will not read it.
 It holds for `refresh.holdAfterActivityMinutes` (30) after the person's last key in the prompt box or prompt, typed or
 sent through Remote Control; a background task's prompt does not count. It holds for 10 minutes after they press
-Hold. Then a band above the prompt counts `refresh.countdownSeconds` (20) down: `teamrig: this session refreshes in
+Hold. Both times live in the session too, so the mod a `/reload-plugins` loads keeps holding (#919). Then a band above the prompt counts `refresh.countdownSeconds` (20) down: `teamrig: this session refreshes in
 20 s, a fresh start from its handover`, with `1: Refresh now` and `2: Hold 10 min`, which a bare digit in an empty
 prompt box presses. The `/clear` comes with the restart's first ask after the count. Refresh now has the next ask
 claimed, unless a draft or a live helper holds it. Through each hold before the count the band says what holds the
@@ -1434,6 +1443,14 @@ while the mark holds: 5 minutes, or until the session's step no longer asks for 
 is logged as `FAILED to start` and held the same way. A failure of the pass never costs the tab its wake answer; a pass 15 minutes old or failed shows in `teamrig check` as
 FLEET-STALE, a warning for the lead; a pass that never ran shows nothing, as a new team waits for its first idle tab.
 
+A team whose pass closed its last session has no tab left to run its pass, so nothing of its own would reopen a
+session once work is handed to it. A wake check whose own pass ran therefore also runs the pass of each other team
+of its tree that went 5 minutes unrun, under that team's own mode, lock and state. Each of that team's sessions is
+read and reopened in its `launch.<id>.project`, the team's `team.project`, else the folder its last close logged in
+`state/session-log.jsonl`, never the calling tab's folder; with none of them known its reopen is logged `LATER` with
+the key to set. A team whose pass fails this way is a `WARN` on the hook's stderr; the tab's wake answer and the other
+teams' passes stand.
+
 A tab held on a permission prompt runs no wake check of its own, so the pass watches for it too: a tab file in
 `state/tabs/` that has asked for a permission for 10 minutes, its Claude Code still running, pages the owner once
 through the same chat webhook an expired login pages ([alerts.pageWebhookFile] or [alerts.pageWebhookEnv], the team's
@@ -1488,15 +1505,18 @@ as before 0.342.0, Windows PowerShell exits at once having run nothing, so no to
 
 In the owner's daily meeting the cards went by in the chat, and the owner kept count of what was decided and what was
 left. In each interactive tab, every 15 s whether or not a turn runs, the mod runs
-[`teamrig hook meeting-panel`](commands.md#teamrig-hook-meeting-panel) once the meeting file or a register the
-meeting covers changed, or 10 minutes passed. While a meeting is open, the root team lead's tab opens the
-"Meeting agenda" pane beside the chat. A header says how many cards are left and how many are decided; then, with a
-gap between each part, come On the table (the first card still asked, in a rounded box), Up next (the rest still
-asked, in the agenda's order) and Decided (each card decided since the meeting started, `update <id> --decided`,
-with its decision). Each card gives its title, a one-line summary under it (its card's question, else the task's
-description), and its id, dim, last; a section with no card is left out. In a tree of teams it covers every team under the root, as `<team>/<id>`. At
-`meeting end` the pane closes. Every other tab, and a sub-team's lead, shows none. Closing the pane by hand keeps it
-closed until the next meeting starts. `meeting.panel.enabled: false` turns it off.
+[`teamrig hook meeting-panel`](commands.md#teamrig-hook-meeting-panel) once a meeting file or a register the
+meeting covers changed, or 10 minutes passed. While the daily meeting is open, the tab of the team's lead that started
+it, a sub-team's too, opens the "Meeting agenda" pane beside the chat. A header says how many cards are left and how
+many are decided; then, with a gap between each part, come On the table (the first card still asked, in a rounded
+box), Up next (the rest still asked, in the agenda's order) and Decided (each card decided since the meeting started,
+`update <id> --decided`, with its decision). Each card gives its title, a one-line summary under it (its card's
+question, else the task's description), and its id, dim, last; a section with no card is left out. In a tree of teams
+it covers every team under that lead's, as `<team>/<id>`. At `meeting end` the pane closes. A booked meeting (`meeting start M<n>`) opens the same pane in the tab of the session it
+meets, in any team, a sub-team's lead or a member too: its cards are the owner's cards among the meeting's `--tasks`
+and the tasks they need first, the Improvements batch and a dedicated session's cards included, and it closes at
+`meeting end M<n>` (or 4 hours after the start). Every other tab shows none. Closing the pane by hand keeps it closed
+until the next meeting starts. `meeting.panel.enabled: false` turns it off.
 
 ## Meeting start: the spotlight
 
