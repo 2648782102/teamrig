@@ -207,7 +207,7 @@ export const DAY_PROBE_RECHECK_MS = MINUTE_MS;
 /**
  * While the session's automatic restart may still act (src/refresh/restart.ts), it is not woken: the wake's prompt
  * would cancel the restart as a typed one does (`hook prompt`), leaving the session with its handover written and no
- * fresh start. The work handed meanwhile stays new, so it wakes the fresh session. A restart whose runner died is
+ * fresh start. The fresh session's start lists the work handed meanwhile (`noteStartedTab`). A restart whose runner died is
  * re-armed from this tab first (`rearmDeadRestart`), and holds the wake the same way once it is.
  */
 async function restartHoldsWake(runtime: CliRuntime, store: RefreshStore, rearm: RearmScope): Promise<boolean> {
@@ -383,8 +383,8 @@ async function momentsOf(
  * Decides under the session's wake lock, so two tabs of one session never wake it twice. Urgent lines due wake it
  * with any work due as well; the asks a wake takes, and spent ones (damaged, or timed with their line seen), are
  * removed under the lock. A timed ask stays until its time. With a restart held back for work in this tab (`fresh`
- * arms it), a wake starts the session fresh instead: nothing is recorded as woken and no ask taken, so the work wakes
- * the fresh session (T1383); a restart that cannot start lets the wake go ahead.
+ * arms it), a wake starts the session fresh instead: nothing is recorded as woken and no ask taken, so the fresh
+ * session's start lists the work and keeps the asks (T1383, T4222); a restart that cannot start lets the wake go ahead.
  *
  * A tab stuck on an expired login is checked first: its retry claims the login marker and comes before all else,
  * since it sends on a turn that was already running, with nothing written to the wake state and no ask taken, so

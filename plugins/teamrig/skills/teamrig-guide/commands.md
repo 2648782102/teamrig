@@ -7522,7 +7522,7 @@ budget holds it, past its daily budget with no room left in the team's day, or a
 only in quiet hours), with every task it comes after finished, and changed by someone else
 since the session last touched it. Tasks handed within `wake.batchSeconds` wake it once, and wakes are
 `wake.minGapMinutes` apart. An [urgent line](hooks.md#urgent-lines) posted for the session wakes it once the oldest
-is `wake.batchSeconds` old, held by neither that gap nor its budget, and the wake is logged with `asks`. The first check in a tab takes the work already there as seen. With
+is `wake.batchSeconds` old, held by neither that gap nor its budget, and the wake is logged with `asks`. A tab takes the work its start lists as seen (after a /clear or a restart too), so work handed during its first turn wakes it; a pending wake carries over a /clear. With
 `wake.dayStartUtc` set, a session with work it can start (any priority) and no turn since that time gets one wake
 that day, and a burst it is in wakes it once when it starts; quiet hours or a spent daily budget only delay these.
 They are logged with `moments`. While the Claude login is expired and its credentials unchanged since the last

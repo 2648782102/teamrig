@@ -74,6 +74,7 @@ import { dbWriteGuardOutputOf, execGuardOutputOf, packageGuardOutputOf, pushGuar
 import { checkHooklessTabs } from './hook-hookless.ts';
 import { dueFactsAt, inMeetingNow } from './hook-refresh-mod.ts';
 import { recordSessionStart } from './hook-session-record.ts';
+import { noteStartedTab } from '../wake-opened.ts';
 import { envSession, hookScopeOf, parseJson, sessionScopeOf, sessionTeam, startSessionOf, teamScopeOf, teamSessionOf, turnLeadPathsOf, type SessionScope, type TeamScope } from './hook-input.ts';
 import { recordTabNeed } from './hook-tab-need.ts';
 import { tabStatusOn, tabTitleOf } from './hook-tab-status.ts';
@@ -478,6 +479,8 @@ async function teamPartsOf(runtime: CliRuntime, kit: Kit, config: KitConfig, pay
   }
   const recorded = id === undefined || claudeSession === null ? undefined : await recordSessionStart(runtime, kit, roster.ids, id, claudeSession, startTranscriptOf(payload));
   const envBindNote = fromEnv === undefined || id === undefined || claudeSession === null ? undefined : await bindNamedTab(runtime, kit, id, claudeSession);
+  // A failure leaves the wake check as before this start: its first check takes the tasks then as known.
+  if (id !== undefined && claudeSession !== null) await noteStartedTab(runtime, kit, config, id, claudeSession);
   return {
     recordNote: recorded?.failure,
     envBindNote,

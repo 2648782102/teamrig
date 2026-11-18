@@ -40,6 +40,8 @@ import { WakePrompts, type WakePrompt } from '../wake/prompts.ts';
 const ALPHA_TAB = '0123abcd-0000-4000-8000-0000000000a1';
 const OTHER_TAB = '0123abcd-0000-4000-8000-0000000000b9';
 const LEAD_TAB = '0123abcd-0000-4000-8000-0000000000d4';
+/** The new Claude Code session alpha's tab starts on after a /clear, a restart or a fresh start. */
+const FRESH_TAB = '0123abcd-0000-4000-8000-0000000000c7';
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const WAKE_LOG = join(TEAM_HOME, 'state', 'wakes.jsonl');
@@ -152,6 +154,29 @@ describe('hook wake-check', () => {
     assert.deepEqual(await keptPrompt(kit), { tab: ALPHA_TAB, text }, 'kept for the turn log');
     kit.clock.advance(60 * MINUTE);
     assert.deepEqual(answerOf(await check(kit)), { kind: 'wait', watch: watchOf(), recheckAt: null }, 'never twice for one task');
+  });
+
+  it('wakes a freshly started tab for work handed after its start, before its first check, and not for work its start listed (T4222)', async () => {
+    const kit = await teamWithAlphaTab({ ...TEAM, wake: { batchSeconds: 0 } });
+    await hand(kit, 'Old work', 'p1');
+    await kit.run(['hook', 'session-start'], { stdin: payload({ source: 'startup' }, FRESH_TAB), env: { TEAMRIG_SESSION: 'alpha' } });
+    await hand(kit, 'Fix the login', 'p1');
+    assert.deepEqual(idsOf(answerOf(await checkTab(kit, FRESH_TAB))), ['T2']);
+    kit.clock.advance(60 * MINUTE);
+    assert.deepEqual(answerOf(await checkTab(kit, FRESH_TAB)), { kind: 'wait', watch: watchOf(), recheckAt: null }, 'never twice for one task');
+  });
+
+  it('keeps a batch pending at a /clear for the cleared tab, and leaves the state alone at a compaction (T4222)', async () => {
+    const kit = await teamWithAlphaTab();
+    await check(kit);
+    await hand(kit, 'Fix the login', 'p1');
+    const handed = kit.clock.now();
+    assert.deepEqual(answerOf(await check(kit)), { kind: 'wait', watch: watchOf(), recheckAt: handed + 120 * SECOND }, 'batched');
+    await kit.run(['hook', 'session-start'], { stdin: payload({ source: 'compact' }), env: { TEAMRIG_SESSION: 'alpha' } });
+    await kit.run(['hook', 'session-start'], { stdin: payload({ source: 'clear' }, FRESH_TAB), env: { TEAMRIG_SESSION: 'alpha' } });
+    assert.deepEqual(answerOf(await checkTab(kit, FRESH_TAB)), { kind: 'wait', watch: watchOf(), recheckAt: handed + 120 * SECOND }, 'the same batch');
+    kit.clock.advance(120 * SECOND);
+    assert.deepEqual(idsOf(answerOf(await checkTab(kit, FRESH_TAB))), ['T1']);
   });
 
   it('keeps no wake prompt with turnLog off', async () => {
@@ -457,7 +482,7 @@ describe('hook wake-check', () => {
     assert.deepEqual([await unseen.store.restart('alpha'), processes.hidden], [undefined, []]);
   });
 
-  it('starts a session whose restart waits for work fresh once work is handed, the work left to wake the fresh session (T1383)', async () => {
+  it('starts a session whose restart waits for work fresh once work is handed, the work left to the fresh session (T1383)', async () => {
     const { kit, store } = await parkedRestart(PARKED_TEAM);
     const processes = new FakeProcesses();
     assert.deepEqual(answerOf(await checkUnder(kit, processes)), { kind: 'wait', watch: watchOf(), recheckAt: null }, 'no work: it waits');
@@ -471,10 +496,13 @@ describe('hook wake-check', () => {
     const runners = processes.hidden.filter((run) => run.args[1] === 'restart').map((run) => [run.command, run.cwd, ...run.args]);
     assert.deepEqual(runners, [['/usr/bin/node', APP, '/opt/teamrig/dist/cli/main.js', 'restart', 'alpha', '--team', 'app', '--at', at, '--project', APP]]);
 
-    // The restart's /clear: the fresh session is woken for the work.
+    // The restart's /clear starts a new Claude Code session, whose start lists the work, so only later work wakes it.
     await store.clearRestart('alpha');
     await store.setState('alpha', { phase: 'refreshed', task: 'T1', at });
-    assert.equal((await check(kit)).stdout[0]?.includes('"kind":"wake","ids":["T1"]'), true);
+    await kit.run(['hook', 'session-start'], { stdin: payload({ source: 'clear' }, FRESH_TAB), env: { TEAMRIG_SESSION: 'alpha' } });
+    assert.deepEqual(answerOf(await checkTab(kit, FRESH_TAB)), { kind: 'wait', watch: watchOf(), recheckAt: null }, 'its start listed T1');
+    await hand(kit, 'Fix the logout', 'p1');
+    assert.deepEqual(idsOf(answerOf(await checkTab(kit, FRESH_TAB))), ['T2']);
   });
 
   it('keeps an urgent line for the fresh start of a session whose restart waits for work (T1383)', async () => {

@@ -17,6 +17,7 @@ import {
   NO_SETTLED_MOMENTS,
   openedWakeState,
   quietPriorityOf,
+  startedWakeState,
   taskListText,
   WAKE_TITLE_MAX,
   wakeContext,
@@ -295,6 +296,34 @@ describe('openedWakeState', () => {
   it('does not count a parked task among what the resumed tab knows (T2090)', () => {
     const tasks = tasksOf(p1({ ...parkedFacts(NOW) }), p1({ id: 'T2' }));
     assert.deepEqual(openedWakeState(opened(tasks, QUIET)).known, ['T2']);
+  });
+});
+
+describe('startedWakeState', () => {
+  const FRESH = 'fresh-tab';
+  function started(tasks: ReadonlyMap<string, Task>, previous: WakeState | undefined): OpenedTab {
+    return { tasks, elsewhere: NO_TASKS_ELSEWHERE, session: 'alpha', tab: FRESH, now: NOW, zone: TimeZone.UTC, maxPriority: 1, parking: TEST_PARKING, previous };
+  }
+
+  it('knows what could wake the new tab at its start, carrying a pending batch, the last wake and the settled moments (T4222)', () => {
+    const settled = { dayStart: NOW - 60 * MINUTE, burst: undefined, poke: undefined };
+    const pending = { since: NOW - MINUTE, ids: ['T7'] };
+    const previous: WakeState = { tab: TAB, known: ['T7'], pending, lastWakeAt: NOW - 90 * MINUTE, settled };
+    const tasks = tasksOf(p1(), testTask({ id: 'T2' }), p1({ id: 'T3', owner: 'bravo' }));
+    assert.deepEqual(startedWakeState(started(tasks, previous)), { tab: FRESH, known: ['T1'], pending, lastWakeAt: NOW - 90 * MINUTE, settled });
+    assert.deepEqual(startedWakeState(started(tasks, undefined)), { tab: FRESH, known: ['T1'], pending: undefined, lastWakeAt: undefined, settled: NO_SETTLED_MOMENTS });
+  });
+
+  it('leaves the state of the tab it is already for, as at a compaction or a resume (T4222)', () => {
+    assert.equal(startedWakeState(started(tasksOf(p1()), { ...QUIET, tab: FRESH })), undefined);
+  });
+
+  it('wakes the new tab at its first check for work handed after its start, not for work there at it (T4222)', () => {
+    const state = startedWakeState(started(tasksOf(p1()), QUIET));
+    assert.ok(state !== undefined);
+    const fresh = { tab: FRESH, batchMs: 0, now: NOW + 30 * MINUTE };
+    assert.deepEqual(decideWake(input(tasksOf(p1()), state, fresh)).verdict, { kind: 'none' });
+    assert.equal(decideWake(input(tasksOf(p1(), p1({ id: 'T2' })), state, fresh)).verdict.kind, 'wake');
   });
 });
 

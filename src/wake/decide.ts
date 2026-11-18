@@ -236,7 +236,7 @@ export function worthyTasksOf(input: WorthyInput): Task[] {
   return [...input.tasks.values()].filter((task) => isWakeWorthy(task, input.session, input.maxPriority, context));
 }
 
-/** A tab teamrig opened on a Claude Code session the session ran in before, and the session's last wake state. */
+/** A tab of the session as it starts, or as teamrig opens it on a Claude Code session, and the session's last wake state. */
 export interface OpenedTab extends WorthyInput {
   readonly tab: string;
   readonly previous: WakeState | undefined;
@@ -254,8 +254,22 @@ export function openedWakeState(opened: OpenedTab): WakeState {
 }
 
 /**
- * Whether to wake the session now, later or not, and the state to keep. A first check in a tab takes what is
- * there as known: work from before the tab started is seen at its first prompt, as it always was.
+ * The wake state of a tab that starts on a new Claude Code session (a fresh start, a /clear, a restart), written at its
+ * SessionStart: its start lists the session's tasks, so what could wake it then is known, and work handed after the
+ * start wakes it at the first check even when that comes after a long first turn. A batch still pending is carried and
+ * the last wake kept, so a /clear neither drops a wake nor brings one closer (T4222). Undefined for a start in the tab
+ * the state is already for (a compaction, a resume), which goes on from it.
+ */
+export function startedWakeState(started: OpenedTab): WakeState | undefined {
+  const { tab, previous } = started;
+  if (previous?.tab === tab) return undefined;
+  const known = worthyTasksOf(started).map((task) => task.id);
+  return { tab, known, pending: previous?.pending, lastWakeAt: previous?.lastWakeAt, settled: previous?.settled ?? NO_SETTLED_MOMENTS };
+}
+
+/**
+ * Whether to wake the session now, later or not, and the state to keep. A first check in a tab whose start was not
+ * recorded (`startedWakeState`) takes what is there as known: work from before it is seen at its first prompt.
  */
 export function decideWake(input: WakeInput): WakeDecision {
   const { tasks, elsewhere, session, tab, now, previous } = input;
