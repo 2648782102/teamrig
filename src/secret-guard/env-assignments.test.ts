@@ -163,6 +163,37 @@ describe('EnvAssignments', () => {
       assert.deepEqual(plain.filter((text) => assignments.hitsIn(text).length > 0), []);
     });
 
+    it('reads a block value past the characters YAML keeps inside it, as a flow map would not (N1)', () => {
+      const marks = join('x7Qm#9vR,2pL(4kT[8wZ{1nB;6yH<3cJ>5');
+      assert.deepEqual(values(assignments, join('  DB_PASS', 'WORD: ', marks, '\n')), [marks]);
+      assert.deepEqual(values(assignments, join('DB_PASS', 'WORD: ', marks, ' # rotated')), [marks]);
+      assert.deepEqual(values(assignments, join('SIGNING_', 'KEY: Ab3(', HEX, ')')), [join('Ab3(', HEX, ')')]);
+    });
+
+    it('masks a words-only password in a block map, as the assignment form does (N1)', () => {
+      const words = join('correct', 'Horse', 'Battery');
+      assert.deepEqual(values(assignments, join('DB_PASS', 'WORD: ', words)), [words]);
+      assert.deepEqual(values(assignments, join('DB_PASS', 'WORD=', words)), [words]);
+    });
+
+    it('still stops a flow map value where the map goes on', () => {
+      assert.deepEqual(values(assignments, join('{SIGNING_', 'KEY: ', HEX, ', PORT: 80}')), [HEX]);
+      assert.deepEqual(values(assignments, join('env: {PORT: 80, SIGNING_', 'KEY: ', HEX, '}')), [HEX]);
+      assert.deepEqual(values(assignments, join('{ API_', 'KEY: config.apiKey, PORT: 80 }')), []);
+    });
+
+    it('passes a member of code, a reference and a sentence in a block map', () => {
+      const plain = [
+        'API_KEY: string | undefined;',
+        "PRIVATE_KEY: fs.readFileSync(path, 'utf8'),",
+        '  SECRET_KEY: process.env.SECRET_KEY,',
+        'DB_PASSWORD: $(DB_PASSWORD_FROM_VAULT)',
+        'API_KEY: $(cat key file)',
+        'AUTH_TOKEN: token expired',
+      ];
+      assert.deepEqual(plain.filter((text) => assignments.hitsIn(text).length > 0), []);
+    });
+
     it('still finds a value glued to a placeholder, as the assignment form does', () => {
       assert.deepEqual(values(assignments, join('API_', 'KEY: ${API_KEY}', KEY)), [join('${API_KEY}', KEY)]);
     });

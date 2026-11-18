@@ -13,10 +13,32 @@ const ASSIGNMENT = /(?<![\w$])([A-Z][A-Z0-9_]*)=(<[^\s<>"'`;,&|()]*>[^\s"'`;,&|(
  * `NAME: value` as a YAML or JSON map writes a variable (a Kubernetes secret's `stringData`, a compose file's
  * `environment`, an env map in JSON): the same upper-case name, bare or quoted, right before a colon and a space, then
  * a quoted or a bare value. No space before the colon, as a map writes it, so code's `x ? SECRET_KEY : y` is no key. A
- * bare value stops where a flow map or code goes on, past a `${NAME}` or an angle placeholder it opens with.
+ * bare value here stops where a flow map or code goes on, past a `${NAME}` or an angle placeholder it opens with; a
+ * block map's value is read again from the line, as `blockValue` says.
  */
 const MAPPING =
   /(?<![\w$])(["']?)([A-Z][A-Z0-9_]*)\1:[ \t]+(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\$\{[^\s{}]*\}[^\s"'`#,;{}[\]()<>]*|<[^\s<>"'`]*>[^\s"'`#,;{}[\]()<>]*|[^\s"'`#,;{}[\]()<>]+))/g;
+/** What a flow map's key follows on its line (`{API_KEY: v, PORT: 80}`): its opening brace or the comma before it. */
+const FLOW_OPENER = /[{,]/;
+/** The blank space a key may follow on its line. */
+const BLANK = /[ \t]/;
+/** A line's end. */
+const LINE_END = /[\r\n]/;
+/** A YAML comment after a value: `#` after a blank; a `#` inside a value has none before it. */
+const COMMENT = /[ \t]#/;
+/** Where a block value's first word ends: a blank, as the `NAME=value` form stops there too. */
+const WORD_END = /\s/;
+/**
+ * A whole value that only refers to one filled in later: a GitHub workflow expression (`${{ secrets.GH_TOKEN }}`), a
+ * Kubernetes `$(OTHER_VAR)` or a shell's `$(command)`. Anything glued on after it is still a value.
+ */
+const REFERENCE = /^\$(?:\{\{[^}]*\}\}|\([^()]*\))$/;
+/**
+ * A member of an object literal or a type, as code writes one under a capitalised key (`config.apiKey,`,
+ * `fs.readFileSync(path),`, `readonly string[];`, `string | undefined;`): a name or a member chain, then a call, array
+ * brackets or more words, closed by the `,` or `;` that ends a member. A block YAML value has no such close.
+ */
+const CODE_MEMBER = /^(?:readonly[ \t]+)?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(\(.*\)|(?:\[\])*|[ \t].*)[,;]$/;
 /** A quoted value with a space in it: a message, a sentence or an expression, never a key. */
 const SPACED = /\s/;
 /** A name or a member chain in code (`config.apiKey`, `fs.readFileSync`), as code puts one after a capitalised key. */
@@ -90,6 +112,54 @@ function isCodeName(value: string, next: string | undefined): boolean {
 }
 
 /**
+ * The value a map's key at `at` in `text` holds, its match ending at `end`, or none when it holds no value: a quoted
+ * one but for a sentence, a flow map's bare one up to where the map goes on but for code, a block map's as `blockValue`
+ * reads it.
+ */
+function mappedValue(text: string, at: number, end: number, quoted: string | undefined, bare: string | undefined): string | undefined {
+  if (quoted !== undefined) return quoted === '' || SPACED.test(quoted) ? undefined : quoted;
+  if (bare === undefined) return undefined;
+  if (!opensFlowMap(text, at)) return blockValue(text, end - bare.length);
+  return BLOCK_SCALAR.test(bare) || isCodeName(bare, text[end]) ? undefined : bare;
+}
+
+/** True when the key at `at` in `text` opens a flow map: a `{` or a `,` comes right before it on its line. */
+function opensFlowMap(text: string, at: number): boolean {
+  let before = at - 1;
+  while (before >= 0 && BLANK.test(text.charAt(before))) before -= 1;
+  return before >= 0 && FLOW_OPENER.test(text.charAt(before));
+}
+
+/**
+ * True when a block map's `line` value is a member of an object literal or a type in code, not a value: a call, or a
+ * chain of words names or of an identifier's name (`process.env.SECRET_KEY`). A token-shaped chain stays a value.
+ */
+function isCodeMember(line: string): boolean {
+  const member = CODE_MEMBER.exec(line);
+  if (member === null) return false;
+  const [, chain = '', rest = ''] = member;
+  return rest.startsWith('(') || isIdentifierName(chain) || chain.split('.').every(isWordsName);
+}
+
+/**
+ * A block map's value, from `start` in `text`: none for a block scalar's marker, a reference or a member of code, else
+ * the line's first word, with no comment. YAML keeps `#`, `,`, `(`, `[`, `{`, `;`, `<` and `>` inside a
+ * block value, so a generated password holding one is a value to its first blank, never cut where a flow map's would
+ * be (T2957 N1).
+ */
+function blockValue(text: string, start: number): string | undefined {
+  const rest = text.slice(start);
+  const lineEnd = rest.search(LINE_END);
+  const line = lineEnd < 0 ? rest : rest.slice(0, lineEnd);
+  const comment = line.search(COMMENT);
+  const value = (comment < 0 ? line : line.slice(0, comment)).trimEnd();
+  if (BLOCK_SCALAR.test(value) || REFERENCE.test(value) || isCodeMember(value)) return undefined;
+  const wordEnd = value.search(WORD_END);
+  const word = wordEnd < 0 ? value : value.slice(0, wordEnd);
+  return word === '' ? undefined : word;
+}
+
+/**
  * The output-only shape of T1369 R7: the value of a secret variable, the name judged by the team's `SecretNames`.
  * Output is not prose, so the unquoted form is in here; prompts and notes stay without it.
  */
@@ -130,11 +200,10 @@ export class EnvAssignments {
     const found: PlacedHit[] = [];
     for (const match of text.matchAll(MAPPING)) {
       const [whole, , name = '', double, single, bare] = match;
-      const quoted = double ?? single;
-      const value = quoted ?? bare ?? '';
-      const next = text[match.index + whole.length];
-      if (value === '' || BLOCK_SCALAR.test(value)) continue;
-      if (quoted === undefined ? isCodeName(value, next) : SPACED.test(quoted)) continue;
+      const end = match.index + whole.length;
+      const value = mappedValue(text, match.index, end, double ?? single, bare);
+      if (value === undefined) continue;
+      const next = text[end - (bare ?? '').length + value.length];
       if (this.isSecretValue(name, value, next)) found.push({ at: match.index, hit: secretHit(value) });
     }
     return found;
