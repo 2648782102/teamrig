@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SecretScanner } from '../core/secrets.ts';
 import { FakeIssueHost } from '../testing/fake-issue-host.ts';
-import { editIssueBody, labelIssue, labelRefusal, MAX_COMMENT, MAX_LABEL, postRefusal, writeIssue, type IssueWrite, type LabelWrite } from './write.ts';
+import { editIssue, labelIssue, labelRefusal, MAX_COMMENT, MAX_LABEL, MAX_TITLE, postRefusal, titleRefusal, writeIssue, type IssueWrite, type LabelWrite } from './write.ts';
 
 const TARGET = { repo: 'acme/web', number: 7 };
 
@@ -46,6 +46,23 @@ describe('postRefusal', () => {
     const refused = postRefusal('--comment', `write to ${mail}`, scanner) ?? '';
     assert.equal(refused, '--comment holds private data (e-mail address): take it out, as a post may be read by anyone');
     assert.ok(!refused.includes(mail));
+  });
+});
+
+describe('titleRefusal', () => {
+  const scanner = new SecretScanner(['tok_[a-z0-9]{8}']);
+
+  it('takes one line up to the longest title, colons and #numbers among it', () => {
+    assert.equal(titleRefusal('--title', 'Ship: catch up again after #1558', scanner), undefined);
+    assert.equal(titleRefusal('--title', 'x'.repeat(MAX_TITLE), scanner), undefined);
+  });
+
+  it('refuses a line break, a tab, one too long, and what any post refuses', () => {
+    assert.equal(titleRefusal('--title', 'one\ntwo', scanner), '--title holds a line break or another control character: a title is one line');
+    assert.equal(titleRefusal('--title', 'a\tb', scanner), '--title holds a line break or another control character: a title is one line');
+    assert.equal(titleRefusal('--title', 'x'.repeat(MAX_TITLE + 1), scanner), `--title is ${MAX_TITLE + 1} characters, over the ${MAX_TITLE} a title may hold`);
+    assert.equal(titleRefusal('--title', '  ', scanner), '--title is empty');
+    assert.match(titleRefusal('--title', 'Done in T12', scanner) ?? '', /^--title names the task id T12/u);
   });
 });
 
@@ -122,13 +139,42 @@ describe('writeIssue', () => {
   });
 });
 
-describe('editIssueBody', () => {
-  /** Runs a body edit of TARGET on `host`, giving whether it was done and the lines it said. */
-  async function edit(host: FakeIssueHost, body: string): Promise<{ done: boolean; lines: string[] }> {
+describe('editIssue', () => {
+  /** Runs `change` as an edit of TARGET on `host`, giving whether it was done and the lines it said. */
+  async function change(host: FakeIssueHost, given: { body: string; title?: string } | { title: string }): Promise<{ done: boolean; lines: string[] }> {
     const lines: string[] = [];
-    const done = await editIssueBody(host, { target: TARGET, body }, (line) => lines.push(line));
+    const done = await editIssue(host, { target: TARGET, ...given }, (line) => lines.push(line));
     return { done, lines };
   }
+
+  /** Runs a body edit of TARGET on `host`. */
+  async function edit(host: FakeIssueHost, body: string): Promise<{ done: boolean; lines: string[] }> {
+    return change(host, { body });
+  }
+
+  it('replaces only the title when no body is given', async () => {
+    const host = new FakeIssueHost();
+    assert.deepEqual(await change(host, { title: 'Ship: catch up again' }), { done: true, lines: ['ACCESS acme: writes as the test', 'RETITLED acme/web#7: "Ship: catch up again"'] });
+    assert.deepEqual(host.calls, [{ kind: 'title', target: TARGET, title: 'Ship: catch up again' }]);
+  });
+
+  it('replaces the body, then the title', async () => {
+    const host = new FakeIssueHost();
+    assert.deepEqual((await change(host, { body: '## Spec', title: 'New' })).lines.slice(1), ['EDITED acme/web#7: its body is now 7 characters', 'RETITLED acme/web#7: "New"']);
+    assert.deepEqual(host.calls.map((call) => call.kind), ['body', 'title']);
+  });
+
+  it('tries no title when the body fails, and says the body was replaced when the title fails after it', async () => {
+    const bodyFails = new FakeIssueHost().failsBody('HTTP 403');
+    assert.deepEqual((await change(bodyFails, { body: 'b', title: 'New' })).lines.slice(1), ['FAILED acme/web#7: HTTP 403; the body is as it was, and the title was not tried']);
+    assert.deepEqual(bodyFails.calls.map((call) => call.kind), ['body']);
+    const titleFails = new FakeIssueHost().failsTitle('HTTP 422');
+    assert.deepEqual(await change(titleFails, { body: 'b', title: 'New' }), {
+      done: false,
+      lines: ['ACCESS acme: writes as the test', 'EDITED acme/web#7: its body is now 1 characters', 'FAILED acme/web#7: HTTP 422; the title is as it was; the body was replaced: rerun teamrig issue edit acme/web#7 with --title alone'],
+    });
+    assert.deepEqual((await change(new FakeIssueHost().failsTitle('HTTP 422'), { title: 'New' })).lines.slice(1), ['FAILED acme/web#7: HTTP 422; the title is as it was']);
+  });
 
   it('replaces the body, saying how the host was reached and the new length', async () => {
     const host = new FakeIssueHost();

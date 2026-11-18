@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
 import { withStampFooter } from '../core/stamp.ts';
-import { isIssueBodyEdit, isIssueClose, isIssueComment, isIssueRead, isLabelAdd, isLabelFileRead, isLabelRead, isLabelRemove } from '../github/gh.ts';
+import { isIssueBodyEdit, isIssueTitleEdit, isIssueClose, isIssueComment, isIssueRead, isLabelAdd, isLabelFileRead, isLabelRead, isLabelRemove } from '../github/gh.ts';
 import { APP, CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
 import { FakeCredentials } from '../testing/fake-credentials.ts';
 import { FakeGh, ghIssue } from '../testing/fake-gh.ts';
@@ -266,7 +266,8 @@ describe('teamrig issue edit', () => {
     assert.equal(missing.code, EXIT.refused);
     assert.match([...missing.stdout, ...missing.stderr].join('\n'), /^REFUSED no file .*gone\.md: --body-file takes the file holding the new body/u);
     const none = await kit.run(['issue', 'edit', 'acme/web#7'], { ...AS_LEAD, gh });
-    assert.match([...none.stdout, ...none.stderr].join('\n'), /--body-file is required/u);
+    assert.equal(none.code, EXIT.refused);
+    assert.match([...none.stdout, ...none.stderr].join('\n'), /^REFUSED issue edit needs --body-file <path>, --title <text>, or both/u);
     await kit.files.write(SPEC, BODY);
     const unlisted = await kit.run(['issue', 'edit', 'acme/api#7', '--body-file', SPEC], { ...AS_LEAD, gh });
     assert.match([...unlisted.stdout, ...unlisted.stderr].join('\n'), /^REFUSED acme\/api is not one of the team's repositories/u);
@@ -285,6 +286,50 @@ describe('teamrig issue edit', () => {
     await kit.files.write(SPEC, BODY);
     assert.equal((await kit.run(['issue', 'edit', 'acme/web#7', '--body-file', SPEC], { ...AS_LEAD, gh })).code, EXIT.ok);
     assert.equal(gh.ran.length, 1);
+  });
+
+  it('renames the issue with --title alone, through the allowlisted call and with no stamp footer', async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    const gh = new FakeGh();
+    const title = 'Ship: catch up again after a merge lands during the gate';
+    const result = await kit.run(['issue', 'edit', 'acme/web#7', '--title', title], { ...AS_LEAD, gh });
+    assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
+    assert.deepEqual(result.stdout, [LOGIN, `RETITLED acme/web#7: ${JSON.stringify(title)}`]);
+    assert.deepEqual(gh.ran.map((request) => request.args), [['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', `title=${title}`]]);
+    assert.ok(isIssueTitleEdit(gh.ran[0]?.args ?? []));
+  });
+
+  it('replaces the body, then the title, when both are given', async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    await kit.files.write(SPEC, BODY);
+    const gh = new FakeGh();
+    const result = await kit.run(['issue', 'edit', 'acme/web#7', '--body-file', SPEC, '--title', 'New'], { ...AS_LEAD, gh });
+    assert.equal(result.code, EXIT.ok, [...result.stdout, ...result.stderr].join('\n'));
+    assert.deepEqual(result.stdout.slice(1), [`EDITED acme/web#7: its body is now ${BODY.length} characters`, 'RETITLED acme/web#7: "New"']);
+    assert.deepEqual(gh.ran.map((request) => request.args.at(-1)), [`body=${withStampFooter(BODY)}`, 'title=New']);
+  });
+
+  it('refuses, running no gh and writing no body, a title that spans lines, runs long, is empty, secret or names a task id', async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    await kit.files.write(SPEC, BODY);
+    const gh = new FakeGh();
+    /** Built at runtime so no secret-shaped literal sits in the source. */
+    const secret = ['ghp', '_', 'a'.repeat(36)].join('');
+    const titles: Array<[string, RegExp]> = [
+      ['one\ntwo', /^REFUSED --title holds a line break or another control character: a title is one line/u],
+      ['x'.repeat(257), /^REFUSED --title is 257 characters, over the 256 a title may hold/u],
+      [' ', /^REFUSED --title is empty/u],
+      [`key ${secret}`, /^REFUSED --title looks like it holds a secret/u],
+      ['Fix T12', /^REFUSED --title names the task id T12/u],
+    ];
+    for (const [title, error] of titles) {
+      const result = await kit.run(['issue', 'edit', 'acme/web#7', '--body-file', SPEC, '--title', title], { ...AS_LEAD, gh });
+      const printed = [...result.stdout, ...result.stderr].join('\n');
+      assert.equal(result.code, EXIT.refused, printed);
+      assert.match(printed, error);
+      assert.ok(!printed.includes(secret));
+    }
+    assert.deepEqual(gh.ran, []);
   });
 
   it('fails, saying the body stayed, when GitHub refuses the edit, and writes nothing while GitHub is off', async () => {

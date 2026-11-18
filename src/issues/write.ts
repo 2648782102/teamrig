@@ -28,32 +28,57 @@ export interface IssueWrite {
   readonly duplicateOf?: IssueTarget;
 }
 
-/** The new body (the description) of one issue or pull request. */
-export interface BodyWrite {
-  readonly target: IssueTarget;
-  readonly body: string;
-}
+/** The new body (the description), the new title, or both, of one issue or pull request: never neither. */
+export type IssueEdit = { readonly target: IssueTarget } & ({ readonly body: string; readonly title?: string } | { readonly body?: undefined; readonly title: string });
 
 /**
- * Replaces the body of one issue or pull request through `host`, one line said for each step: ACCESS, then EDITED,
- * or FAILED with the host's reason. The host is reached before the write, so a key that cannot be read changes
- * nothing. True when the body was replaced.
+ * Replaces the body, then the title, of one issue or pull request through `host`, one line said for each step: ACCESS,
+ * then EDITED and RETITLED, or FAILED with the host's reason. The host is reached before any write, so a key that
+ * cannot be read changes nothing; a failed body edit leaves the title untried, and a title that fails after the body
+ * says the body was replaced, so a rerun gives only --title. True when every step was done.
  */
-export async function editIssueBody(host: IssueHost, write: BodyWrite, say: (line: string) => void): Promise<boolean> {
-  const shown = targetText(write.target);
-  const reach = await host.reach(write.target.repo, 'write');
+export async function editIssue(host: IssueHost, edit: IssueEdit, say: (line: string) => void): Promise<boolean> {
+  const shown = targetText(edit.target);
+  const reach = await host.reach(edit.target.repo, 'write');
   if (reach.kind === 'unreachable') {
     say(`FAILED ${shown}: ${reach.reason}; nothing was changed`);
     return false;
   }
   say(`ACCESS ${reach.access}`);
-  const edited = await host.editBody(write.target, write.body);
-  if (edited.kind === 'failed') {
-    say(`FAILED ${shown}: ${edited.reason}; the body is as it was`);
+  if (edit.body !== undefined) {
+    const edited = await host.editBody(edit.target, edit.body);
+    if (edited.kind === 'failed') {
+      say(`FAILED ${shown}: ${edited.reason}; the body is as it was${edit.title === undefined ? '' : ', and the title was not tried'}`);
+      return false;
+    }
+    say(`EDITED ${shown}: its body is now ${edit.body.length} characters`);
+  }
+  if (edit.title === undefined) {
+    return true;
+  }
+  const retitled = await host.editTitle(edit.target, edit.title);
+  if (retitled.kind === 'failed') {
+    const body = edit.body === undefined ? '' : `; the body was replaced: rerun ${KIT_NAME} issue edit ${shown} with --title alone`;
+    say(`FAILED ${shown}: ${retitled.reason}; the title is as it was${body}`);
     return false;
   }
-  say(`EDITED ${shown}: its body is now ${write.body.length} characters`);
+  say(`RETITLED ${shown}: ${JSON.stringify(edit.title)}`);
   return true;
+}
+
+/**
+ * Why `title` may not be set as `subject`, an issue's title, or undefined when it may: it spans lines or holds another
+ * control character, runs over MAX_TITLE, or is refused as any post is (postRefusal: empty, a secret shape, private
+ * data, a task id). A refusal names the shape, never the text.
+ */
+export function titleRefusal(subject: string, title: string, scanner: SecretScanner): string | undefined {
+  if (/\p{Cc}/u.test(title)) {
+    return `${subject} holds a line break or another control character: a title is one line`;
+  }
+  if (title.length > MAX_TITLE) {
+    return `${subject} is ${title.length} characters, over the ${MAX_TITLE} a title may hold`;
+  }
+  return postRefusal(subject, title, scanner);
 }
 
 /** The labels to add to one issue or pull request and those to take off it. */

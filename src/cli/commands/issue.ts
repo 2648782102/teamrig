@@ -5,7 +5,7 @@ import type { KitConfig } from '../../config/types.ts';
 import { issueRef } from '../../github/map.ts';
 import { CLOSE_REASONS, hostKindOf, parseIssueTarget, targetText, type CloseReason, type HostKind, type IssueHost, type IssueTarget } from '../../issues/host.ts';
 import { issueDoc, mirroredIssues, similarIssues } from '../../issues/similar.ts';
-import { editIssueBody, labelIssue, labelRefusal, postRefusal, writeIssue, type IssueWrite } from '../../issues/write.ts';
+import { editIssue, labelIssue, labelRefusal, postRefusal, titleRefusal, writeIssue, type IssueEdit, type IssueWrite } from '../../issues/write.ts';
 import { ISSUE_REF_PREFIX } from '../../register/model.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import { secretRulesOf } from '../../secret-guard/rules.ts';
@@ -29,20 +29,46 @@ export async function issueComment(args: ParsedArgs, runtime: CliRuntime): Promi
 }
 
 /**
- * `issue edit <owner/name#n> --body-file <path>` (T3021): replaces the body (the description) of one issue or pull
- * request of the team's repositories with the text of a file, through the same host and checks as `issue comment`;
- * the title, state, labels and assignees stay. A file is the input, as a full description runs to many lines a shell
- * argument would mangle; a byte-order mark an editor put at its start is dropped. Exit 1 when the host failed, else 0.
+ * `issue edit <owner/name#n> [--body-file <path>] [--title <text>]` (T3021, T4157): replaces the body (the
+ * description), the title, or both, of one issue or pull request of the team's repositories, through the same host and
+ * checks as `issue comment`; state, labels and assignees stay. The body comes from a file, as a full description runs
+ * to many lines a shell argument would mangle; a byte-order mark an editor put at its start is dropped. The title is
+ * one line (titleRefusal). Both are checked before anything is written; the body is written first. Exit 1 when the
+ * host failed, else 0.
  */
 export async function issueEdit(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCode> {
   const target = targetOf(args);
+  const bodyFile = args.flags.get('body-file');
+  const title = args.flags.get('title');
+  if (bodyFile === undefined && title === undefined) {
+    throw new RefusedError(EDIT_NEEDS);
+  }
   const checked = await checkedRepo(args, runtime, target.repo);
-  const body = await bodyFileOf(requiredFlag(args.flags, 'body-file'), runtime, checked.config);
-  const host = hostAfter(checked, runtime, { flag: '--body-file', text: body });
+  const body = bodyFile === undefined ? undefined : await bodyFileOf(bodyFile, runtime, checked.config);
+  const edit = editOf(target, body, title);
+  const posted: Posted[] = [
+    ...(edit.body === undefined ? [] : [{ flag: '--body-file', text: edit.body, refusal: postRefusal }]),
+    ...(edit.title === undefined ? [] : [{ flag: '--title', text: edit.title, refusal: titleRefusal }]),
+  ];
+  const host = hostAfter(checked, runtime, posted);
   if (host === undefined) {
     return EXIT.ok;
   }
-  return (await editIssueBody(host, { target, body }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+  return (await editIssue(host, edit, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+}
+
+/** The refusal of an `issue edit` that names nothing to change. */
+const EDIT_NEEDS = 'issue edit needs --body-file <path>, --title <text>, or both';
+
+/** The edit of `target` a body and a title make, either of which may be missing; refused when both are. */
+function editOf(target: IssueTarget, body: string | undefined, title: string | undefined): IssueEdit {
+  if (body !== undefined) {
+    return { target, body, ...(title === undefined ? {} : { title }) };
+  }
+  if (title !== undefined) {
+    return { target, title };
+  }
+  throw new RefusedError(EDIT_NEEDS);
 }
 
 /**
@@ -106,7 +132,7 @@ export async function issueLabel(args: ParsedArgs, runtime: CliRuntime): Promise
   if (both !== undefined) {
     throw new RefusedError(`the label ${JSON.stringify(both)} is in both --add and --remove: give it in one`);
   }
-  const host = await hostFor(args, runtime, target.repo, undefined);
+  const host = await hostFor(args, runtime, target.repo, []);
   if (host === undefined) {
     return EXIT.ok;
   }
@@ -203,7 +229,8 @@ function targetOf(args: ParsedArgs): IssueTarget {
 
 /** Checks the caller, the repository and the text, then writes through the repository's host. */
 async function writeOn(args: ParsedArgs, runtime: CliRuntime, write: IssueWrite, textFlag: string): Promise<ExitCode> {
-  const host = await hostFor(args, runtime, write.target.repo, write.comment === undefined ? undefined : { flag: textFlag, text: write.comment });
+  const posted: Posted[] = write.comment === undefined ? [] : [{ flag: textFlag, text: write.comment, refusal: postRefusal }];
+  const host = await hostFor(args, runtime, write.target.repo, posted);
   if (host === undefined) {
     return EXIT.ok;
   }
@@ -211,17 +238,18 @@ async function writeOn(args: ParsedArgs, runtime: CliRuntime, write: IssueWrite,
 }
 
 /**
- * The host of `repo` once the caller is on the team, the repository is one of the team's and the text to post (if
- * any) may be posted; undefined, after an OFF line, while GitHub is off on the machine.
+ * The host of `repo` once the caller is on the team, the repository is one of the team's and each text to post may
+ * be posted; undefined, after an OFF line, while GitHub is off on the machine.
  */
-async function hostFor(args: ParsedArgs, runtime: CliRuntime, repo: string, posted: Posted | undefined): Promise<IssueHost | undefined> {
+async function hostFor(args: ParsedArgs, runtime: CliRuntime, repo: string, posted: readonly Posted[]): Promise<IssueHost | undefined> {
   return hostAfter(await checkedRepo(args, runtime, repo), runtime, posted);
 }
 
-/** A text to post and the flag that gave it, which a refusal names. */
+/** A text to post, the flag that gave it, which a refusal names, and the check it must pass (postRefusal, or titleRefusal for a title). */
 interface Posted {
   readonly flag: string;
   readonly text: string;
+  readonly refusal: (subject: string, text: string, scanner: SecretScanner) => string | undefined;
 }
 
 /** The team's config and the host kind of a repository the caller may write to. */
@@ -245,13 +273,15 @@ async function checkedRepo(args: ParsedArgs, runtime: CliRuntime, repo: string):
   return { config: team.config, kind };
 }
 
-/** The host of a checked repository once the text to post (if any) may be posted; undefined, after an OFF line, while GitHub is off. */
-function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: Posted | undefined): IssueHost | undefined {
+/** The host of a checked repository once each text to post may be posted; undefined, after an OFF line, while GitHub is off. */
+function hostAfter(checked: CheckedRepo, runtime: CliRuntime, posted: readonly Posted[]): IssueHost | undefined {
   const { config, kind } = checked;
   const scanner = new SecretScanner(config.register.secretPatterns);
-  const refused = posted === undefined ? undefined : postRefusal(posted.flag, posted.text, scanner);
-  if (refused !== undefined) {
-    throw new RefusedError(refused);
+  for (const { flag, text, refusal } of posted) {
+    const refused = refusal(flag, text, scanner);
+    if (refused !== undefined) {
+      throw new RefusedError(refused);
+    }
   }
   if (githubOff(runtime.env)) {
     runtime.out.stdout(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; nothing was written`);

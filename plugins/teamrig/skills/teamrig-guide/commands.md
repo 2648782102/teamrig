@@ -1555,24 +1555,28 @@ COMMENTED acme/web#7
 
 ### teamrig issue edit
 
-Replaces the body (the description) of one issue or pull request of the team's repositories with the text of a file,
+Replaces the body (the description), the title, or both, of one issue or pull request of the team's repositories,
 with the same access and checks as `teamrig issue comment`: the text is refused, changing nothing, when it is empty,
-past 65,536 characters, looks like it holds a secret, holds private data or names a task id. The title, state,
-labels and assignees stay, and GitHub keeps the old body in the issue's edit history. The text comes from a file, as
-a full description runs to many lines a shell argument would mangle; a byte-order mark at its start is dropped, and a
-relative path is read from the working folder. A file the secret guard keeps (`secretGuard.paths`, such as `.env` or
-a key file) is refused before it is read. It prints `EDITED <target>: its body is now <n> characters`, or
-`FAILED <target>: <reason>; the body is as it was`. Exit 1 when it failed, 2 when refused, else 0.
+past 65,536 characters, looks like it holds a secret, holds private data or names a task id. A title is also refused
+when it spans lines or runs past 256 characters. Give at least one of the two flags; both are checked before anything
+is written, and the body is written first. State, labels and assignees stay, and GitHub keeps the old body and title
+in the issue's history. The body comes from a file, as a full description runs to many lines a shell argument would
+mangle; a byte-order mark at its start is dropped, and a relative path is read from the working folder. A file the
+secret guard keeps (`secretGuard.paths`, such as `.env` or a key file) is refused before it is read. It prints
+`EDITED <target>: its body is now <n> characters` and `RETITLED <target>: "<title>"`, or `FAILED <target>: <reason>`
+saying what is as it was; a title that fails after the body was replaced says to rerun with `--title` alone. Exit 1
+when it failed, 2 when refused, else 0.
 
 Flags:
 
 - `--session <id|name>`: the caller, a session of the team.
-- `--body-file <path>`: the file holding the new body, required.
+- `--body-file <path>`: the file holding the new body.
+- `--title <text>`: the new title, one line.
 
 Example:
 
 ```sh
-teamrig issue edit acme/web#7 --body-file spec.md
+teamrig issue edit acme/web#7 --body-file spec.md --title "Login: keep the session after a password reset"
 ```
 
 Output:
@@ -1580,6 +1584,7 @@ Output:
 ```text
 ACCESS acme: writes with the token saved as teamrig-gh-acme
 EDITED acme/web#7: its body is now 1832 characters
+RETITLED acme/web#7: "Login: keep the session after a password reset"
 ```
 
 ### teamrig issue close
