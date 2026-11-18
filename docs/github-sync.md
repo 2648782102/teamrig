@@ -354,6 +354,14 @@ The marker is how a later write finds the footer: posting a stamped text again, 
 footer, keeps one footer at the current version. A text the footer would push past the 65,536 characters GitHub holds
 is posted without it. A team that wants no footer sets `github.stamp` to false.
 
+The same switch stamps a team session's own commits. When a Bash line starts with `git commit` (after any
+`git -C <folder>`), `hook route-allow` runs it with `--trailer 'Made-with: teamrig <version>'` put right after the
+`commit` word, so the commit ends with that trailer beside the message's own `Co-Authored-By` line, which stays as
+written. It leaves alone a tab with no `$TEAMRIG_SESSION` (a person's own Claude Code), a line that already names a
+`Made-with:` trailer, a git older than 2.32, the PowerShell tool, and a line whose first command is something else
+(`git add x && git commit`, `cd x && git commit`). A permission rule narrower than the rewritten line, such as
+`Bash(git commit -s:*)`, no longer matches it.
+
 ```sh
 teamrig issue comment acme/web#7 --body "Fixed in #9, thank you."
 teamrig issue label acme/web#7 --add "type: bug,p1" --remove "needs triage"

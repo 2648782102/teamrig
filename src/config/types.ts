@@ -734,7 +734,8 @@ export interface GithubConfig {
   readonly issueAtAdd?: string;
   /**
    * Whether each text teamrig posts (a comment, an issue, a replaced body) ends with the made-with-teamrig footer
-   * (core/stamp.ts, #1102). On by default; false posts the text as given.
+   * (core/stamp.ts, #1102), and each team session's own `git commit` carries the `Made-with: teamrig <version>` trailer
+   * (hooks/commit-trailer.ts, T3270). On by default; false posts the text as given and leaves the commit alone.
    */
   readonly stamp: boolean;
 }
