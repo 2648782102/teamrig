@@ -81,8 +81,13 @@ describe('isWakeWorthy', () => {
   it('takes a started task past what it comes after: `after` gates only the start', () => {
     const startedAt = '2030-01-08T08:00:00.000Z';
     assert.equal(isWakeWorthy(p1({ status: 'in-progress', after: ['T6'], startedAt }), 'alpha', 1, context), true);
-    assert.equal(isWakeWorthy(p1({ status: 'open', after: ['T6'], startedAt }), 'alpha', 1, context), true);
-    assert.equal(isWakeWorthy(p1({ status: 'in-progress', after: ['T6'] }), 'alpha', 1, context), false);
+    assert.equal(isWakeWorthy(p1({ status: 'in-progress', after: ['T6'] }), 'alpha', 1, context), true, 'an older row with no start');
+  });
+
+  it('refuses an open task put back after its start while what it comes after is not finished, as set does (T4077)', () => {
+    const putBack = p1({ status: 'open', after: ['T6'], startedAt: '2030-01-08T08:00:00.000Z' });
+    assert.equal(isWakeWorthy(putBack, 'alpha', 1, context), false);
+    assert.equal(isWakeWorthy({ ...putBack, after: ['T5'] }, 'alpha', 1, context), true, 'what it comes after finished');
   });
 
   it('takes a waiting or verifying task once every wait cleared, and refuses it while one holds', () => {

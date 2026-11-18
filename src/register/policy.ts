@@ -21,7 +21,7 @@ import { waitsOnOwner } from './owner-waits.ts';
 import { asksReview, missedTaskIds, reviewGap, reviewGapText, reviewProblem, reviewTexts, type ProblemReview } from './review.ts';
 import { loopFix, needPath, NO_TASKS_ELSEWHERE, pathText, type TasksElsewhere } from './tree.ts';
 import { dueStartHolds, dueVerifyHold, heldStart, startHolds, WATCH_USAGE } from './verify.ts';
-import { isPeerWait, isReady, sameWait, sameWaits, waitContext, waitSpelling, type PersonWait, type PersonWaitKind, type WaitReason } from './waits.ts';
+import { hasStarted, isPeerWait, isReady, sameWait, sameWaits, waitContext, waitSpelling, type PersonWait, type PersonWaitKind, type WaitReason } from './waits.ts';
 import { wipHold } from './wip.ts';
 
 /** Team policy, applied on WRITE only: the parser accepts any well-formed history. */
@@ -1550,14 +1550,6 @@ function treeTasks(state: RegisterState, elsewhere: TasksElsewhere): ReadonlyMap
     return state.tasks;
   }
   return new Map([...[...elsewhere].map(([id, held]): [string, Task] => [id, held.task]), ...state.tasks]);
-}
-
-/**
- * In progress, verifying (its work shipped, whatever an older register's row says of its start) or waiting after it
- * started: a task that can wait on another.
- */
-function hasStarted(task: Task): boolean {
-  return task.status === 'in-progress' || task.status === 'verifying' || (task.status === 'waiting' && task.startedAt !== null);
 }
 
 /** Open, or waiting without ever starting (on an approval, or a row an older register migrated): a task a plan fits. */

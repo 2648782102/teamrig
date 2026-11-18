@@ -187,6 +187,15 @@ export function waitsText(waits: readonly WaitReason[], zone: TimeZone, context?
   return waits.map((reason) => waitText(reason, zone, context)).join(' · ');
 }
 
+/**
+ * In progress, verifying (its work shipped, whatever an older register's row says of its start) or waiting after it
+ * started: a task that can wait on another, and one past what it comes after. An open task is not started even with a
+ * start on its row: its owner put it back, so what it comes after gates it again (T4077).
+ */
+export function hasStarted(task: { readonly status: TaskStatus; readonly startedAt: string | null }): boolean {
+  return task.status === 'in-progress' || task.status === 'verifying' || (task.status === 'waiting' && task.startedAt !== null);
+}
+
 /** The tasks of a plan dependency (`after T5,T6`) not finished yet: while any is left, the task is not free to start. */
 export function unfinishedAfter(after: readonly string[], context: WaitContext): string[] {
   return after.filter((id) => !isFinished(id, context));

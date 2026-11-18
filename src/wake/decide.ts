@@ -15,7 +15,7 @@ import { taskNumber, type Task } from '../register/fold.ts';
 import type { TaskStatus } from '../register/model.ts';
 import { wouldPark, type ParkRules } from '../register/park.ts';
 import { neededIds, type TasksElsewhere } from '../register/tree.ts';
-import { unfinishedAfter, waitContext, type WaitContext } from '../register/waits.ts';
+import { hasStarted, unfinishedAfter, waitContext, type WaitContext } from '../register/waits.ts';
 
 /**
  * Waking a session idle at its prompt when work is handed to it, pure. A wake is a model turn, so only work the
@@ -67,9 +67,10 @@ function goesOnByWaits(status: TaskStatus): boolean {
 
 /**
  * True when the task's owner can go on with it now: an open or in-progress task, or a waiting task (a verifying
- * task's proof waits) whose every reason cleared or was answered ({@link waitsLetGoOn}). A task never started also
- * waits for every task it comes after to finish: `after` gates its start, so a task already started is past it. A
- * finished task, or one waiting on a decision or an approval not yet answered, never.
+ * task's proof waits) whose every reason cleared or was answered ({@link waitsLetGoOn}). A task not started
+ * ({@link hasStarted}, the rule `set` keeps) also waits for every task it comes after to finish: `after` gates its
+ * start, so a task underway is past it, and an open one put back after its start is not. A finished task, or one
+ * waiting on a decision or an approval not yet answered, never.
  */
 export function canGoOn(task: Task, context: WaitContext): boolean {
   if (task.status === 'done' || task.status === 'dropped') {
@@ -78,7 +79,7 @@ export function canGoOn(task: Task, context: WaitContext): boolean {
   if (goesOnByWaits(task.status) && !waitsLetGoOn(task, context)) {
     return false;
   }
-  return task.startedAt !== null || unfinishedAfter(task.after, context).length === 0;
+  return hasStarted(task) || unfinishedAfter(task.after, context).length === 0;
 }
 
 /** What a wake judges a task by: its waits, and whether the park rule took it. */
