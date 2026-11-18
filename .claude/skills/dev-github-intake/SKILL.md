@@ -27,8 +27,9 @@ this is the other side of it.
    (what and why) before taking it; else say in one line why theirs is best.
 2. A change under a guarded path (CONTRIBUTING.md, Review) gets a security review before it lands.
 3. Land it with credit: cherry-pick its source commits (`git cherry-pick -s <sha>` keeps the author), leave out its
-   version and dist commits, then raise the version and rebuild the dist ourselves (`dev-ship-change`). Comment on
-   the pull request naming the landed commit, and close it.
+   version and dist commits, then rebuild the dist ourselves (`dev-ship-change`); the release pull request raises
+   the version. A subject the commit subject gate refuses is reworded with `git commit --amend`, which keeps the
+   author. Comment on the pull request naming the landed commit, and close it.
 4. Reply as yourself, in plain words, with the next step and its date, and keep each promise in a task.
 
 ## A design issue
