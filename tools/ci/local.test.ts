@@ -61,7 +61,7 @@ describe('local (the local gate CLI)', () => {
     repo.git('commit', '-q', '-m', 'x');
     const head = repo.git('rev-parse', 'HEAD').trim();
     const tree = repo.git('rev-parse', 'HEAD^{tree}').trim();
-    const intro = (count: number, since: string): string => `short checks: scrub, DCO, typecheck and ${count} changed spec(s) since ${since}; required CI runs the whole suite on the pull request`;
+    const intro = (count: number, since: string): string => `short checks: scrub, DCO, commit rules, typecheck and ${count} changed spec(s) since ${since}; required CI runs the whole suite on the pull request`;
 
     const run = repo.run(CLI, ['--short', '--base', base]);
     assert.equal(run.status, 1, run.stderr);
@@ -75,6 +75,18 @@ describe('local (the local gate CLI)', () => {
     const full = repo.run(CLI);
     assert.equal(full.status, 1, 'a short record never passes a full proof');
     assert.match(full.stdout, /^FAIL: scrub: tree/);
+  });
+
+  it('--short runs every check when a changed file is part of the gate itself (T4080 C2)', () => {
+    const { head: base } = commit();
+    repo.write('tools/ci/x.ts', 'export const x = 1;\n');
+    repo.write('src/y.ts', 'export const y = 1;\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'x');
+
+    const run = repo.run(CLI, ['--short', '--base', base]);
+    assert.equal(run.status, 1, run.stderr);
+    assert.ok(run.stdout.startsWith(`short checks: 1 changed file(s) of the gate itself since ${base}, so every check runs\n  tools/ci/x.ts\nFAIL: scrub: tree (exit 1, `), run.stdout);
   });
 
   it('refuses uncommitted changes', () => {

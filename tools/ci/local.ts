@@ -7,7 +7,7 @@ import { lowerStep, NODE_PRIORITIES } from '../../src/delivery/priority.ts';
 import { runMain } from '../lib/run-main.ts';
 import { readProfiles } from '../ship/repos.ts';
 import { type CheckScope, pushScope } from './check-scope.ts';
-import { DEFAULT_BASE, changedSpecs, localChecks, shortChecks } from './local-checks.ts';
+import { DEFAULT_BASE, changedSpecs, gateChanges, localChecks, shortChecks } from './local-checks.ts';
 import { type LocalCheck, type Verdict, machineDeps, parsePushUpdates, proveHead, provePush } from './local-gate.ts';
 
 /**
@@ -43,12 +43,20 @@ async function main(): Promise<number> {
   return exitOf(await provePush(updates, await checksOf(scope, values.base, root, git), deps, scope));
 }
 
-/** The checks a proof of the scope runs; a short one names the changed specs it runs. */
+/**
+ * The checks a proof of the scope runs; a short one names the changed specs it runs, and runs every check when a
+ * changed file is part of the gate (gateChanges, T4080).
+ */
 async function checksOf(scope: CheckScope, base: string, root: string, git: Git): Promise<readonly LocalCheck[]> {
   if (scope === 'full') return localChecks(base);
   const changed = (await git.text(['diff', '--name-only', '--no-renames', `${base}...HEAD`])).split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  const gate = gateChanges(changed);
+  if (gate.length > 0) {
+    console.log(`short checks: ${gate.length} changed file(s) of the gate itself since ${base}, so every check runs\n  ${gate.join('\n  ')}`);
+    return localChecks(base);
+  }
   const specs = changedSpecs(changed, (path) => existsSync(join(root, path)));
-  console.log(`short checks: scrub, DCO, typecheck and ${specs.length} changed spec(s) since ${base}; required CI runs the whole suite on the pull request${specs.length === 0 ? '' : `\n  ${specs.join('\n  ')}`}`);
+  console.log(`short checks: scrub, DCO, commit rules, typecheck and ${specs.length} changed spec(s) since ${base}; required CI runs the whole suite on the pull request${specs.length === 0 ? '' : `\n  ${specs.join('\n  ')}`}`);
   return shortChecks(base, specs);
 }
 

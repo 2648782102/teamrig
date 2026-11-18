@@ -5,9 +5,10 @@ import { type RepoProfile, slugOf } from '../ship/repos.ts';
 /**
  * What a local proof of a committed tree covers (T3414).
  * - `full`: every check CI runs. It is recorded as the tree's pass record, the proof every reader of a pass takes.
- * - `short`: the scrub, the DCO sign-off, the typecheck and the changed files' specs. It is for a branch of a repo
- *   whose main merges only on GitHub's required checks (repos.json `"mergeChecks": "changed"`), which run the whole
- *   suite on the pull request.
+ * - `short`: the scrub, the DCO sign-off, the size rule, the plugin version gate, the typecheck and the changed files'
+ *   specs; every check when a changed file is part of the gate itself (local-checks.ts `gateChanges`, T4080). It is
+ *   for a branch of a repo whose main merges only on GitHub's required checks (repos.json `"mergeChecks": "changed"`),
+ *   which run the whole suite on the pull request.
  * A short proof's record lives apart, in `short/`, so no reader of a pass record (the pre-push hook of a full proof,
  * `teamrig merge`'s self-merge gates) ever takes it for one.
  */
