@@ -3,7 +3,7 @@ import { targetText, } from "../issues/host.js";
 import { LABEL_FILE, parseLabelFile } from "../issues/label-file.js";
 import { MAX_COMMENT } from "../issues/write.js";
 import { exitText } from "../open/processes.js";
-import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
+import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, jobLogArgs, labelReadArgs, isLogin, isRepoName, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, repoReadArgs, } from "./gh.js";
 import { probeAnswerOf } from "./probe.js";
 import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, runRead, startFailureText } from "./issues.js";
 import { failedLogExcerpt } from "./job-log.js";
@@ -257,6 +257,14 @@ export class GitHubIssueHost {
         const read = await this.read(repo, assigneeReadArgs(repo, spelled), `whether ${spelled} may be assigned in ${repo}`);
         return read.kind === 'found' ? { kind: 'found', login: spelled } : read;
     }
+    async repoName(via, repo) {
+        const read = await this.read(via, repoReadArgs(repo), `the repository ${repo}`);
+        if (read.kind !== 'found') {
+            return read;
+        }
+        const name = fullNameIn(read.stdout);
+        return name === undefined ? { kind: 'failed', reason: `gh printed no repository name for ${repo}` } : { kind: 'found', name };
+    }
     /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
     async read(repo, args, what) {
         const access = await this.tokens.accessFor(repo);
@@ -432,6 +440,21 @@ export function loginIn(stdout) {
     }
     const { login } = parsed;
     return typeof login === 'string' && isLogin(login) ? login : undefined;
+}
+/** The `full_name` of a repository as GitHub's REST API prints it, when it is a repository name, else undefined. */
+export function fullNameIn(stdout) {
+    let parsed;
+    try {
+        parsed = JSON.parse(stdout);
+    }
+    catch {
+        return undefined;
+    }
+    if (typeof parsed !== 'object' || parsed === null || !('full_name' in parsed)) {
+        return undefined;
+    }
+    const { full_name: name } = parsed;
+    return typeof name === 'string' && isRepoName(name) ? name : undefined;
 }
 /** The `id` of an issue as GitHub's REST API prints it: a positive safe integer, else undefined. */
 export function issueIdIn(stdout) {
