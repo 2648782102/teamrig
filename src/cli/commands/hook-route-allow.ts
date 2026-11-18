@@ -1,5 +1,6 @@
 import { isRecord, type JsonRecord } from '../../core/guards.ts';
 import { toJsonlLine } from '../../core/jsonl.ts';
+import { commitTrailerOutput } from '../../hooks/commit-trailer.ts';
 import { passRecordGuardOutput } from '../../hooks/pass-record-guard.ts';
 import { guardsPassed, preToolUseRouteOf, routeAllowOn, routeAllowOutput, routeAllowRecord } from '../../hooks/route-allow.ts';
 import { sessionIdOf } from '../../inbox/inbox.ts';
@@ -7,6 +8,7 @@ import type { CommandTable } from '../../slash/plan.ts';
 import { noPositionals, type ParsedArgs } from '../args.ts';
 import { hookLogOf } from '../hook-logs.ts';
 import { EXIT, type CliRuntime, type ExitCode } from '../runtime.ts';
+import { commitTrailerInputOf } from './hook-commit-trailer.ts';
 import { guardLoadOf, type GuardLoad } from './hook-guard-load.ts';
 import { dbWriteGuardOutputOf, execGuardOutputOf, packageGuardOutputOf, pushGuardOutputOf, secretGuardOutputOf, serviceRoleGuardOutputOf } from './hook-guard-outputs.ts';
 import { envSession, parseJson } from './hook-input.ts';
@@ -36,7 +38,9 @@ async function everyGuardPassed(runtime: CliRuntime, guard: GuardLoad, payload: 
 /**
  * What the hook prints for this payload: an allow for a line that runs a route marked for PreToolUse, or for a service
  * role's call (hook-role-allow.ts), once every teamrig guard passed the same call; else ''. Each allow is logged by its
- * route or its role.
+ * route or its role. A team session's git commit also gets its Made-with trailer (hook-commit-trailer.ts): inside the
+ * route's allow when there is one, else as a rewrite alone, with no decision, so the guards and the permission check
+ * still judge the call.
  */
 async function routeAllowOutputOf(runtime: CliRuntime, payload: JsonRecord, deps: RouteAllowDeps): Promise<string> {
   const guard = await guardLoadOf(payload, runtime);
@@ -44,21 +48,23 @@ async function routeAllowOutputOf(runtime: CliRuntime, payload: JsonRecord, deps
   if (guard === undefined || kit === undefined || kit.load.status !== 'loaded') {
     return '';
   }
+  const trailer = commitTrailerInputOf(runtime, kit.load.config, payload);
+  const otherwise = trailer === undefined ? '' : commitTrailerOutput(trailer);
   const passed = (): Promise<boolean> => everyGuardPassed(runtime, guard, payload);
   if (!routeAllowOn(kit.load.config.prompts)) {
-    return roleAllowOutputOf(runtime, kit, payload, deps.table, passed);
+    return (await roleAllowOutputOf(runtime, kit, payload, deps.table, passed)) || otherwise;
   }
   const route = preToolUseRouteOf(await callRouteOf(runtime, kit, kit.load.config, payload, deps.table));
   if (route === undefined) {
-    return roleAllowOutputOf(runtime, kit, payload, deps.table, passed);
+    return (await roleAllowOutputOf(runtime, kit, payload, deps.table, passed)) || otherwise;
   }
   if (!(await passed())) {
-    return '';
+    return otherwise;
   }
   const record = routeAllowRecord({ at: new Date(runtime.clock.now()), session: envSession(runtime), claudeSession: sessionIdOf(payload), route: route.id });
   // Best effort, like the prompt answers: a full disk or a held lock must not take the allow away.
   await hookLogOf(runtime, kit.paths, 'prompt-answers').append(toJsonlLine(record)).catch(() => undefined);
-  return routeAllowOutput(route);
+  return routeAllowOutput(route, trailer);
 }
 
 /**
@@ -68,8 +74,10 @@ async function routeAllowOutputOf(runtime: CliRuntime, payload: JsonRecord, deps
  * allow to `state/prompt-answers.jsonl` by its route, never its command. With the switch on, whatever asks say, it also
  * lets a service role's call run for the tab bound to a holder of the role, up to the role's daily cap, then asks
  * (T2984, hook-role-allow.ts). Outside a team, with the switch off or the config missing or broken, for any other line
- * or tool, when a guard asks or refuses, for input that is not a hook payload or on any error, it prints nothing, so
- * the guards and Claude Code's own permission check decide: it fails closed.
+ * or tool, when a guard asks or refuses, for input that is not a hook payload or on any error, it allows nothing, so
+ * the guards and Claude Code's own permission check decide: it fails closed. Under `github.stamp` (on by default), a
+ * team session's line that starts with a git commit also runs with `--trailer 'Made-with: teamrig <version>'` after
+ * its `commit` word (T3270), whether or not an allow comes with it.
  */
 export function routeAllow(deps: RouteAllowDeps): (args: ParsedArgs, runtime: CliRuntime) => Promise<ExitCode> {
   return async (args, runtime) => {

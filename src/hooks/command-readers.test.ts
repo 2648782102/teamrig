@@ -20,6 +20,8 @@ const READINGS_IMPORTS: ReadonlySet<string> = new Set(['toolCommandReadings', 't
 
 /** Readers whose verdict is the same in every reading, by the path under src/ with `/` separators, with why. */
 const EXEMPT: Readonly<Record<string, string>> = {
+  'cli/commands/hook-commit-trailer.ts':
+    'rewrites only, decides nothing: it puts a backslash-free trailer option after the leading git commit and returns no permission decision, so every check weighs the rewritten line as usual',
   'hooks/cd-compound.ts':
     "refuses only, never allows: a line it lets go meets Claude Code's own prompt, a refused one its rerun form, so no reading lets a line run unchecked",
   'hooks/pass-record-guard.ts':

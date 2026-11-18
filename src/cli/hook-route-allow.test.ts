@@ -2,7 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { isRecord, recordField, type JsonRecord } from '../core/guards.ts';
+import { stampTrailer } from '../core/stamp.ts';
 import { APP, CLAUDE_SESSION, CliHarness, TEAM, TEAM_HOME, type CliResult, type RunOptions } from '../testing/cli-harness.ts';
+import { FakeMergeGit } from '../testing/fake-merge-git.ts';
 import { FaultyFiles, systemError } from '../testing/faulty-files.ts';
 import { EXIT } from './runtime.ts';
 
@@ -17,13 +19,21 @@ function call(command: string, fields: JsonRecord = {}): string {
   return JSON.stringify({ hook_event_name: 'PreToolUse', session_id: CLAUDE_SESSION, cwd: APP, tool_name: 'Bash', tool_input: { command }, ...fields });
 }
 
-/** The permission decision of a PreToolUse answer the hook printed, or undefined. */
-function decisionOf(result: CliResult): unknown {
+/** The PreToolUse answer the hook printed, or undefined. */
+function outputOf(result: CliResult): JsonRecord | undefined {
   const [line] = result.stdout;
   const parsed: unknown = line === undefined ? undefined : JSON.parse(line);
-  const output = isRecord(parsed) ? recordField(parsed, 'hookSpecificOutput') : undefined;
-  return output?.['permissionDecision'];
+  return isRecord(parsed) ? recordField(parsed, 'hookSpecificOutput') : undefined;
 }
+
+/** The permission decision of a PreToolUse answer the hook printed, or undefined. */
+function decisionOf(result: CliResult): unknown {
+  return outputOf(result)?.['permissionDecision'];
+}
+
+/** A team session's tab, the only one whose commits take the trailer. */
+const SESSION = { TEAMRIG_SESSION: 'alpha' };
+const STAMPED_COMMIT = `git -C /w commit --trailer '${stampTrailer()}' -s -m fix`;
 
 /** The prompt answers the hook logged, oldest first. */
 async function answersOf(kit: CliHarness): Promise<unknown[]> {
@@ -92,6 +102,39 @@ describe('hook route-allow', () => {
     for (const kit of quiet) {
       assert.deepEqual(await kit.run(HOOK, { stdin: call('teamrig merge --session alpha') }), NOTHING);
     }
+  });
+
+  it("gives a team session's commit the Made-with trailer inside the route's allow, its other fields kept (T3270)", async () => {
+    const kit = new CliHarness(ASKS_OFF);
+    const result = await kit.run(HOOK, { stdin: call('git -C /w commit -s -m fix', { tool_input: { command: 'git -C /w commit -s -m fix', description: 'Commit' } }), env: SESSION });
+    assert.equal(decisionOf(result), 'allow');
+    assert.deepEqual(outputOf(result)?.['updatedInput'], { command: STAMPED_COMMIT, description: 'Commit' });
+  });
+
+  it('gives the trailer as a rewrite alone, with no decision, where no allow comes: asks on, a guard asking (T3270)', async () => {
+    const rewrite = { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { command: STAMPED_COMMIT } } };
+    const asksOn = new CliHarness({ ...TEAM, prompts: { hookAsks: 'ask' } });
+    const result = await asksOn.run(HOOK, { stdin: call('git -C /w commit -s -m fix'), env: SESSION });
+    assert.deepEqual([result.code, result.stdout.map((line): unknown => JSON.parse(line))], [EXIT.ok, [rewrite]]);
+    const guarded = await new CliHarness(ASKS_OFF).run(HOOK, { stdin: call('git -C /w/.git/local-ci commit -s -m fix'), env: SESSION });
+    assert.equal(decisionOf(guarded), undefined);
+    assert.deepEqual(outputOf(guarded)?.['updatedInput'], { command: `git -C /w/.git/local-ci commit --trailer '${stampTrailer()}' -s -m fix` });
+  });
+
+  it('adds no trailer with the stamp off, outside a team session, on a git older than 2.32 or for another tool (T3270)', async () => {
+    const commit = call('git -C /w commit -s -m fix');
+    const old = new FakeMergeGit();
+    old.versionIs = '2.31.0';
+    const runs = [
+      await new CliHarness({ ...ASKS_OFF, github: { stamp: false } }).run(HOOK, { stdin: commit, env: SESSION }),
+      await new CliHarness(ASKS_OFF).run(HOOK, { stdin: commit }),
+      await new CliHarness(ASKS_OFF).run(HOOK, { stdin: commit, env: SESSION, mergeGit: old }),
+    ];
+    for (const result of runs) {
+      assert.equal(decisionOf(result), 'allow');
+      assert.equal(outputOf(result)?.['updatedInput'], undefined);
+    }
+    assert.deepEqual(await new CliHarness({ ...TEAM, prompts: { hookAsks: 'ask' } }).run(HOOK, { stdin: call('git commit -m y', { tool_name: 'PowerShell' }), env: SESSION }), NOTHING);
   });
 
   it('still allows when the log cannot be written', async () => {

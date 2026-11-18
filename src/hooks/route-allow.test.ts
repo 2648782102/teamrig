@@ -42,6 +42,19 @@ describe('route allow', () => {
     });
   });
 
+  it('carries a rewritten input in the same allow when one is given (T3270)', () => {
+    const commit = routeOf('git-commit');
+    const updatedInput = { command: "git commit --trailer 'Made-with: teamrig 1.2.3' -m y" };
+    assert.deepEqual(JSON.parse(routeAllowOutput(commit, updatedInput)), {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        permissionDecisionReason: `teamrig: the sanctioned route git-commit, to ${commit.purpose}`,
+        updatedInput,
+      },
+    });
+  });
+
   it('logs the route, the sessions and the time, never the command', () => {
     const at = new Date('2030-01-08T10:00:00.000Z');
     assert.deepEqual(routeAllowRecord({ at, session: 'alpha', claudeSession: 'c1', route: 'git-commit' }), {

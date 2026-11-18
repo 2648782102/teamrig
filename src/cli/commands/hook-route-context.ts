@@ -13,7 +13,7 @@ import type { CliRuntime } from '../runtime.ts';
 import { teamSessionOf } from './hook-input.ts';
 
 /** The folder a tool call runs in: the payload's, else the hook's own (Claude Code may start the hook elsewhere). */
-function callCwdOf(runtime: CliRuntime, payload: JsonRecord): string {
+export function callCwdOf(runtime: CliRuntime, payload: JsonRecord): string {
   return stringField(payload, 'cwd') ?? runtime.cwd;
 }
 
