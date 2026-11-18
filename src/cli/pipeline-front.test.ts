@@ -49,6 +49,14 @@ describe('teamrig pipeline front', () => {
     assert.equal(kit.files.get(FRONT), undefined);
   });
 
+  it("refuses --session naming the lead from another session's tab, writing nothing (T3009)", async () => {
+    const kit = await withTasks(1);
+    const result = await kit.run(['pipeline', 'front', 'T1', '--session', 'lead'], { env: { TEAMRIG_SESSION: 'alpha' } });
+    assert.equal(result.code, EXIT.refused);
+    assert.match(result.stdout[0] ?? '', /^REFUSED this tab is alpha, not .*: puts a task at the front of the host line only from its own session's tab$/);
+    assert.equal(kit.files.get(FRONT), undefined);
+  });
+
   it('refuses a task the register lacks or one no longer active, writing nothing', async () => {
     const kit = await withTasks(1);
     assert.deepEqual((await kit.run(['pipeline', 'front', 'T9', '--session', 'lead'])).stdout, ['REFUSED the register has no T9']);

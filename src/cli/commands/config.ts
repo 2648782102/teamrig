@@ -98,7 +98,7 @@ export async function set(args: ParsedArgs, runtime: CliRuntime): Promise<ExitCo
   if (load.pending !== undefined) {
     throw new RefusedError(`${load.path} is config version ${load.pending.fromVersion}; write the current format first: teamrig config migrate`);
   }
-  leadOnly(await rosterOf(runtime, kit, config), callerOf(args.flags, runtime.env), 'changes the team config');
+  leadOnly(await rosterOf(runtime, kit, config), callerOf(args.flags, runtime.env), 'changes the team config', runtime.env);
   const row = editableRowOf(await settingRowsOf(runtime, load), key);
   const typed = text === undefined ? undefined : settingValueOf(row, text);
   if (typed !== undefined && !typed.ok) {

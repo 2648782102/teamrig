@@ -23,7 +23,7 @@ export async function pipelineFront(args: ParsedArgs, runtime: CliRuntime): Prom
   }
   const kit = await openTeamKit(runtime);
   const config = requireConfig(kit, runtime, 'read');
-  const by = leadOnly(await rosterOf(runtime, kit, config), callerOf(args.flags, runtime.env), off ? 'takes a task off the front of the host line' : 'puts a task at the front of the host line');
+  const by = leadOnly(await rosterOf(runtime, kit, config), callerOf(args.flags, runtime.env), off ? 'takes a task off the front of the host line' : 'puts a task at the front of the host line', runtime.env);
   const store = new LineFrontStore(runtime.files, lineFrontPath(kit.paths.state));
   const was = await store.read();
   if (task === undefined) {

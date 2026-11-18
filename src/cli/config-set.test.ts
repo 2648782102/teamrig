@@ -79,6 +79,12 @@ describe('config set', () => {
     assert.match(result.stdout[0] ?? '', /only the lead \(.*\) changes the team config$/);
   });
 
+  it("refuses --session naming the lead from another session's tab (T3009)", async () => {
+    const result = await (await teamWithSchema()).run(['config', 'set', 'messages.maxLines', '20', '--yes', '--session', 'lead'], { self: SELF, env: { TEAMRIG_SESSION: 'alpha' } });
+    assert.equal(result.code, EXIT.refused);
+    assert.match(result.stdout[0] ?? '', /this tab is alpha, not .*: changes the team config only from its own session's tab$/);
+  });
+
   it('refuses an owner-gated key, a roster key, a group and an unknown key', async () => {
     const kit = await teamWithSchema();
     const cases: readonly (readonly [readonly string[], RegExp])[] = [
