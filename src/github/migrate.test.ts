@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { SecretScanner } from '../core/secrets.ts';
 import type { Task } from '../register/fold.ts';
 import { testTask } from '../testing/task.ts';
-import { MAX_TITLE, countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, rowLabels, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
+import { MAX_TITLE } from '../issues/write.ts';
+import { countsLine, createdNumber, parseMigrateRows, planMigration, previewMarkdown, rowLabels, type IssueRow, type MigrateRow, type RefJudge } from './migrate.ts';
 
 const REPO = 'acme/tool';
 

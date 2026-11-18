@@ -13,6 +13,9 @@ export const MAX_COMMENT = 65_536;
 /** The longest label name GitHub takes. */
 export const MAX_LABEL = 50;
 
+/** The longest title GitHub takes for an issue. */
+export const MAX_TITLE = 256;
+
 /**
  * What to write on one issue or pull request: a comment, a close (with its reason when given), or a comment and then a
  * close. A duplicate close may name the issue it duplicates, which the host links.

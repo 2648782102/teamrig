@@ -6,6 +6,7 @@ import type { Task } from '../register/fold.ts';
 import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from '../register/model.ts';
 import type { Verdict } from '../register/policy.ts';
 import type { IssueDraft } from '../issues/host.ts';
+import { MAX_TITLE } from '../issues/write.ts';
 
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
@@ -38,9 +39,6 @@ export function issueLabels(type: RowType, priority: PriorityLabel): string[] {
 const ISSUE_KEYS: ReadonlySet<string> = new Set(['id', 'decision', 'repo', 'type', 'priority', 'title', 'body']);
 /** The keys a row that keeps its task local holds, and no other. */
 const LOCAL_KEYS: ReadonlySet<string> = new Set(['id', 'decision', 'reason']);
-
-/** The longest title GitHub takes for an issue. */
-export const MAX_TITLE = 256;
 
 /** A task that becomes an issue: where, and its public wording. */
 export interface IssueRow {
