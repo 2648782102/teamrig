@@ -345,8 +345,8 @@ be there), and `teamrig issue close` closes one, first posting its `--comment` w
 unmerged. `--reason completed`, `not-planned` or `duplicate` says why it closed (GitHub keeps it on an issue only);
 `--duplicate-of` closes it as a duplicate of another issue of the same repository, which GitHub links as the
 original. `teamrig issue edit` replaces the body (the description) with the text of a file, so a spec of many lines
-keeps its shape; the title, state and labels stay, and GitHub keeps the old body in the edit history. Each names its
-target as `owner/name#number`.
+keeps its shape, and the title with `--title`, one line of at most 256 characters; state and labels stay, and GitHub
+keeps the old body and title in the issue's history. Each names its target as `owner/name#number`.
 
 Each text teamrig posts (a comment, a close comment, a claim reply, a migrated issue, a replaced body) ends with a
 one-line footer, `Made with teamrig <version>` linking to the project, then a hidden `<!-- teamrig-stamp -->` marker.
@@ -358,6 +358,7 @@ is posted without it. A team that wants no footer sets `github.stamp` to false.
 teamrig issue comment acme/web#7 --body "Fixed in #9, thank you."
 teamrig issue label acme/web#7 --add "type: bug,p1" --remove "needs triage"
 teamrig issue edit acme/web#7 --body-file spec.md
+teamrig issue edit acme/web#7 --title "Login: keep the session after a password reset"
 teamrig issue close acme/web#12 --comment "Merged as #14 with your commits credited. Thank you!"
 teamrig issue close acme/web#15 --duplicate-of acme/web#7
 ```
@@ -372,10 +373,11 @@ CLOSED acme/web#12
 - **Checked text.** An empty text, one past 65,536 characters, one that looks like it holds a secret, one that holds
   private data (a path inside a home folder, an e-mail address, an IPv4 address or an internal host name, the shapes
   teamrig's own commits are scrubbed for), or one that names a task id (`T12`: link issues by `#number`) is refused,
-  and nothing is posted; the same holds for the file `teamrig issue edit` reads.
+  and nothing is posted; the same holds for the file `teamrig issue edit` reads and its `--title`, which must also be
+  one line of at most 256 characters.
 - **Nothing half done.** When the comment fails, nothing is closed. When the close fails after the comment was
   posted, the `FAILED` line says so: rerun `teamrig issue close` without `--comment`, so the comment is not posted
-  twice.
+  twice. Likewise a title that fails after `teamrig issue edit` replaced the body says to rerun with `--title` alone.
 - **No new labels.** Each label to add must already be one of the repository's: teamrig reads it first and changes
   nothing when one is missing, as GitHub would make a new label from a typo. Make it on GitHub first. Labels to add
   go in one call, then each to take off in turn; the first failure stops it and says what it already changed.
