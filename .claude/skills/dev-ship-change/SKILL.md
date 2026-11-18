@@ -47,8 +47,10 @@ description: Land a finished teamrig change through small signed commits, a dist
   you change any other word on that line, or a version on a line the change did not add, you need a new approval.
 - The local gate proves a committed tree, so it refuses uncommitted changes: commit or stash them first.
 - With `"mergeChecks": "changed"` on the repository in `tools/ship/repos.json`, the pre-push hook and the `--merge`
-  run take the short checks (scrub, DCO, typecheck, the changed files' specs) and leave the whole suite to required
-  CI; a spec only a changed file's neighbour misses fails there, not here. Run `npm run check` yourself first when
+  run take the short checks (scrub, DCO, size rule, plugin version gate, typecheck, the changed files' specs) and
+  leave the whole suite to required CI; a spec only a changed file's neighbour misses fails there, not here. A change
+  to the gate itself (hooks, workflows, `tools/ci`, `tools/ship`, the push guard, the package or a tsconfig) runs
+  every check. Run `npm run check` yourself first when
   the change reaches far.
 - A missing sign-off: `git commit --amend -s` for the last commit; the `commit-msg` hook from `npm run setup` catches
   it before the push.
