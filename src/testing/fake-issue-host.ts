@@ -12,6 +12,7 @@ export type HostCall =
   | { readonly kind: 'open'; readonly draft: IssueDraft }
   | { readonly kind: 'comment'; readonly target: IssueTarget; readonly body: string }
   | { readonly kind: 'body'; readonly target: IssueTarget; readonly body: string }
+  | { readonly kind: 'title'; readonly target: IssueTarget; readonly title: string }
   | { readonly kind: 'close'; readonly target: IssueTarget; readonly reason?: CloseReason; readonly duplicateId?: number }
   | { readonly kind: 'label-add'; readonly target: IssueTarget; readonly labels: readonly string[] }
   | { readonly kind: 'label-remove'; readonly target: IssueTarget; readonly label: string }
@@ -39,6 +40,7 @@ export class FakeIssueHost implements IssueHost {
   private commentEnd: HostEnd = { kind: 'done' };
   private closeEnd: HostEnd = { kind: 'done' };
   private bodyEnd: HostEnd = { kind: 'done' };
+  private titleEnd: HostEnd = { kind: 'done' };
   private labelEnd: HostEnd = { kind: 'done' };
   private labelCreateEnd: HostEnd = { kind: 'done' };
   private readonly removeEnds = new Map<string, HostEnd>();
@@ -196,6 +198,12 @@ export class FakeIssueHost implements IssueHost {
     return this;
   }
 
+  /** From now on, a title edit fails for `reason`. */
+  failsTitle(reason: string): this {
+    this.titleEnd = { kind: 'failed', reason };
+    return this;
+  }
+
   /** From now on, opening an issue fails for `reason` and opens nothing. */
   failsOpen(reason: string): this {
     this.openFailure = reason;
@@ -290,6 +298,11 @@ export class FakeIssueHost implements IssueHost {
   editBody(target: IssueTarget, body: string): Promise<HostEnd> {
     this.calls.push({ kind: 'body', target, body });
     return Promise.resolve(this.bodyEnd);
+  }
+
+  editTitle(target: IssueTarget, title: string): Promise<HostEnd> {
+    this.calls.push({ kind: 'title', target, title });
+    return Promise.resolve(this.titleEnd);
   }
 
   close(target: IssueTarget, reason?: CloseReason, duplicateId?: number): Promise<HostEnd> {

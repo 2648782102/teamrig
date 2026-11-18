@@ -7,6 +7,7 @@ import {
   isIssueAssign,
   isIssueUnassign,
   isIssueBodyEdit,
+  isIssueTitleEdit,
   isIssueClose,
   isFieldValueSet,
   isIssueComment,
@@ -543,7 +544,7 @@ export class FakeGh implements GhRunner {
       const log = this.jobLogs.get(Number(request.args[3]));
       return this.canned.get(repo) ?? (log === undefined ? notVisible(repo) : { end: { kind: 'exited', code: 0 }, stdout: log, stderr: '' });
     }
-    if (isIssueComment(request.args) || isIssueBodyEdit(request.args) || isIssueClose(request.args) || isLabelAdd(request.args) || isLabelRemove(request.args) || isIssueAssign(request.args) || isIssueUnassign(request.args) || isFieldValueSet(request.args) || isIssueTypeSet(request.args)) {
+    if (isIssueComment(request.args) || isIssueBodyEdit(request.args) || isIssueTitleEdit(request.args) || isIssueClose(request.args) || isLabelAdd(request.args) || isLabelRemove(request.args) || isIssueAssign(request.args) || isIssueUnassign(request.args) || isFieldValueSet(request.args) || isIssueTypeSet(request.args)) {
       return this.writeFailure ?? { end: { kind: 'exited', code: 0 }, stdout: '{}', stderr: '' };
     }
     if (isLinkAdd(request.args)) {

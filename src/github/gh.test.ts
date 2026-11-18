@@ -24,6 +24,7 @@ import {
   isIssueCreate,
   isIssueQuery,
   isIssueRead,
+  isIssueTitleEdit,
   isIssueUnassign,
   isJobLogRead,
   isLabelAdd,
@@ -44,6 +45,7 @@ import {
   issueLabelAddArgs,
   issueLabelRemoveArgs,
   issueReadArgs,
+  issueTitleArgs,
   issueUnassignArgs,
   isUserRead,
   jobLogArgs,
@@ -258,7 +260,6 @@ describe('isIssueBodyEdit', () => {
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'body=b', '-f', 'state=open'],
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'body=b', '-f', 'assignees[]=someone'],
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'body=b', '-f', 'milestone=1'],
-      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=t'],
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-F', 'body=@secret.txt'],
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '--input', 'body.json'],
       ['api', 'repos/acme/web/issues/7', '-X', 'PATCH'],
@@ -279,6 +280,44 @@ describe('isIssueBodyEdit', () => {
   it('is never taken for a close or a comment, nor they for a body edit', () => {
     assert.ok([READ, issueCreateArgs(DRAFT), issueCommentArgs(ISSUE, 'b'), issueCloseArgs(ISSUE, 'completed')].every((args) => !isIssueBodyEdit(args)));
     assert.ok(!isIssueClose(EDIT) && !isIssueComment(EDIT) && !isIssueCreate(EDIT) && !isIssueQuery(EDIT));
+  });
+});
+
+describe('isIssueTitleEdit', () => {
+  const RENAME = issueTitleArgs(ISSUE, 'Ship: catch up again $(x) @file | y');
+
+  it('takes the command line issueTitleArgs builds, the title a raw field that stays text', () => {
+    assert.deepEqual(RENAME, ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=Ship: catch up again $(x) @file | y']);
+    assert.equal(isIssueTitleEdit(RENAME), true);
+    assert.equal(isAllowedGh(RENAME), true);
+  });
+
+  it('refuses any field beside the title, an empty or many-line title, another method, flag or path, and a typed field', () => {
+    for (const args of [
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=t', '-f', 'body=b'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=t', '-f', 'state=open'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=t', '-f', 'assignees[]=someone'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=t', '-f', 'title=u'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title='],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=  '],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-f', 'title=one\ntwo'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '-F', 'title=@secret.txt'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'PATCH', '--input', 'title.json'],
+      ['api', 'repos/acme/web/issues/7', '-X', 'POST', '-f', 'title=t'],
+      ['api', 'repos/acme/web/issues/7', '-f', 'title=t'],
+      ['api', 'repos/acme/web/issues/7/comments', '-X', 'PATCH', '-f', 'title=t'],
+      ['api', 'repos/acme/web/pulls/7', '-X', 'PATCH', '-f', 'title=t'],
+      ['api', 'repos/acme/../issues/7', '-X', 'PATCH', '-f', 'title=t'],
+      ['api', 'repos/acme/web/issues', '-X', 'PATCH', '-f', 'title=t'],
+    ]) {
+      assert.equal(isIssueTitleEdit(args), false, args.slice(1).join(' '));
+      assert.equal(isAllowedGh(args), false, args.slice(1).join(' '));
+    }
+  });
+
+  it('is never taken for a body edit, a close or a comment, nor they for a title edit', () => {
+    assert.ok([READ, issueCreateArgs(DRAFT), issueBodyArgs(ISSUE, 'b'), issueCommentArgs(ISSUE, 'b'), issueCloseArgs(ISSUE, 'completed')].every((args) => !isIssueTitleEdit(args)));
+    assert.ok(!isIssueBodyEdit(RENAME) && !isIssueClose(RENAME) && !isIssueComment(RENAME) && !isIssueCreate(RENAME) && !isIssueQuery(RENAME));
   });
 });
 
@@ -903,7 +942,7 @@ describe('nodeGhRunner', () => {
     }
     await assert.rejects(
       nodeGhRunner(process.execPath, [gh]).run({ args: ['issue', 'close', '7'], env: ENV }),
-      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close, link, type or set a field of an issue, to read a failed job's log, and to read the posts that may mention a user: it refuses gh issue close with these arguments/,
+      /teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body or title of, label, assign, close, link, type or set a field of an issue, to read a failed job's log, and to read the posts that may mention a user: it refuses gh issue close with these arguments/,
     );
     assert.equal(existsSync(marker), false);
   });

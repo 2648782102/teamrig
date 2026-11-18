@@ -44,6 +44,7 @@ import {
   issueLabelAddArgs,
   issueLabelRemoveArgs,
   issueReadArgs,
+  issueTitleArgs,
   issueTypeSetArgs,
   jobLogArgs,
   labelReadArgs,
@@ -231,6 +232,11 @@ export class GitHubIssueHost implements IssueHost {
 
   editBody(target: IssueTarget, body: string): Promise<HostEnd> {
     return this.write(target, issueBodyArgs(target, this.stamped(body)), 'edit the body of');
+  }
+
+  /** The title takes no stamp: the made-with-teamrig footer goes on bodies and comments only. */
+  editTitle(target: IssueTarget, title: string): Promise<HostEnd> {
+    return this.write(target, issueTitleArgs(target, title), 'edit the title of');
   }
 
   close(target: IssueTarget, reason?: CloseReason, duplicateId?: number): Promise<HostEnd> {
