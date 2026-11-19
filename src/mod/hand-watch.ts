@@ -17,6 +17,8 @@ export const STALL_MS = 60_000;
 export const TRACE_EVERY_MS = 10 * 60_000;
 /** The most of an error's text a trace carries. */
 export const TRACE_ERROR_CHARS = 300;
+/** How long the mod gives `hook hand-trace` to log one trace. */
+export const HAND_TRACE_TIMEOUT_MS = 10_000;
 
 /** What a watch saw: a tick that threw, or one still unsettled `ms` after a run first found it so. */
 export type HandTrace =
