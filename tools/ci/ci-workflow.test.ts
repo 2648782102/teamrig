@@ -16,6 +16,17 @@ function jobsOf(text: string): ReadonlyMap<string, string> {
   return jobs;
 }
 
+/**
+ * The lines of a workflow that reach a secret or ask for a write token, comments left out: a merge queue group runs a
+ * fork's code in the base repository's own context, so either would put that code in reach of them (T3386, T4590).
+ */
+function secretOrWriteLines(text: string): readonly string[] {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/(^|\s)#.*$/, ''))
+    .filter((line) => /\bsecrets\b/.test(line) || /:\s*write(-all)?\s*$/.test(line));
+}
+
 const SUMMARY = 'summary';
 const PUBLIC_ONLY = '    if: ${{ !github.event.repository.private }}\n';
 
@@ -23,10 +34,33 @@ describe('ci.yml', () => {
   const jobs = jobsOf(workflow);
   const checks = [...jobs.keys()].filter((id) => id !== SUMMARY);
 
-  it('runs on each pull request and each push to main, and by hand', () => {
-    assert.match(workflow, /^on:\n(?: {2}#.*\n)* {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n {2}workflow_dispatch:\n/m);
+  it('runs on each pull request, each merge queue group and each push to main, and by hand', () => {
+    assert.match(
+      workflow,
+      /^on:\n(?: {2}#.*\n)* {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n(?: {2}#.*\n)* {2}merge_group:\n {4}types: \[checks_requested\]\n {2}workflow_dispatch:\n/m,
+      'the merge queue waits on the same required check for each group it builds (T3386)',
+    );
     assert.doesNotMatch(workflow, /pull_request_target/, 'a fork pull request must never run with secrets or a write token');
     assert.match(workflow, /^permissions:\n {2}contents: read\n/m);
+  });
+
+  it('reaches no secret and asks for no write token, as a merge queue group runs fork code in the base repository', () => {
+    assert.deepEqual(secretOrWriteLines(workflow), []);
+    const risky = [
+      '    permissions:',
+      '      contents: write',
+      'permissions: write-all',
+      '          TOKEN: ${{ secrets.RELEASE_KEY }}',
+      '    secrets: inherit',
+      '      pull-requests: read # never write',
+      '# secrets are named only in comments',
+    ].join('\n');
+    assert.deepEqual(secretOrWriteLines(risky), [
+      '      contents: write',
+      'permissions: write-all',
+      '          TOKEN: ${{ secrets.RELEASE_KEY }}',
+      '    secrets: inherit',
+    ]);
   });
 
   it('skips every job while the repository is private, where minutes bill', () => {

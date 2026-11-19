@@ -1,5 +1,6 @@
 import { isRightNow } from "../config/priorities.js";
 import { isActive } from "../register/stats.js";
+import { needsOf, unansweredAsks } from "../register/tree.js";
 import { holderOf } from "./groups.js";
 const TASK_IDS = /\bT\d+\b/g;
 /**
@@ -10,11 +11,33 @@ const TASK_IDS = /\bT\d+\b/g;
  */
 export function rightNowNamedIn(text, registers, reader) {
     for (const [id] of text.matchAll(TASK_IDS)) {
-        const holder = holderOf(registers, reader, id);
-        const task = registers.find((register) => register.team === holder)?.tasks.get(id);
-        if (task !== undefined && isActive(task.status) && isRightNow(task.priority)) {
-            return task;
+        const team = holderOf(registers, reader, id);
+        const task = registers.find((register) => register.team === team)?.tasks.get(id);
+        if (team !== undefined && task !== undefined && isActive(task.status) && isRightNow(task.priority)) {
+            return { task, team };
         }
     }
     return undefined;
+}
+/**
+ * The sessions that act on `held` now (T4431, rule 3): its owner, the owner of each unfinished task it needs (planned
+ * after or waited on, each read as its holder's register reads it), and each session asked for one of its unanswered
+ * decisions or approvals, each once. A line naming the task to many sessions wakes only these; the rest read it at
+ * their next prompt.
+ */
+export function actorsOf(held, registers) {
+    const { task, team } = held;
+    const needs = needsOf(task).flatMap((id) => {
+        const holder = holderOf(registers, team, id);
+        const need = registers.find((register) => register.team === holder)?.tasks.get(id);
+        return holder !== undefined && need !== undefined && isActive(need.status) ? [{ team: holder, id: need.owner }] : [];
+    });
+    const asked = unansweredAsks(task).map((ask) => ({ team, id: ask.who }));
+    const seen = new Set();
+    return [{ team, id: task.owner }, ...needs, ...asked].filter((address) => {
+        const key = `${address.team}/${address.id}`;
+        const fresh = !seen.has(key);
+        seen.add(key);
+        return fresh;
+    });
 }

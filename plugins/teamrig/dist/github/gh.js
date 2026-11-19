@@ -153,6 +153,13 @@ export function issueAssigneeReadArgs(target, login) {
 export function userReadArgs(login) {
     return ['api', `users/${login}`];
 }
+/**
+ * The command line that reads the user the token belongs to, the login the sync runs as: the status push assigns it
+ * an issue whose session maps to no login (T4581). Only its `login` is read from the answer.
+ */
+export function viewerReadArgs() {
+    return ['api', 'user'];
+}
 /** The command line that makes `label` in `repo`: its name, colour and description, each a raw field. */
 export function labelCreateArgs(repo, label) {
     return ['api', `repos/${repo}/labels`, '-X', 'POST', '-f', `name=${label.name}`, '-f', `color=${label.color}`, '-f', `description=${label.description}`];
@@ -341,6 +348,13 @@ const USER_PATH = /^users\/([^/]+)$/u;
 export function isUserRead(args) {
     const match = USER_PATH.exec(args[1] ?? '');
     return args[0] === 'api' && args.length === 2 && match !== null && isLogin(match[1] ?? '');
+}
+/**
+ * True for `gh api user` and nothing more, as viewerReadArgs builds it: a read, gh's default GET, of the user the
+ * token belongs to. A method, a field, a filter or a path below the user (such as its e-mails or keys) is refused.
+ */
+export function isViewerRead(args) {
+    return args.length === 2 && args[0] === 'api' && args[1] === 'user';
 }
 /** `repos/<owner>/<name>/labels`: the labels of a repository, where a POST makes one. */
 const LABELS_PATH = /^repos\/([^/]+\/[^/]+)\/labels$/u;
@@ -629,6 +643,7 @@ export function isAllowedGh(args) {
         isAssigneeRead(args) ||
         isIssueAssigneeRead(args) ||
         isUserRead(args) ||
+        isViewerRead(args) ||
         isLabelCreate(args) ||
         isLinkAdd(args) ||
         isFieldValueSet(args) ||

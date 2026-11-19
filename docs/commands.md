@@ -181,7 +181,7 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION;
       again, alone or behind a task or a time, with a note naming no new head; any other set is refused,
       since a merge on it would be: record progress with update --note, or give the approval up for a
       new ask with --drop-approval
-      verifying needs --waits for when its proof runs: a time, or a task in progress or verifying (the
+      verifying needs --waits for when its proof runs: a time, or a task in progress or verifying, or an open one of your own (the
       owner's approval may stand beside one); set verifying again without --waits keeps them, --waits none clears them
       a wait on the owner's decision or approval needs a card the owner decides from alone
       (register.requireDecisionCard): --question "<what is decided>" --options "<a, its numbers> | <b>"
@@ -306,7 +306,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION;
       own, any team's lead, or a session its config names in roles; a receiver teamrig closed has
       its reopen started at once when the host has room (REOPENS), else CLOSED says why; a line
       with neither flag that names unfinished p0 (or more urgent) work by id wakes as --wake now,
-      or posts with no wake where that gate refuses it, and a NOTE says which
+      or posts with no wake where that gate refuses it, and a NOTE says which; to many receivers it
+      wakes only the work's owner and the owners of work it waits on, the rest read it at their prompt
       --wake-by <time>: wakes each receiver at that time instead, only if it has not seen the line by
       then and its tab is idle; the same gate
       --from host:<job>: a line from a host scheduled job, which runs as no session: no --session,
@@ -409,7 +410,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION;
       other status: label taken off; done closes it as completed, dropped as not planned; never
       reopens an issue a person closed, and names it; an open issue of a scheduled task (started or
       with a due date), not a design issue, no one is assigned to is assigned to the login
-      github.owners maps to its task's session, else the repository's owner; at most 40 writes a run; without --yes it writes nothing;
+      github.owners maps to its task's session, else the login the sync runs as, never the repository's owner;
+      a login the repository may not assign takes no write; at most 40 writes a run; without --yes it writes nothing;
       --yes sends them, a repository stopping at its first failed write; a status label the repository
       lacks is made first (MADE); after the labels, each held open issue's github.fields (priority,
       start and target day, score) and type are set where they differ, on a repository that has them

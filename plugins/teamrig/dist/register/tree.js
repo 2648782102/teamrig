@@ -144,7 +144,7 @@ export function readAs(holder, reader, own, elsewhere) {
     return { tasks, elsewhere: others };
 }
 /** The task's decision and approval waits no answer met yet (T1422: an answered one lets its owner go on). */
-function unansweredAsks(task) {
+export function unansweredAsks(task) {
     return task.waits.filter((reason) => (reason.kind === 'decision' || reason.kind === 'approval') && answerTo({ answer: task.answer ?? null }, reason) === undefined);
 }
 /** What a task is worth by its class, goal and severity, as `ranking` reads them. */

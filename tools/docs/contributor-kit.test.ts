@@ -88,4 +88,28 @@ describe('the contributor kit', () => {
       assert.ok(doc.text.includes(trailer), `${doc.path} names ${trailer}`);
     }
   });
+
+  it('points every way into an issue or a pull request at the guide for outside people and their AI tools', () => {
+    const guide = 'docs/issues-and-pull-requests.md';
+    assert.ok(existsSync(join(ROOT, guide)), `${guide} exists`);
+    const entries = [
+      'README.md',
+      'CONTRIBUTING.md',
+      'llms.txt',
+      '.github/ISSUE_TEMPLATE/bug.yml',
+      '.github/ISSUE_TEMPLATE/feature.yml',
+      '.github/ISSUE_TEMPLATE/config.yml',
+      '.github/pull_request_template.md',
+    ];
+    assert.deepEqual(entries.filter((path) => !read(path).includes(guide)), []);
+  });
+
+  it("keeps the intake skill's host rules: an outside diff is read before any checkout, and some never run here", () => {
+    const intake = skills.find((skill) => skill.path.includes('dev-github-intake'));
+    assert.ok(intake !== undefined, 'dev-github-intake exists');
+    const text = intake.text.replace(/\s+/g, ' ');
+    for (const rule of ['Read its full diff before any checkout', 'is never checked out on this host', '## What needs the maintainer']) {
+      assert.ok(text.includes(rule), `dev-github-intake says "${rule}"`);
+    }
+  });
 });

@@ -3,7 +3,7 @@ import { targetText, } from "../issues/host.js";
 import { LABEL_FILE, parseLabelFile } from "../issues/label-file.js";
 import { MAX_COMMENT } from "../issues/write.js";
 import { exitText } from "../open/processes.js";
-import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, fieldValueSetArgs, issueAssignArgs, issueAssigneeReadArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, issueTypeSetArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
+import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, fieldValueSetArgs, issueAssignArgs, issueAssigneeReadArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, issueTypeSetArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, viewerReadArgs, } from "./gh.js";
 import { probeAnswerOf } from "./probe.js";
 import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, runRead, startFailureText } from "./issues.js";
 import { readFields } from "./fields.js";
@@ -253,6 +253,22 @@ export class GitHubIssueHost {
         }
         const read = await this.read(repo, assigneeReadArgs(repo, user.login), `whether ${user.login} may be assigned in ${repo}`);
         return read.kind === 'found' ? user : read;
+    }
+    /**
+     * Reads the user the token for `repo` belongs to (`gh api user`), for its login as GitHub spells it; failed with
+     * gh's own line, as for a token that is no user's (an app's), or when the answer holds no login. Only the login is kept.
+     */
+    async viewer(repo) {
+        const what = 'the GitHub user the token belongs to';
+        const read = await this.read(repo, viewerReadArgs(), what);
+        if (read.kind === 'missing') {
+            return { kind: 'failed', reason: 'GitHub shows no user the token belongs to' };
+        }
+        if (read.kind === 'failed') {
+            return read;
+        }
+        const login = loginIn(read.stdout);
+        return login === undefined ? { kind: 'failed', reason: `gh printed no login for ${what}` } : { kind: 'found', login };
     }
     /**
      * Reads whether the login may be assigned to the one issue or pull request, as GitHub spells it (as assigneeExists
