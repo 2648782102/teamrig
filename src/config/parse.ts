@@ -763,6 +763,8 @@ function parseGithub(read: ConfigReader, raw: JsonRecord, sessions: readonly str
     acceptLabel: read.string(raw, 'acceptLabel', 'github', DEFAULT_GITHUB.acceptLabel, shortLine(GITHUB_LABEL_MAX_LENGTH)),
     trustedAuthors: readTrustedAuthors(read, raw),
     acceptors: readAcceptors(read, raw),
+    restrictedLabels: readRestrictedLabels(read, raw),
+    featureLabel: read.string(raw, 'featureLabel', 'github', DEFAULT_GITHUB.featureLabel, shortLine(GITHUB_LABEL_MAX_LENGTH)).trim(),
     similarThreshold: read.number(raw, 'similarThreshold', 'github', DEFAULT_GITHUB.similarThreshold, CONFIG_LIMITS.similarThreshold),
     activity: read.boolean(raw, 'activity', 'github', DEFAULT_GITHUB.activity),
     followMax: read.integer(raw, 'followMax', 'github', DEFAULT_GITHUB.followMax, CONFIG_LIMITS.githubFollowMax),
@@ -791,6 +793,12 @@ function readAcceptors(read: ConfigReader, raw: JsonRecord): string[] {
   const login: Check<string> = (value) => (GITHUB_LOGIN.test(value) ? undefined : 'expected a GitHub login: letters, digits or -, at most 39 characters');
   const logins = read.stringList(raw, 'acceptors', 'github', DEFAULT_GITHUB.acceptors, login, CONFIG_LIMITS.githubAcceptors.maxItems);
   return [...new Set(logins.map((one) => one.toLowerCase()))];
+}
+
+/** `github.restrictedLabels`: label names, kept trimmed and in lowercase as GitHub matches them; a wrong one is reported and left out. */
+function readRestrictedLabels(read: ConfigReader, raw: JsonRecord): string[] {
+  const labels = read.stringList(raw, 'restrictedLabels', 'github', DEFAULT_GITHUB.restrictedLabels, shortLine(GITHUB_LABEL_MAX_LENGTH), CONFIG_LIMITS.githubRestrictedLabels.maxItems);
+  return [...new Set(labels.map((one) => one.trim().toLowerCase()))];
 }
 
 /** `github.issueAtAdd`: unset, or one of `repos` in lowercase; any other repository is reported and reads as unset. */

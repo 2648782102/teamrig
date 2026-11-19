@@ -1564,6 +1564,26 @@
           },
           "maxItems": 50,
           "default": []
+        },
+        "restrictedLabels": {
+          "description": "The labels only a trusted author or an acceptor gives an issue, such as a task or a design; matched without case. The status push takes one off an open issue by any other author, unless an acceptor put it on, and labels the issue featureLabel and status:waiting with a short comment. Empty, the push relabels nothing.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "maxItems": 20,
+          "default": ["task", "design"]
+        },
+        "featureLabel": {
+          "description": "The label an untrusted author's issue gets when the status push takes its restricted label off: a feature request that waits for an acceptor. teamrig makes the default feature label in a repository that lacks it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "pattern": "^[^\\r\\n]+$",
+          "default": "feature"
         }
       }
     },

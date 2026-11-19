@@ -1305,6 +1305,9 @@ the `gh` login in its place.
   waits until someone other than the author adds the `github.acceptLabel` label (`teamrig` by default, any case): a
   person, not a bot, a workflow or an issue template, and with [github.acceptors] set, one of those logins. Both keys
   widen or narrow whose text becomes work, so only the owner changes them.
+  With the status push on, such an issue that carries a label of [github.restrictedLabels] (`task` and `design` by
+  default) loses it, unless someone who may accept put it on: the push adds [github.featureLabel] (`feature`) and
+  `status:waiting` and comments once that it waits for triage (a `TRIAGE` line in a preview, `TRIAGED` once sent).
   An edit of its title or body at or after that label undoes the accept, the accepter's own edit too: once the new
   text is read, remove the label and add it again. An issue left out writes nothing; a `LEFT OUT` line names it
   by its number only, never its text, at most 20 per repository and then how many more.

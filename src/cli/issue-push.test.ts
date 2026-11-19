@@ -4,7 +4,7 @@ import type { JsonRecord } from '../core/guards.ts';
 import { isIssueQuery } from '../github/gh.ts';
 import { PUSH_WRITES_PER_RUN } from '../issues/status-push.ts';
 import { CliHarness, EVENTS_PATH, TEAM } from '../testing/cli-harness.ts';
-import { FakeGh, ghIssue } from '../testing/fake-gh.ts';
+import { FakeGh, ghIssue, labeledEvent } from '../testing/fake-gh.ts';
 import { SHOWN_CHANGES } from './commands/issue-push.ts';
 import { USAGE } from './run.ts';
 import { EXIT } from './runtime.ts';
@@ -220,6 +220,29 @@ describe('teamrig issue sync --push', () => {
     const lines = await expectRun(off, ['issue', 'sync', '--push'], quiet, EXIT.ok);
     assert.ok(!lines.some((line) => line.startsWith('FIELD')), lines.join('\n'));
     assert.ok(!quiet.ran.some((request) => request.args.some((arg) => arg.includes('issueFieldValues'))));
+  });
+
+  it("relabels an outsider's task issue as a feature waiting for triage, with one comment, and none with github.restrictedLabels empty (T4326)", async () => {
+    const outsider = (): FakeGh =>
+      new FakeGh()
+        .holds('acme/web', [
+          ghIssue('acme/web', 7, { title: 'Please add search', labels: ['task'], authorAssociation: 'NONE', author: 'stranger', timeline: [labeledEvent('task', 'stranger', '2030-01-02T00:00:00Z')] }),
+          ghIssue('acme/web', 8, { title: 'Fix login', labels: ['task'], timeline: [labeledEvent('task', 'maintainer', '2030-01-02T00:00:00Z')] }),
+        ])
+        .holds('acme/api', []);
+    const kit = new CliHarness(GITHUB_TEAM);
+    const preview = await expectRun(kit, ['issue', 'sync', '--push', '--repo', 'acme/web'], outsider(), EXIT.ok);
+    assert.deepEqual(preview.filter((line) => line.startsWith('TRIAGE')), ['TRIAGE acme/web#7: -task +feature +status:waiting, a comment']);
+    const gh = outsider().hasLabels('acme/web', ['feature', 'status:waiting']);
+    const sent = await expectRun(kit, ['issue', 'sync', '--push', '--yes', '--repo', 'acme/web'], gh, EXIT.ok);
+    assert.ok(sent.includes('TRIAGED acme/web#7: -task +feature +status:waiting, a comment'), sent.join('\n'));
+    const writes = gh.ran.filter((request) => !isIssueQuery(request.args)).map((request) => request.args.join(' '));
+    assert.deepEqual(writes.slice(-3, -1), ['api repos/acme/web/issues/7/labels -X POST -f labels[]=feature -f labels[]=status:waiting', 'api repos/acme/web/issues/7/labels/task -X DELETE']);
+    assert.ok(writes.at(-1)?.startsWith('api repos/acme/web/issues/7/comments -X POST -f body=This issue had `task`') === true, writes.join('\n'));
+    assert.ok(!writes.some((write) => write.includes('/issues/8')), 'the maintainer\'s own task issue is left alone');
+    const off = new CliHarness({ ...GITHUB_TEAM, github: { repos: ['acme/web'], restrictedLabels: [] } });
+    const quiet = await expectRun(off, ['issue', 'sync', '--push'], outsider(), EXIT.ok);
+    assert.ok(!quiet.some((line) => line.startsWith('TRIAGE')), quiet.join('\n'));
   });
 
   it('says in its help how many writes a run sends', () => {

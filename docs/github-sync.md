@@ -45,6 +45,8 @@ Add a `github` block to the team config (`~/.teamrig/teams/<team>/config.json`):
 | `acceptLabel` | Optional. The label that lets an issue by someone outside the repository become a task ([below](#whose-issues-become-tasks)). Default `teamrig`. |
 | `trustedAuthors` | Optional. The author ties, as GitHub names them, whose issues become tasks with no label ([below](#whose-issues-become-tasks)). Default `["OWNER", "MEMBER", "COLLABORATOR"]`. |
 | `acceptors` | Optional. The GitHub logins whose `acceptLabel` counts. Default empty: anyone with triage rights accepts. |
+| `restrictedLabels` | Optional. The labels only the repository's people give, which the status push takes off anyone else's issue ([below](#whose-issues-become-tasks)). Default `["task", "design"]`; empty turns that off. |
+| `featureLabel` | Optional. The label such an issue gets in their place. Default `feature`. |
 
 Who owns a new issue's task: the session of its first assignee listed in `owners`; else the session of its first
 label listed in `areaOwners`, so a person's pick beats the area; else its repository's session in `sessions`; else
@@ -67,6 +69,11 @@ Anyone can open an issue on a public repository, so teamrig takes only the issue
   an outsider's, since a workflow may copy an outsider's text into it.
 - **An edit undoes the accept.** When the title or body changes at or after the label went on, whoever edited it,
   the issue is not accepted any more. Once you have read the new text, remove the label and add it again.
+- **Tasks and designs come from the repository's people.** With the status push on, an open issue that counts
+  neither way and carries one of `restrictedLabels` (`task` or `design` by default, as its author or the issue
+  template put it on) loses it: the push adds `featureLabel` and `status:waiting` and leaves one short comment saying
+  it waits for triage. A restricted label someone who may accept put on stays. The push makes the `feature` label
+  if the repository lacks it; another `featureLabel` must exist there first.
 
 An issue that counts neither way writes nothing. A task the sync already added for one keeps its text: its priority
 and open or closed state still follow GitHub, its title and description stay as they are.

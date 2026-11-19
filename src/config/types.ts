@@ -751,6 +751,14 @@ export interface GithubConfig {
    */
   readonly acceptors: readonly string[];
   /**
+   * The labels (lowercase) only a trusted author or an acceptor gives an issue, such as a task or a design: the status
+   * push takes one off an untrusted author's open issue unless an acceptor put it on, and marks the issue
+   * `featureLabel` and waiting for triage. Empty, the push relabels nothing.
+   */
+  readonly restrictedLabels: readonly string[];
+  /** The label an untrusted author's task or design issue gets in place of its restricted label. */
+  readonly featureLabel: string;
+  /**
    * The score, from 0 to 1, at which a mirrored issue counts as a duplicate candidate of a new one: the cosine of
    * their TF-IDF word vectors (src/issues/similar.ts). Higher lists fewer, closer candidates.
    */

@@ -4,6 +4,7 @@ import type { RepoFailure } from '../../github/auto.ts';
 import { closedSince } from '../../github/sync.ts';
 import { targetText, type IssueHost } from '../../issues/host.ts';
 import { applyPush } from '../../issues/push-apply.ts';
+import { planTriage, sendTriage, triageRules, type TriageRules } from '../../issues/triage.ts';
 import { changeLine, changeWrites, planPush, SESSION_PUSH, sessionLogins, type PushLimits, type PushPlan, type SessionLogins } from '../../issues/status-push.ts';
 import type { Task } from '../../register/fold.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
@@ -62,6 +63,7 @@ export async function issuePush(args: ParsedArgs, runtime: CliRuntime): Promise<
       logins: sessionLogins(config.github.owners),
       told: new Set(),
       fields: await fieldRunOf(runtime, config, team.paths, team.register),
+      triage: triageRules(config.github),
     },
     say,
   );
@@ -87,6 +89,8 @@ export interface PushRun {
   readonly told: Set<string>;
   /** The field push after the labels (T3406); undefined when github.fields.push is off. */
   readonly fields: FieldRun | undefined;
+  /** The triage of untrusted authors' restricted labels (T4326); undefined when github.restrictedLabels is empty. */
+  readonly triage: TriageRules | undefined;
 }
 
 /** What a push did: the changes and writes it sent (planned, without send), and each repository that failed. */
@@ -142,7 +146,15 @@ export async function pushRepos(run: PushRun, say: (line: string) => void): Prom
     } else {
       writes += planned;
     }
-    // After the labels, in the run's writes they left; a repository whose label push failed sends no field.
+    // After the status labels, in the run's writes they left; a repository whose label push failed triages nothing.
+    if (failed === undefined && run.triage !== undefined) {
+      const triaged = await sendTriage(run.host, planTriage(repo, read.issues, run.triage, left), run.send, say);
+      left -= triaged.planned;
+      writes += triaged.writes;
+      sent += triaged.sent;
+      failed = triaged.failed;
+    }
+    // After the labels and the triage, in the writes they left; a repository whose label push or triage failed sends no field.
     if (failed === undefined && run.fields !== undefined) {
       const fielded = await pushFields({ host: run.host, run: run.fields, repo, issues: read.issues, tasks, writes: left, send: run.send }, say);
       left -= fielded.planned;

@@ -28,7 +28,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.needsYou, { enabled: true, kinds: ['permission', 'question', 'elicitation', 'decision'], osToast: false });
     assert.deepEqual(config.meetingNotices, { enabled: true, beforeMinutes: 10, atStart: true, missedAfterMinutes: 5, osToast: true, tabToast: true, leadInbox: true });
     assert.deepEqual(config.tests, { maxFailureChars: 4000 });
-    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', trustedAuthors: ['OWNER', 'MEMBER', 'COLLABORATOR'], acceptors: [], similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, fields: DEFAULT_ISSUE_FIELDS });
+    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', trustedAuthors: ['OWNER', 'MEMBER', 'COLLABORATOR'], acceptors: [], restrictedLabels: ['task', 'design'], featureLabel: 'feature', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, fields: DEFAULT_ISSUE_FIELDS });
     assert.deepEqual(config.register, DEFAULT_REGISTER);
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
@@ -480,6 +480,8 @@ describe('parseConfig', () => {
       acceptLabel: 'teamrig',
       trustedAuthors: ['OWNER', 'MEMBER', 'COLLABORATOR'],
       acceptors: [],
+      restrictedLabels: ['task', 'design'],
+      featureLabel: 'feature',
       similarThreshold: 0.35,
       activity: true,
       followMax: 20,
@@ -603,6 +605,25 @@ describe('parseConfig', () => {
     const many = parseConfig({ ...ROSTER, github: { acceptors: Array.from({ length: 51 }, (_, index) => `user${String(index)}`) } });
     assert.deepEqual(paths(many.issues), ['github.acceptors']);
     assert.deepEqual(many.config.github.acceptors, []);
+  });
+
+  it('reads github.restrictedLabels trimmed and in lowercase, once each, and github.featureLabel, leaving out a wrong one', () => {
+    const { config, issues } = parseConfig({ ...ROSTER, github: { restrictedLabels: ['Task', ' task ', 'RFC'], featureLabel: 'Enhancement' } });
+    assert.deepEqual(issues, []);
+    assert.deepEqual(config.github.restrictedLabels, ['task', 'rfc']);
+    assert.equal(config.github.featureLabel, 'Enhancement');
+    assert.deepEqual(parseConfig({ ...ROSTER, github: { restrictedLabels: [] } }).config.github.restrictedLabels, [], 'empty relabels nothing');
+    const parsed = parseConfig({ ...ROSTER, github: { restrictedLabels: ['task', '', 7, 'x'.repeat(51), 'two\nlines'] } });
+    assert.deepEqual(paths(parsed.issues), ['github.restrictedLabels[1]', 'github.restrictedLabels[2]', 'github.restrictedLabels[3]', 'github.restrictedLabels[4]']);
+    assert.deepEqual(parsed.config.github.restrictedLabels, ['task']);
+    const many = parseConfig({ ...ROSTER, github: { restrictedLabels: Array.from({ length: 21 }, (_, index) => `label${String(index)}`) } });
+    assert.deepEqual(paths(many.issues), ['github.restrictedLabels']);
+    assert.deepEqual(many.config.github.restrictedLabels, ['task', 'design']);
+    for (const wrong of ['', 'x'.repeat(51), 3]) {
+      const bad = parseConfig({ ...ROSTER, github: { featureLabel: wrong } });
+      assert.deepEqual(paths(bad.issues), ['github.featureLabel'], JSON.stringify(wrong));
+      assert.equal(bad.config.github.featureLabel, 'feature');
+    }
   });
 
   it('reads no service roles by default', () => {

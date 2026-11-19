@@ -40,6 +40,7 @@ import { claimBudget, recordClaims } from './issue-claim.ts';
 import { pullThreads, recordClocks, repoThreads } from './issue-clock.ts';
 import { fieldRunOf } from './issue-field-push.ts';
 import { issuePush, pushEndLine, pushRepos } from './issue-push.ts';
+import { triageRules } from '../../issues/triage.ts';
 import { GITHUB_OFF, githubOff, readSyncState, reportAutoSync } from './issue-sync-auto.ts';
 import { githubWatcher } from '../../github/watcher.ts';
 
@@ -262,6 +263,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
         logins: sessionLogins(config.github.owners),
         told,
         fields: await fieldRunOf(runtime, config, kit.paths, register),
+        triage: triageRules(config.github),
       },
       say,
     );

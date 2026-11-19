@@ -189,6 +189,7 @@ const LIMIT_PATHS: { readonly [Name in keyof typeof CONFIG_LIMITS]: string } = {
   similarThreshold: 'github.similarThreshold',
   githubFollowMax: 'github.followMax',
   githubAcceptors: 'github.acceptors',
+  githubRestrictedLabels: 'github.restrictedLabels',
   budgetTargetPct: 'budget.targetPct',
   budgetReservePct: 'budget.reservePct',
   weeklyLimitW: 'budget.weeklyLimitW',
