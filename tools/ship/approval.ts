@@ -7,6 +7,7 @@ import { reviewPathMatcher } from '../../src/push-guard/review-paths.ts';
 import { approvedTaskOf } from '../../src/register/approval.ts';
 import type { Task } from '../../src/register/fold.ts';
 import { branchTaskOf } from '../../src/worktree/owner.ts';
+import { profileFor, slugOf, type RepoProfile } from './repos.ts';
 import { shipsInVersions, TEAMRIG_RELEASE_STAMPS, TEAMRIG_SHIP_VERSION_FILES, versionIn, type ReleaseStamp, type Version, type VersionFile } from './version-bump.ts';
 
 /**
@@ -219,6 +220,23 @@ export function repoChanges(git: GitText, main: string, regenerated: readonly st
     changedPaths: (rev) => changedPathsOf(git, rev, `refs/remotes/origin/${main}`, teamrigShipWritesOf(regenerated).generated),
     taskBranches: () => taskBranchesOf(git),
   };
+}
+
+/**
+ * `repoChanges` for the repo `origin` names, its `main` and `regenerated` read from that repo's `profiles` entry at the
+ * first read and kept: only the GitHub answerer's clearance reads the repo, so another caller's merge never reads the
+ * remote or needs a profile for it.
+ */
+export function originRepoChanges(git: GitText, profiles: ReadonlyMap<string, RepoProfile>): ChangeReads {
+  let reads: ChangeReads | null = null;
+  const repo = (): ChangeReads => {
+    if (reads === null) {
+      const { main, regenerated } = profileFor(profiles, slugOf(git(['remote', 'get-url', 'origin'])));
+      reads = repoChanges(git, main, regenerated);
+    }
+    return reads;
+  };
+  return { changedPaths: (rev) => repo().changedPaths(rev), taskBranches: () => repo().taskBranches() };
 }
 
 /**

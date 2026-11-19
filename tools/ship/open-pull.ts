@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { nodeFiles } from '../../src/core/files.ts';
 import { realSleep, systemClock } from '../../src/core/lock.ts';
 import { gitSyncIn } from '../lib/git.ts';
-import { type ClearMerge, clearMergeFrom, repoChanges } from './approval.ts';
+import { type ClearMerge, clearMergeFrom, originRepoChanges } from './approval.ts';
 import { type Gh, ghWithToken } from './github.ts';
 import { type Credential, SHIP_TOKEN_TARGET, readCredential, windowsPowerShell } from './keychain.ts';
 import { lackingSections, missingSections, pullBody, pullTitle } from './merge.ts';
@@ -112,14 +112,12 @@ export async function runOpenPull(args: OpenPullArgs, deps: OpenPullDeps): Promi
 export function realOpenPullDeps(dir: string): OpenPullDeps {
   const runGit = gitSyncIn(dir);
   const profiles = readProfiles();
-  // The approval reads the branch's changed paths against the repo's own main, as a merge's does (ship-deps.ts).
-  const profile = profileFor(profiles, slugOf(runGit(['remote', 'get-url', 'origin']).trim()));
   return {
     git: (...gitArgs) => runGit(gitArgs).trim(),
     profiles,
     credential: () => readCredential(SHIP_TOKEN_TARGET, windowsPowerShell),
     ghFor: ghWithToken,
-    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }, repoChanges(runGit, profile.main, profile.regenerated)),
+    clearMerge: clearMergeFrom(process.env, { env: process.env, userHome: homedir(), files: nodeFiles(realSleep), clock: systemClock }, originRepoChanges(runGit, profiles)),
     readText: path => (existsSync(path) ? readFileSync(path, 'utf8') : null),
     out: line => console.log(line),
     err: line => console.error(line),
