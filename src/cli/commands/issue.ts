@@ -5,9 +5,9 @@ import type { KitConfig } from '../../config/types.ts';
 import { issueRef } from '../../github/map.ts';
 import { assignIssue, loginRefusal, MAX_ASSIGN_LOGINS } from '../../issues/assign.ts';
 import { CLOSE_REASONS, hostKindOf, parseIssueTarget, targetText, type CloseReason, type HostKind, type IssueHost, type IssueTarget } from '../../issues/host.ts';
+import { bareRef } from '../../issues/ref.ts';
 import { issueDoc, mirroredIssues, similarIssues } from '../../issues/similar.ts';
 import { editIssueBody, labelIssue, labelRefusal, postRefusal, writeIssue, type IssueWrite } from '../../issues/write.ts';
-import { ISSUE_REF_PREFIX } from '../../register/model.ts';
 import { RegisterPolicy } from '../../register/policy.ts';
 import { secretRulesOf } from '../../secret-guard/rules.ts';
 import { onePositional, requiredFlag, type ParsedArgs } from '../args.ts';
@@ -236,7 +236,7 @@ export async function issueSimilar(args: ParsedArgs, runtime: CliRuntime): Promi
   const found = matches.length === 0 ? 'none' : String(matches.length);
   runtime.out.stdout(`SIMILAR ${targetText(target)} (${own.id}): ${found} of ${corpus.length} mirrored issues at or above ${threshold} (github.similarThreshold)`);
   for (const match of matches) {
-    runtime.out.stdout(`${match.score.toFixed(2)} ${match.ref.slice(ISSUE_REF_PREFIX.length)} ${ids.get(match.ref) ?? '-'} ${match.title}`);
+    runtime.out.stdout(`${match.score.toFixed(2)} ${bareRef(match.ref)} ${ids.get(match.ref) ?? '-'} ${match.title}`);
   }
   return EXIT.ok;
 }
