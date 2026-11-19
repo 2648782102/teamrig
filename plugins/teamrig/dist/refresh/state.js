@@ -208,3 +208,27 @@ function effortOf(value) {
     }
     return isEffortLevel(value) ? value : undefined;
 }
+/** A cancel file's content; undefined when it is damaged or from another format. */
+export function parseRestartCancel(text) {
+    const record = recordOf(text);
+    if (record === undefined) {
+        return undefined;
+    }
+    const at = stringField(record, 'at');
+    const origin = promptOriginOf(record['origin']);
+    return at === undefined || origin === undefined ? undefined : { at, origin };
+}
+export function formatRestartCancel(cancel) {
+    return toJsonlLine({ [VERSION_FIELD]: REFRESH_FORMAT, ...cancel });
+}
+function promptOriginOf(value) {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    const kind = value['kind'];
+    if (kind === 'person' || kind === 'wake' || kind === 'unknown') {
+        return { kind };
+    }
+    const from = nullableString(value, 'from');
+    return kind === 'peer' && from !== undefined ? { kind, from } : undefined;
+}

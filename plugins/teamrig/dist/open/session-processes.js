@@ -12,6 +12,13 @@ const NODE_PROGRAM = /^node(\.exe)?$/i;
 export function isClaudeProcess(info) {
     return CLAUDE_PROGRAM.test(info.name) || (NODE_PROGRAM.test(info.name) && /claude/i.test(info.commandLine));
 }
+/** Why a listing `program` ran gave nothing: Node ends a run at its time limit with SIGTERM, so that end reads as a timeout. */
+export function listingFailureOf(program, result, timeoutMs) {
+    if (result.end.kind === 'signal') {
+        return result.end.signal === 'SIGTERM' ? `${program} timed out after ${timeoutMs} ms` : `${program} was ended by ${result.end.signal}`;
+    }
+    return `${program} ${exitText(result.end.code, result.stderr)}`;
+}
 /** Whether `pid` still runs Claude Code: a pid the system gave another program since does not count. */
 export async function runsClaude(processes, pid) {
     if (pid === undefined || !processes.alive(pid)) {
@@ -219,6 +226,40 @@ function feedProgram(request, timeoutMs) {
         child.once('close', (code) => resolve(code === 0 ? { kind: 'done' } : { kind: 'failed', error: exitText(code, stderr.join('')) }));
     });
 }
+/** Every running process from one listing (`SessionProcesses.list`), or why the listing failed. */
+async function listEveryProcess(run, platform) {
+    const program = platform === 'win32' ? 'powershell.exe' : 'ps';
+    try {
+        if (platform === 'win32') {
+            const result = await run({ program, args: windowsListing() });
+            if (result.end.kind !== 'exited' || result.end.code !== 0) {
+                return { kind: 'failed', why: listingFailureOf(program, result, LOOKUP_TIMEOUT_MS) };
+            }
+            const listed = parseWindowsListing(result.stdout);
+            return listed === undefined ? { kind: 'failed', why: `${program} gave no listing it could read: ${firstLineOf(result.stderr)}` } : { kind: 'listed', listed };
+        }
+        // A process whose starter ends is adopted (its parent id changes), so no id in this listing is an ended starter's.
+        const result = await run({ program, args: POSIX_LISTING });
+        return result.end.kind === 'exited' && result.end.code === 0
+            ? { kind: 'listed', listed: parsePosixListing(result.stdout).map((info) => ({ info })) }
+            : { kind: 'failed', why: listingFailureOf(program, result, LOOKUP_TIMEOUT_MS) };
+    }
+    catch (error) {
+        return { kind: 'failed', why: `${program} could not start: ${errorMessage(error)}` };
+    }
+}
+/** `pid`'s lineage from one listing of every process (`SessionProcesses.lineage`), or why the listing failed. */
+async function lookUpLineage(run, platform, pid) {
+    if (!isPid(pid)) {
+        return { kind: 'failed', why: `${pid} is not a process id` };
+    }
+    const listing = await listEveryProcess(run, platform);
+    return listing.kind === 'listed' ? { kind: 'listed', lineage: lineageOf(pid, listing.listed) } : listing;
+}
+/** A program's error text, its first line with text; a note when it wrote none. */
+function firstLineOf(text) {
+    return text.split(/\r?\n/).find((line) => line.trim() !== '')?.trim() ?? 'it wrote no error';
+}
 /** The real processes of this machine. */
 export function nodeSessionProcesses(options = {}) {
     const platform = options.platform ?? process.platform;
@@ -229,18 +270,8 @@ export function nodeSessionProcesses(options = {}) {
     const feedTimeoutMs = options.feedTimeoutMs ?? FEED_TIMEOUT_MS;
     const sweepHost = options.sweepHost ?? windowsSweepHost;
     const list = async () => {
-        try {
-            if (platform === 'win32') {
-                const result = await run({ program: 'powershell.exe', args: windowsListing() });
-                return result.end.kind === 'exited' && result.end.code === 0 ? parseWindowsListing(result.stdout) : undefined;
-            }
-            // A process whose starter ends is adopted (its parent id changes), so no id in this listing is an ended starter's.
-            const result = await run({ program: 'ps', args: POSIX_LISTING });
-            return result.end.kind === 'exited' && result.end.code === 0 ? parsePosixListing(result.stdout).map((info) => ({ info })) : undefined;
-        }
-        catch {
-            return undefined;
-        }
+        const listing = await listEveryProcess(run, platform);
+        return listing.kind === 'listed' ? listing.listed : undefined;
     };
     return {
         parentPid: options.parentPid ?? process.ppid,
@@ -290,11 +321,11 @@ export function nodeSessionProcesses(options = {}) {
             }
         },
         async lineage(pid) {
-            if (!isPid(pid)) {
-                return undefined;
-            }
-            const listed = await list();
-            return listed === undefined ? undefined : lineageOf(pid, listed);
+            const looked = await lookUpLineage(run, platform, pid);
+            return looked.kind === 'listed' ? looked.lineage : undefined;
+        },
+        lineageLookup(pid) {
+            return lookUpLineage(run, platform, pid);
         },
         list,
         async end(pid, how) {

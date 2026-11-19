@@ -444,11 +444,12 @@ export async function wakeCheck(args, runtime) {
     const text = dayStartPrompt(id, scope.roster.nameOf(id) ?? id, verdict.moments, verdict.tasks, cost, teamZone(config, runtime));
     return wake(runtime, scope, { kind: 'wake', ids, text, toast: dayStartToast(verdict.moments, verdict.tasks, cost) });
 }
-/** Answers a wake, keeping its text first with the turn log on, so the prompt it submits is logged as teamrig's. */
+/**
+ * Answers a wake, keeping its text first, so the prompt it submits is known as teamrig's: in the turn log, and in the
+ * restart log when it cancels a restart, which runs with the turn log off too. The text is teamrig's own, not the person's.
+ */
 async function wake(runtime, scope, value) {
-    if (scope.config.turnLog.enabled) {
-        await new WakePrompts(runtime.files, scope.kit.paths.wake).remember(scope.id, { tab: scope.tab, text: value.text });
-    }
+    await new WakePrompts(runtime.files, scope.kit.paths.wake).remember(scope.id, { tab: scope.tab, text: value.text });
     return answer(runtime, value);
 }
 /**

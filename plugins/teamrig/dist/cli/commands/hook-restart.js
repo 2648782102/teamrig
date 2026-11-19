@@ -4,7 +4,7 @@ import { ENV } from "../../core/home.js";
 import { payloadEffortOf } from "../../hooks/model-check.js";
 import { sessionIdOf } from "../../inbox/inbox.js";
 import { noticeOf } from "../../refresh/decide.js";
-import { claudeProcessOf, restartMayAct } from "../../refresh/restart.js";
+import { lookUpClaude, restartMayAct } from "../../refresh/restart.js";
 import { parkRulesOf } from "../../register/park.js";
 import { startableTasks } from "../../wake/day-start.js";
 import { teamZone } from "../kit.js";
@@ -50,14 +50,29 @@ export async function workFollows(runtime, paths, config, id) {
  */
 export async function armRestart(runtime, store, scope, notice) {
     const { team, id, context, target, claude } = scope;
-    if (claude !== undefined) {
-        await store.setRestart(id, { ...restartTabOf(runtime, id, target), phase: 'pending', at: context.now, pid: claude });
+    if (claude.kind === 'found') {
+        await store.setRestart(id, { ...restartTabOf(runtime, id, target), phase: 'pending', at: context.now, pid: claude.pid });
         if (await startRunner(runtime, team, id, context.now, target.project)) {
             return notice;
         }
         await store.clearRestart(id);
     }
+    await logLookupFailure(runtime, store, id, context.now, claude);
     return noticeOf(notice.state, context, 'clear');
+}
+/**
+ * A restart a failed lookup of its Claude Code stopped before it was armed leaves a row saying why (#706): no runner
+ * starts, so nothing else would log it. A log it cannot write is no reason to fail the hook.
+ */
+async function logLookupFailure(runtime, store, id, at, claude) {
+    if (claude.kind !== 'failed') {
+        return;
+    }
+    const result = { kind: 'failed', why: 'its Claude Code could not be looked up, so no restart was armed' };
+    await store
+        .restartLog()
+        .record({ session: id, at, endedAt: new Date(runtime.clock.now()).toISOString(), result, lookupFailure: claude.why })
+        .catch(() => undefined);
 }
 /**
  * Holds back the restart a notice announces when no work follows the handover (`workFollows`): records it parked for
@@ -82,16 +97,17 @@ export async function restartOrPark(runtime, store, scope, notice, register) {
 async function armFromTab(runtime, store, scope, tab) {
     const { team, id, cwd } = scope;
     // Looked up on this rare path only: each look at a process starts a PowerShell on Windows.
-    const claude = await claudeProcessOf(runtime.sessionProcesses, runtime.sessionProcesses.parentPid);
+    const claude = await lookUpClaude(runtime.sessionProcesses, runtime.sessionProcesses.parentPid);
     const project = runtime.env[ENV.claudeProjectDir] ?? tab.cwd ?? cwd;
-    if (claude !== undefined && project !== undefined) {
-        const at = new Date(runtime.clock.now()).toISOString();
-        await store.setRestart(id, { ...tab, phase: 'pending', at, pid: claude });
+    const at = new Date(runtime.clock.now()).toISOString();
+    if (claude.kind === 'found' && project !== undefined) {
+        await store.setRestart(id, { ...tab, phase: 'pending', at, pid: claude.pid });
         if (await startRunner(runtime, team, id, at, project)) {
             return true;
         }
     }
     await store.clearRestart(id);
+    await logLookupFailure(runtime, store, id, at, claude);
     return false;
 }
 /**

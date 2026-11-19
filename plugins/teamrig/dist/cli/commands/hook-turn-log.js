@@ -22,18 +22,36 @@ function entryOf(runtime, scope, said) {
 function logOf(runtime, scope) {
     return new TurnLog(runtime.files, scope.paths.turnLog);
 }
+/** A peer's message as Claude Code hands it to the session, with the sending session when it names one. */
+const PEER_MESSAGE = /^<cross-session-message\b(?:[^>]*\bfrom="([^"]*)")?/;
 /**
- * UserPromptSubmit: the prompt the person sent, or the wake teamrig submitted in that tab, marked `from: teamrig`;
- * nothing with the log off or an empty prompt.
+ * UserPromptSubmit: where the prompt came from (#706). teamrig's wake of this tab is known by the text it kept for the
+ * tab (`hook wake-check`, turn log on or off) and taken here, so it marks one prompt only; a peer's message
+ * by its tag, as the usage meter reads a peer turn; anything else is a person's.
  */
-export async function logPrompt(runtime, scope, payload) {
+export async function promptOriginOf(runtime, scope, payload) {
+    const claude = sessionIdOf(payload);
+    const prompt = isRecord(payload) ? stringField(payload, 'prompt') : undefined;
+    if (claude === null || prompt === undefined) {
+        return { kind: 'person' };
+    }
+    if (await new WakePrompts(runtime.files, scope.paths.wake).take(scope.id, { tab: claude, text: prompt })) {
+        return { kind: 'wake' };
+    }
+    const peer = PEER_MESSAGE.exec(prompt.trimStart());
+    return peer === null ? { kind: 'person' } : { kind: 'peer', from: peer[1] ?? null };
+}
+/**
+ * UserPromptSubmit: the prompt the person sent, or the wake teamrig submitted in that tab (`promptOriginOf`), marked
+ * `from: teamrig`; nothing with the log off or an empty prompt.
+ */
+export async function logPrompt(runtime, scope, payload, origin) {
     const claude = sessionIdOf(payload);
     const prompt = isRecord(payload) ? stringField(payload, 'prompt') : undefined;
     if (!scope.config.turnLog.enabled || claude === null || prompt === undefined || prompt.trim() === '') {
         return;
     }
-    const woke = await new WakePrompts(runtime.files, scope.paths.wake).take(scope.id, { tab: claude, text: prompt });
-    const said = { kind: 'prompt', claude, text: prompt, ...(woke ? { from: 'teamrig' } : {}) };
+    const said = { kind: 'prompt', claude, text: prompt, ...(origin.kind === 'wake' ? { from: 'teamrig' } : {}) };
     await logOf(runtime, scope).append(scope.id, entryOf(runtime, scope, said));
 }
 /**
