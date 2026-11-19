@@ -188,7 +188,7 @@ describe('teamrig issue migrate', () => {
     ]);
     const writes = gh.ran.map((request) => request.args).filter((args) => args.includes('POST'));
     assert.deepEqual(writes, [
-      ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=How should retries work', '-f', 'body=Why How should retries work.', '-f', 'labels[]=design', '-f', 'labels[]=p3'],
+      ['api', 'repos/acme/web/issues', '-X', 'POST', '-f', 'title=How should retries work', '-f', `body=${withStampFooter('Why How should retries work.')}`, '-f', 'labels[]=design', '-f', 'labels[]=p3'],
       issueAssignArgs({ repo: 'acme/web', number: 1 }, ['MonaLisa']),
     ]);
   });
