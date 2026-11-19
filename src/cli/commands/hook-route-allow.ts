@@ -48,7 +48,7 @@ async function routeAllowOutputOf(runtime: CliRuntime, payload: JsonRecord, deps
   if (guard === undefined || kit === undefined || kit.load.status !== 'loaded') {
     return '';
   }
-  const trailer = commitTrailerInputOf(runtime, kit.load.config, payload);
+  const trailer = await commitTrailerInputOf(runtime, kit.load.config, payload);
   const otherwise = trailer === undefined ? '' : commitTrailerOutput(trailer);
   const passed = (): Promise<boolean> => everyGuardPassed(runtime, guard, payload);
   if (!routeAllowOn(kit.load.config.prompts)) {

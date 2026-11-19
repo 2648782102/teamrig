@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { isRecord, recordField, type JsonRecord } from '../core/guards.ts';
 import { stampTrailer } from '../core/stamp.ts';
-import { APP, CLAUDE_SESSION, CliHarness, TEAM, TEAM_HOME, type CliResult, type RunOptions } from '../testing/cli-harness.ts';
+import { APP, CLAUDE_SESSION, CliHarness, TEAM, TEAM_HOME, USER_HOME, type CliResult, type RunOptions } from '../testing/cli-harness.ts';
 import { FakeMergeGit } from '../testing/fake-merge-git.ts';
 import { FaultyFiles, systemError } from '../testing/faulty-files.ts';
 import { EXIT } from './runtime.ts';
@@ -34,6 +34,8 @@ function decisionOf(result: CliResult): unknown {
 /** A team session's tab, the only one whose commits take the trailer. */
 const SESSION = { TEAMRIG_SESSION: 'alpha' };
 const STAMPED_COMMIT = `git -C /w commit --trailer '${stampTrailer()}' -s -m fix`;
+/** The person's own Claude Code settings, whose ask and deny rules the trailer hook reads. */
+const USER_SETTINGS = join(USER_HOME, '.claude', 'settings.json');
 
 /** The prompt answers the hook logged, oldest first. */
 async function answersOf(kit: CliHarness): Promise<unknown[]> {
@@ -135,6 +137,27 @@ describe('hook route-allow', () => {
       assert.equal(outputOf(result)?.['updatedInput'], undefined);
     }
     assert.deepEqual(await new CliHarness({ ...TEAM, prompts: { hookAsks: 'ask' } }).run(HOOK, { stdin: call('git commit -m y', { tool_name: 'PowerShell' }), env: SESSION }), NOTHING);
+  });
+
+  it("leaves a commit a person's Bash ask or deny rule could match as sent, so a prefix rule still holds, on both paths (T3270)", async () => {
+    const commit = call('git commit -s -m fix');
+    const denies = new CliHarness(ASKS_OFF);
+    await denies.files.write(USER_SETTINGS, JSON.stringify({ permissions: { deny: ['Bash(git commit -s:*)'] } }));
+    const allowed = await denies.run(HOOK, { stdin: commit, env: SESSION });
+    assert.equal(decisionOf(allowed), 'allow');
+    assert.equal(outputOf(allowed)?.['updatedInput'], undefined);
+    const asks = new CliHarness({ ...TEAM, prompts: { hookAsks: 'ask' } });
+    await asks.files.write(join(APP, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { ask: ['Bash(git commit -s:*)'] } }));
+    assert.deepEqual(await asks.run(HOOK, { stdin: commit, env: SESSION }), NOTHING);
+  });
+
+  it('adds no trailer while a settings file cannot be read, and still adds it past a rule on another line (T3270)', async () => {
+    const broken = new CliHarness({ ...TEAM, prompts: { hookAsks: 'ask' } });
+    await broken.files.write(USER_SETTINGS, '{ not json');
+    assert.deepEqual(await broken.run(HOOK, { stdin: call('git -C /w commit -s -m fix'), env: SESSION }), NOTHING);
+    const other = new CliHarness(ASKS_OFF);
+    await other.files.write(USER_SETTINGS, JSON.stringify({ permissions: { deny: ['Bash(rm:*)', 'Read(~/.ssh/id_*)'], ask: ['Bash(git push:*)'] } }));
+    assert.deepEqual(outputOf(await other.run(HOOK, { stdin: call('git -C /w commit -s -m fix'), env: SESSION }))?.['updatedInput'], { command: STAMPED_COMMIT });
   });
 
   it('still allows when the log cannot be written', async () => {
