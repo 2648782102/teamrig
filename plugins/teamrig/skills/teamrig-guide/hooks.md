@@ -629,7 +629,9 @@ credentials in a URL, the credentials of an `Authorization` or API key header, a
 secret-like name, a match of `register.secretPatterns`, and the value of a secret variable as an environment dump, a
 `.env` file or `docker inspect` prints it: `NAME=value`, an upper-case name the guard's names judge secret, with no
 space around `=`, or as a YAML or JSON map writes it (a Kubernetes secret's `stringData`, a compose file's
-`environment`): `NAME: value` or `"NAME": "value"`, the value quoted or bare. A digest under a name that is not a
+`environment`): `NAME: value` or `"NAME": "value"`, the value quoted or bare. A bare value on a block map's line runs
+to its first blank, `#`, `,`, `(` and `;` inside it too, as YAML keeps them, and a `# comment` after a blank is no
+part of it; in a flow map (`{NAME: value, PORT: 80}`) it stops where the map goes on. A digest under a name that is not a
 secret one (`IMAGE_DIGEST: <sha256>`) stays. A value found once goes from every part of the result, `stdout` and `stderr` alike. A value that
 only names or points to a secret stays: a placeholder or a reference, a number (`TOKEN_LIMIT=200000`), a path
 (`KEY_FILE=~/.ssh/id`), one lower-case word (`AUTH_MODE=oauth`) or a function's name right before `(`
