@@ -3,6 +3,7 @@ import { privateShapeIn } from "../core/private-shapes.js";
 import { SecretScanner } from "../core/secrets.js";
 import { taskIdIn } from "../issues/posted.js";
 import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from "../register/model.js";
+import { MAX_TITLE } from "../issues/write.js";
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
  * whether it becomes an issue, with the public wording the team wrote for it, or stays on the team's own list
@@ -27,8 +28,6 @@ export function issueLabels(type, priority) {
 const ISSUE_KEYS = new Set(['id', 'decision', 'repo', 'type', 'priority', 'title', 'body']);
 /** The keys a row that keeps its task local holds, and no other. */
 const LOCAL_KEYS = new Set(['id', 'decision', 'reason']);
-/** The longest title GitHub takes for an issue. */
-export const MAX_TITLE = 256;
 /**
  * The rows of a JSON-lines file, one object a line, blank lines skipped. Refused, naming the line, when a line is not
  * JSON, holds a key its kind does not take or lacks one, names a task twice, or holds text that looks like a secret.

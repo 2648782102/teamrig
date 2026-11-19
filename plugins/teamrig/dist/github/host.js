@@ -3,7 +3,7 @@ import { targetText, } from "../issues/host.js";
 import { LABEL_FILE, parseLabelFile } from "../issues/label-file.js";
 import { MAX_COMMENT } from "../issues/write.js";
 import { exitText } from "../open/processes.js";
-import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, fieldValueSetArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, issueTypeSetArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
+import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, fieldValueSetArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, issueTitleArgs, issueTypeSetArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
 import { probeAnswerOf } from "./probe.js";
 import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, runRead, startFailureText } from "./issues.js";
 import { readFields } from "./fields.js";
@@ -165,6 +165,10 @@ export class GitHubIssueHost {
     }
     editBody(target, body) {
         return this.write(target, issueBodyArgs(target, this.stamped(body)), 'edit the body of');
+    }
+    /** The title takes no stamp: the made-with-teamrig footer goes on bodies and comments only. */
+    editTitle(target, title) {
+        return this.write(target, issueTitleArgs(target, title), 'edit the title of');
     }
     close(target, reason, duplicateId) {
         return this.write(target, issueCloseArgs(target, reason, duplicateId), 'close');

@@ -4,7 +4,7 @@ import { SecretScanner } from "../../core/secrets.js";
 import { issueRef } from "../../github/map.js";
 import { CLOSE_REASONS, hostKindOf, parseIssueTarget, targetText } from "../../issues/host.js";
 import { issueDoc, mirroredIssues, similarIssues } from "../../issues/similar.js";
-import { editIssueBody, labelIssue, labelRefusal, postRefusal, writeIssue } from "../../issues/write.js";
+import { editIssue, labelIssue, labelRefusal, postRefusal, titleRefusal, writeIssue } from "../../issues/write.js";
 import { ISSUE_REF_PREFIX } from "../../register/model.js";
 import { RegisterPolicy } from "../../register/policy.js";
 import { secretRulesOf } from "../../secret-guard/rules.js";
@@ -26,20 +26,44 @@ export async function issueComment(args, runtime) {
     return writeOn(args, runtime, { target, comment: requiredFlag(args.flags, 'body'), close: false }, '--body');
 }
 /**
- * `issue edit <owner/name#n> --body-file <path>` (T3021): replaces the body (the description) of one issue or pull
- * request of the team's repositories with the text of a file, through the same host and checks as `issue comment`;
- * the title, state, labels and assignees stay. A file is the input, as a full description runs to many lines a shell
- * argument would mangle; a byte-order mark an editor put at its start is dropped. Exit 1 when the host failed, else 0.
+ * `issue edit <owner/name#n> [--body-file <path>] [--title <text>]` (T3021, T4157): replaces the body (the
+ * description), the title, or both, of one issue or pull request of the team's repositories, through the same host and
+ * checks as `issue comment`; state, labels and assignees stay. The body comes from a file, as a full description runs
+ * to many lines a shell argument would mangle; a byte-order mark an editor put at its start is dropped. The title is
+ * one line (titleRefusal). Both are checked before anything is written; the body is written first. Exit 1 when the
+ * host failed, else 0.
  */
 export async function issueEdit(args, runtime) {
     const target = targetOf(args);
+    const bodyFile = args.flags.get('body-file');
+    const title = args.flags.get('title');
+    if (bodyFile === undefined && title === undefined) {
+        throw new RefusedError(EDIT_NEEDS);
+    }
     const checked = await checkedRepo(args, runtime, target.repo);
-    const body = await bodyFileOf(requiredFlag(args.flags, 'body-file'), runtime, checked.config);
-    const host = hostAfter(checked, runtime, { flag: '--body-file', text: body });
+    const body = bodyFile === undefined ? undefined : await bodyFileOf(bodyFile, runtime, checked.config);
+    const edit = editOf(target, body, title);
+    const posted = [
+        ...(edit.body === undefined ? [] : [{ flag: '--body-file', text: edit.body, refusal: postRefusal }]),
+        ...(edit.title === undefined ? [] : [{ flag: '--title', text: edit.title, refusal: titleRefusal }]),
+    ];
+    const host = hostAfter(checked, runtime, posted);
     if (host === undefined) {
         return EXIT.ok;
     }
-    return (await editIssueBody(host, { target, body }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+    return (await editIssue(host, edit, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+}
+/** The refusal of an `issue edit` that names nothing to change. */
+const EDIT_NEEDS = 'issue edit needs --body-file <path>, --title <text>, or both';
+/** The edit of `target` a body and a title make, either of which may be missing; refused when both are. */
+function editOf(target, body, title) {
+    if (body !== undefined) {
+        return { target, body, ...(title === undefined ? {} : { title }) };
+    }
+    if (title !== undefined) {
+        return { target, title };
+    }
+    throw new RefusedError(EDIT_NEEDS);
 }
 /**
  * The text of the `--body-file` at `given`, resolved from the working folder, its byte-order mark dropped. A file the
@@ -99,7 +123,7 @@ export async function issueLabel(args, runtime) {
     if (both !== undefined) {
         throw new RefusedError(`the label ${JSON.stringify(both)} is in both --add and --remove: give it in one`);
     }
-    const host = await hostFor(args, runtime, target.repo, undefined);
+    const host = await hostFor(args, runtime, target.repo, []);
     if (host === undefined) {
         return EXIT.ok;
     }
@@ -190,15 +214,16 @@ function targetOf(args) {
 }
 /** Checks the caller, the repository and the text, then writes through the repository's host. */
 async function writeOn(args, runtime, write, textFlag) {
-    const host = await hostFor(args, runtime, write.target.repo, write.comment === undefined ? undefined : { flag: textFlag, text: write.comment });
+    const posted = write.comment === undefined ? [] : [{ flag: textFlag, text: write.comment, refusal: postRefusal }];
+    const host = await hostFor(args, runtime, write.target.repo, posted);
     if (host === undefined) {
         return EXIT.ok;
     }
     return (await writeIssue(host, write, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
 }
 /**
- * The host of `repo` once the caller is on the team, the repository is one of the team's and the text to post (if
- * any) may be posted; undefined, after an OFF line, while GitHub is off on the machine.
+ * The host of `repo` once the caller is on the team, the repository is one of the team's and each text to post may
+ * be posted; undefined, after an OFF line, while GitHub is off on the machine.
  */
 async function hostFor(args, runtime, repo, posted) {
     return hostAfter(await checkedRepo(args, runtime, repo), runtime, posted);
@@ -217,13 +242,15 @@ async function checkedRepo(args, runtime, repo) {
     }
     return { config: team.config, kind };
 }
-/** The host of a checked repository once the text to post (if any) may be posted; undefined, after an OFF line, while GitHub is off. */
+/** The host of a checked repository once each text to post may be posted; undefined, after an OFF line, while GitHub is off. */
 function hostAfter(checked, runtime, posted) {
     const { config, kind } = checked;
     const scanner = new SecretScanner(config.register.secretPatterns);
-    const refused = posted === undefined ? undefined : postRefusal(posted.flag, posted.text, scanner);
-    if (refused !== undefined) {
-        throw new RefusedError(refused);
+    for (const { flag, text, refusal } of posted) {
+        const refused = refusal(flag, text, scanner);
+        if (refused !== undefined) {
+            throw new RefusedError(refused);
+        }
     }
     if (githubOff(runtime.env)) {
         runtime.out.stdout(`OFF ${ENV.github}=${GITHUB_OFF} turns GitHub off on this machine; nothing was written`);
