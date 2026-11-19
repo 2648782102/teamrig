@@ -44,6 +44,14 @@ describe('commit trailer', () => {
     }
   });
 
+  it("leaves an amend alone, whose commit may be another author's or stamped in its message already (T3270)", () => {
+    const lines = ['git commit --amend --no-edit', 'git -C /w commit -s --amend -m y', 'git commit --amend', 'git commit --amend=x'];
+    for (const line of lines) {
+      assert.equal(withCommitTrailer(line, TRAILER), undefined, line);
+    }
+    assert.equal(withCommitTrailer('git commit -m --amended', TRAILER), `git commit ${OPTION} -m --amended`);
+  });
+
   it('adds only a plain trailer, so the single quotes hold it literally', () => {
     assert.equal(withCommitTrailer('git commit -m y', "Made-with: x'; rm -rf y; '"), undefined);
     assert.equal(withCommitTrailer('git commit -m y', 'Made-with: $(id)'), undefined);
