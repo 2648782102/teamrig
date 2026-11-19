@@ -3,7 +3,7 @@ import { parseObject, toJsonlLine, VERSION_FIELD } from '../core/jsonl.ts';
 import { DESIGN_LABEL } from './design-label.ts';
 import type { HostIssue, IssueComment, ReadComment } from './issue.ts';
 import { isLogin } from '../github/gh.ts';
-import { isInsider, issueTrust } from '../github/trust.ts';
+import { isInsideAuthor, issueTrust } from '../github/trust.ts';
 
 /**
  * A contributor claims an open issue by a comment, and code assigns them (T3021 design, section 1). This file holds
@@ -221,7 +221,7 @@ function claimable(issue: HostIssue, acceptLabel: string): boolean {
 
 /** True for a comment since `since` by an outside person holding no other claim in the repository. */
 function mayClaim(comment: IssueComment, since: number, holding: ReadonlySet<string>): boolean {
-  return Date.parse(comment.at) >= since && isLogin(comment.login) && comment.authorKind === PERSON && !isInsider(comment.authorAssociation) && !holding.has(comment.login);
+  return Date.parse(comment.at) >= since && isLogin(comment.login) && comment.authorKind === PERSON && !isInsideAuthor(comment.authorAssociation) && !holding.has(comment.login);
 }
 
 /** The oldest claim comment among `comments` that mayClaim allows. */

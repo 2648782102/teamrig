@@ -40,11 +40,6 @@ export function isOurAuthor(association: string, author: string, ours: OurLogins
 /** The account kind of a person on GitHub; a `Bot` (an app or a workflow) or an `Organization` never accepts. */
 const PERSON = 'User';
 
-/** Whether an author of this tie to the repository is one of us: its owner, an organization member or a collaborator. */
-export function isInsider(association: string): boolean {
-  return TRUSTED_ASSOCIATIONS.has(association.toUpperCase());
-}
-
 /**
  * How far the sync takes `issue`'s text. Only someone with triage rights can label an issue, so a label needs no
  * rights lookup; the two other ways a label lands are refused by its actor: an issue template applies it with the
