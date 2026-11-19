@@ -1,6 +1,6 @@
 import { MAX_DESCRIPTION } from "../config/defaults.js";
 import { SecretScanner } from "../core/secrets.js";
-import { ISSUE_REF_PREFIX } from "../register/model.js";
+import { BLOCKER_PRIORITY_ID, BLOCKER_PRIORITY_TEXT, ISSUE_REF_PREFIX } from "../register/model.js";
 import { plainLine } from "./issues.js";
 /** The priority of an issue with no priority label of the team's: p2, or the team's least urgent level when it has no p2. */
 export const ISSUE_PRIORITY = 2;
@@ -69,8 +69,14 @@ export function taskDescription(body, secrets) {
     const kept = text.length <= MAX_DESCRIPTION ? text : `${text.slice(0, MAX_DESCRIPTION - 1).replace(/[\uD800-\uDBFF]$/, '').trimEnd()}…`;
     return secrets.find(text) === undefined && secrets.find(kept) === undefined ? kept : SECRET_BODY;
 }
-/** The most urgent `p<n>` label that is one of the team's levels; else ISSUE_PRIORITY, or the least urgent level without it. */
+/**
+ * A `blocker` label's blocker level (T4329), which every team has; else the most urgent `p<n>` label that is one of the
+ * team's levels; else ISSUE_PRIORITY, or the least urgent level without it.
+ */
 export function issuePriority(labels, priorities) {
+    if (labels.some((label) => label.trim().toLowerCase() === BLOCKER_PRIORITY_TEXT)) {
+        return BLOCKER_PRIORITY_ID;
+    }
     const levels = labels
         .map((label) => PRIORITY_LABEL.exec(label.trim())?.[1])
         .filter((level) => level !== undefined)

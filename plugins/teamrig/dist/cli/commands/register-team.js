@@ -2,6 +2,7 @@ import { errorMessage } from "../../core/guards.js";
 import { KIT_NAME } from "../../core/home.js";
 import { SecretScanner } from "../../core/secrets.js";
 import { postLine } from "../../inbox/inbox.js";
+import { priorityText } from "../../register/model.js";
 import { assignedNotice, dueTime } from "../../register/views.js";
 import { WakeAsks } from "../../wake/asks.js";
 import { HELD_PRIORITY } from "../../wake/decide.js";
@@ -20,8 +21,8 @@ export async function openTeam(runtime, access) {
 }
 /**
  * One inbox line telling a task's owner the task is its own, true when posted; `shown` names the owner in the NOTE
- * (another team's by address). A p0 task also says the owner is woken: its team's wake check wakes an idle owner for
- * it (src/wake/decide.ts: a p0 wakes even past the budget and in blocking quiet hours), so the asker needs no
+ * (another team's by address). A p0 or blocker task also says the owner is woken: its team's wake check wakes an idle owner for
+ * it (src/wake/decide.ts: p0 and blocker wake even past the budget and in blocking quiet hours), so the asker needs no
  * `inbox add --wake now` (T2686). `mayWake`: whether `by` may wake the owner as `inbox add --wake now` gates it
  * (wakeRefusal); a session of the owner's own team always may, so only an ask from another team passes it.
  */
@@ -31,8 +32,8 @@ export async function tellAssigned(runtime, team, by, task, shown = task.owner, 
     if (posted) {
         await reopenForDueToday(runtime, team, { by, mayWake }, task, text, shown);
     }
-    if (posted && task.priority === HELD_PRIORITY && team.config.wake.enabled) {
-        runtime.out.stderr(`NOTE ${shown} is woken at its idle prompt for ${task.id}, a p0, so no --wake now is needed`);
+    if (posted && task.priority <= HELD_PRIORITY && team.config.wake.enabled) {
+        runtime.out.stderr(`NOTE ${shown} is woken at its idle prompt for ${task.id}, a ${priorityText(task.priority)}, so no --wake now is needed`);
     }
     return posted;
 }
@@ -73,11 +74,12 @@ async function reopenForDueToday(runtime, team, adder, task, text, shown) {
  * The answer to a task's approval wait, told to its owner (T1422): the inbox line, and with the team's wakes on a wake
  * ask too (src/wake/asks.ts), as an `inbox add --wake now` line gets, so an idle tab wakes on it and the idle pass's
  * reopen of a closed one quotes it. A plain line is read only at the owner's next prompt, and an idle owner has none:
- * approved work sat 14 h. An ask that cannot be posted is a WARN, the line already told.
+ * approved work sat 14 h. An ask that cannot be posted is a WARN, the line already told. True when the line was posted.
  */
 export async function tellAnswer(runtime, team, by, to, text, unsent, shown = to) {
-    if (!(await tellLine(runtime, team, by, to, text, unsent, shown)) || !team.config.wake.enabled) {
-        return;
+    const posted = await tellLine(runtime, team, by, to, text, unsent, shown);
+    if (!posted || !team.config.wake.enabled) {
+        return posted;
     }
     try {
         await new WakeAsks(runtime.files, team.paths.wakeAsks).post(to, { from: by, text, at: runtime.clock.now() });
@@ -85,6 +87,7 @@ export async function tellAnswer(runtime, team, by, to, text, unsent, shown = to
     catch (error) {
         runtime.out.stderr(`WARN ${shown} has the line, but its idle tab is not woken for it (${errorMessage(error)}): ${KIT_NAME} inbox add --to ${shown} --text "..." --wake now`);
     }
+    return true;
 }
 /** Posts one inbox line, naming it on stderr, or naming `unsent` and why: a line that cannot be posted is never thrown. */
 export async function tellLine(runtime, team, by, to, text, unsent, shown = to) {

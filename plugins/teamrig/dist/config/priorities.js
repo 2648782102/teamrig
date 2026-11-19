@@ -1,19 +1,32 @@
+import { BLOCKER_PRIORITY_ID } from "../register/model.js";
+/**
+ * teamrig's own top level (T4329), above p0: something blocks the team or does damage that cannot be undone, so its
+ * owner drops everything and fixes it now. No config lists it, so every team has it.
+ */
+export const BLOCKER_PRIORITY = { id: BLOCKER_PRIORITY_ID, name: 'blocker: drop everything, fix it now' };
 /**
  * teamrig's own level above every one the config names: work that must be done right now, started ahead of the task
  * in hand. No config lists it (`register.priorities` ids start at 1), so every team has it, its own levels or not.
  */
 export const NOW_PRIORITY = { id: 0, name: 'urgent, right now' };
-/** Every level a task may take, most urgent first: teamrig's p0, then the config's `register.priorities`. */
-export function priorityLevels(priorities) {
-    return [NOW_PRIORITY, ...priorities];
+/**
+ * True for right-now work: p0 or the blocker above it. Every gate that lets p0 through (a budget hold, quiet hours, the
+ * expedite band, URGENT) lets a blocker through too, so it tests this, never `=== NOW_PRIORITY.id` (T4329).
+ */
+export function isRightNow(priority) {
+    return priority <= NOW_PRIORITY.id;
 }
-/** The name of priority `id`: p0's, or the one the config gives it; undefined when no level has that id. */
+/** Every level a task may take, most urgent first: teamrig's blocker and p0, then the config's `register.priorities`. */
+export function priorityLevels(priorities) {
+    return [BLOCKER_PRIORITY, NOW_PRIORITY, ...priorities];
+}
+/** The name of priority `id`: the blocker's, p0's, or the one the config gives it; undefined when no level has that id. */
 export function priorityName(priorities, id) {
     return priorityLevels(priorities).find((priority) => priority.id === id)?.name;
 }
 /**
- * The most urgent level the config names: its lowest id, `p1` by default; undefined when it names none. p0 is not
- * one: the check that watches the top level (OVER-PACE) counts p0 with it, as more urgent still.
+ * The most urgent level the config names: its lowest id, `p1` by default; undefined when it names none. p0 and the
+ * blocker are not: the check that watches the top level (OVER-PACE) counts them with it, as more urgent still.
  */
 export function topPriority(priorities) {
     return priorities.reduce((top, priority) => (top === undefined || priority.id < top ? priority.id : top), undefined);
