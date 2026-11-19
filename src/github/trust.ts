@@ -74,8 +74,18 @@ export function issueTrust(issue: HostIssue, rules: TrustRules): IssueTrust {
   if (!issue.labels.some((label) => sameLabel(label, rules.acceptLabel))) {
     return 'untrusted';
   }
-  const accept = issue.labelEvents.filter((event) => sameLabel(event.label, rules.acceptLabel)).at(-1);
-  return accept !== undefined && byAnotherPerson(accept, issue.author) && mayAccept(accept, rules) && !editedSince(issue, accept.at) ? 'accepted' : 'untrusted';
+  const accept = acceptorLabelled(issue, rules.acceptLabel, rules);
+  return accept !== undefined && !editedSince(issue, accept.at) ? 'accepted' : 'untrusted';
+}
+
+/**
+ * The last time `label` was put on `issue`, when a person other than its author who may accept (`rules.acceptors`)
+ * put it on; undefined when the author, a template, a bot or another person put it on last, or when no such event
+ * is among the timeline events the host read.
+ */
+export function acceptorLabelled(issue: HostIssue, label: string, rules: TrustRules): LabelEvent | undefined {
+  const last = issue.labelEvents.filter((event) => sameLabel(event.label, label)).at(-1);
+  return last !== undefined && byAnotherPerson(last, issue.author) && mayAccept(last, rules) ? last : undefined;
 }
 
 /** Whether the person who put the accept label on is one whose accept counts: any, or one of `rules.acceptors`. */

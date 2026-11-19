@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { HostIssue, LabelEvent } from '../issues/issue.ts';
 import { DEFAULT_GITHUB } from '../config/defaults.ts';
 import type { GithubConfig } from '../config/types.ts';
-import { isInsideAuthor, isOurAuthor, issueTrust, ourLogins, trustRules, type TrustRules } from './trust.ts';
+import { acceptorLabelled, isInsideAuthor, isOurAuthor, issueTrust, ourLogins, trustRules, type TrustRules } from './trust.ts';
 
 const ACCEPTED_AT = '2030-01-05T10:00:00Z';
 
@@ -128,6 +128,22 @@ describe('trustRules', () => {
   it('reads the accept label, the author ties in uppercase and the acceptors in lowercase from the GitHub config', () => {
     const read = trustRules({ acceptLabel: 'Accepted', trustedAuthors: ['OWNER'], acceptors: ['Ada', 'bob'] });
     assert.deepEqual(read, { acceptLabel: 'Accepted', trustedAuthors: new Set(['OWNER']), acceptors: new Set(['ada', 'bob']) });
+  });
+});
+
+describe('acceptorLabelled', () => {
+  it('gives the last add of a label, matched without case, when a person other than the author who may accept put it on', () => {
+    const event = labelled('Task', 'maintainer');
+    assert.equal(acceptorLabelled(issue({ labels: ['task'], labelEvents: [event] }), 'task', rules()), event);
+    const owner = rules({ acceptors: ['lead-person'] });
+    assert.equal(acceptorLabelled(issue({ labels: ['task'], labelEvents: [event] }), 'task', owner), undefined, 'not one of github.acceptors');
+  });
+
+  it('gives none for a label the author, a template or a bot put on last, or one the timeline window no longer holds', () => {
+    const byMaintainerThenAuthor = [labelled('task', 'maintainer', '2030-01-03T00:00:00Z'), labelled('task', 'stranger')];
+    assert.equal(acceptorLabelled(issue({ labels: ['task'], labelEvents: byMaintainerThenAuthor }), 'task', rules()), undefined, 'the author last');
+    assert.equal(acceptorLabelled(issue({ labels: ['task'], labelEvents: [labelled('task', 'triage-bot', ACCEPTED_AT, 'Bot')] }), 'task', rules()), undefined, 'a bot');
+    assert.equal(acceptorLabelled(issue({ labels: ['task'], labelEvents: [] }), 'task', rules()), undefined, 'no event read');
   });
 });
 
