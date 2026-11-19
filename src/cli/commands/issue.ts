@@ -111,7 +111,8 @@ export async function issueLabel(args: ParsedArgs, runtime: CliRuntime): Promise
   if (host === undefined) {
     return EXIT.ok;
   }
-  return (await labelIssue(host, { target, add, remove }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
+  // One host of both kinds: the tracker holding the labels and the code host holding the repository's label file.
+  return (await labelIssue(host, host, { target, add, remove }, (line) => runtime.out.stdout(line))) ? EXIT.ok : EXIT.failed;
 }
 
 /**
