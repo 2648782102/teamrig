@@ -9,7 +9,7 @@ import { JsonlEventLog } from "../../register/store.js";
 import { rosterOf } from "../kit.js";
 import { teamSessionOf } from "./hook-input.js";
 /** The folder a tool call runs in: the payload's, else the hook's own (Claude Code may start the hook elsewhere). */
-function callCwdOf(runtime, payload) {
+export function callCwdOf(runtime, payload) {
     return stringField(payload, 'cwd') ?? runtime.cwd;
 }
 /**

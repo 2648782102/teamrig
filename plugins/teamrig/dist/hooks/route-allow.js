@@ -20,13 +20,18 @@ export function preToolUseRouteOf(route) {
 export function guardsPassed(answers) {
     return answers.every((answer) => answer === '');
 }
-/** The hook's stdout: an allow that runs the route's line with no permission check, naming the route. */
-export function routeAllowOutput(route) {
+/**
+ * The hook's stdout: an allow that runs the route's line with no permission check, naming the route; with
+ * `updatedInput`, the call runs that input instead (a git commit's trailer, hooks/commit-trailer.ts), in the same
+ * answer, so no second hook's answer has to be merged with it.
+ */
+export function routeAllowOutput(route, updatedInput) {
     return JSON.stringify({
         hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'allow',
             permissionDecisionReason: `teamrig: the sanctioned route ${route.id}, to ${route.purpose}`,
+            ...(updatedInput === undefined ? {} : { updatedInput }),
         },
     });
 }
