@@ -29,15 +29,20 @@ const FOLDER_WORD = String.raw `(?:[^\s'"\\$\x60;&|<>(){}*?\[\]#~!]+|'[^'\n]*'|"
 const COMMIT_START = new RegExp(String.raw `^[ \t]*git(?:[ \t]+-C[ \t]+${FOLDER_WORD})*[ \t]+commit(?=[ \t\n]|$)`, 'u');
 /** A `Made-with:` trailer already on the line, in any case: the commit is stamped, and a second would repeat it. */
 const STAMPED = new RegExp(`${STAMP_TRAILER_KEY}:`, 'iu');
+/**
+ * An `--amend` word anywhere on the line: the commit it rewrites may be another author's (an outside pull request landed
+ * with credit) or stamped already in its message, which the line does not show, so an amend is left as sent.
+ */
+const AMEND = /(?:^|\s)--amend(?=[\s=]|$)/u;
 /** The trailer text the option carries: only letters, digits, spaces and `.:-`, so single quotes hold it literally. */
 const TRAILER_TEXT = /^[\w .:-]+$/u;
 /**
  * `command` with `--trailer '<trailer>'` right after its leading `git ... commit`; undefined when the line does not
- * start with a git commit, already names a `Made-with:` trailer, or the trailer is not plain text.
+ * start with a git commit, amends one, already names a `Made-with:` trailer, or the trailer is not plain text.
  */
 export function withCommitTrailer(command, trailer = stampTrailer()) {
     const start = COMMIT_START.exec(command);
-    if (start === null || STAMPED.test(command) || !TRAILER_TEXT.test(trailer)) {
+    if (start === null || AMEND.test(command) || STAMPED.test(command) || !TRAILER_TEXT.test(trailer)) {
         return undefined;
     }
     const at = start[0].length;
