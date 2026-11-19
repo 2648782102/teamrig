@@ -62,10 +62,10 @@ describe('prePushChecks (T4344)', () => {
   const full = new Map(localChecks('upstream/main').map((check) => [check.name, check]));
   const checks = prePushChecks('upstream/main');
 
-  it('runs the scrubs, the commit checks, the typecheck, a compile, the plugin tests and the docs checks, in that order', () => {
+  it('runs the scrubs, the commit checks, both typechecks, a compile, the plugin tests and the docs checks, in that order', () => {
     assert.deepEqual(
       checks.map((check) => check.name),
-      ['scrub: tree', 'scrub: commits', 'DCO', 'size rule', 'commit subjects', 'typecheck', 'compile', 'plugin tests', 'doc pictures', 'doc config reference', 'doc links'],
+      ['scrub: tree', 'scrub: commits', 'DCO', 'size rule', 'commit subjects', 'typecheck', 'typecheck: mod', 'compile', 'plugin tests', 'doc pictures', 'doc config reference', 'doc links'],
     );
   });
 
