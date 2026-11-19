@@ -113,7 +113,7 @@ export async function parkedHere(store, scope) {
 }
 /**
  * Arms the restart parked for this tab (`parkedHere`) now that a wake brings the session work: the fresh start comes
- * first, and the work, left new, wakes the fresh session (T1383). The parked record is spent either way, so a restart
+ * first, and its start lists the work (T1383, T4222). The parked record is spent either way, so a restart
  * that cannot start leaves the wake to go ahead with the context; whether one started.
  */
 export async function armParkedRestart(runtime, store, scope, parked) {
