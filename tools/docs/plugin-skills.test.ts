@@ -98,8 +98,17 @@ describe('the write-issue skill', () => {
       '5. Labels and the taker',
       '6. A design issue is talk, not a spec',
       '7. Read it back',
+      'A task you start with no issue',
       'Posting',
     ]);
+  });
+
+  it('gives a task you start its issue first: the ref checked, a duplicate looked for, opened and labelled, never by the status push', () => {
+    const section = skill.slice(skill.indexOf('## A task you start with no issue'), skill.indexOf('## Posting'));
+    for (const step of ['`teamrig show <id>`', '`teamrig update <id> --ref gh:<owner>/<name>#<n>`', '`teamrig issue migrate <rows.jsonl> --yes`', '`teamrig issue label <owner/name#n> --add "status:in progress"`', '`--local "<why>"`']) {
+      assert.ok(section.includes(step), step);
+    }
+    assert.doesNotMatch(section, /--push/, 'the status push writes every issue of the repository, so it is not the way to label one');
   });
 
   it('keeps a design issue as talk: the design label, no status or assignee, its own sections, agreed by the maintainer, nothing sensitive', () => {

@@ -131,6 +131,8 @@ task, then the earlier due date (a task takes the earlier due of a task that nee
 
 ```sh
 teamrig set T4 --session api --status in-progress
+# on a team that tracks its work on GitHub (github.repos set), a started task with no issue gets one first, with
+# its labels: write-issue skill, "A task you start with no issue"
 # ... do the work, commit it, verify it ...
 # shipped, but its proof comes later (a night's flow, a measurement)? set it verifying, with the proof, when it runs and a date:
 # teamrig set T4 --session api --status verifying --note "shipped" --proof "tonight's run is clean" --waits "time:2026-10-17 06:00" --due 2026-10-17 --followups none
