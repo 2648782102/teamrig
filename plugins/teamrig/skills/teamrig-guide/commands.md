@@ -1496,8 +1496,10 @@ failure stops the run: `FAILED` when gh failed (a stopped gh or one that printed
 the issue: look before a rerun), `REFUSED` when the register refused the ref (the issue is open: the line gives the
 `teamrig update` that sets it), then `STOPPED`. A rerun skips each task already holding its issue.
 
-Each issue opens with what the task calls for, as far as the repository has it: its issue type (a task Task, a bug
-Bug, a goal Feature; only a repository an organisation owns has types), its `status:` label and its owner's
+Each issue opens with what the task calls for, as far as the repository has it: its issue type (the first of
+`github.fields.types` for its kind of work that the repository has: by default a task Task, a bug Bug, a goal
+Feature, else Goal, a design issue Design; none when `github.fields.push` is false; only a repository an
+organisation owns has types), its `status:` label and its owner's
 `area:` label (`github.areaOwners`), and, for a started task, its owner's login as assignee (`github.owners`). A
 missing `status:` label is made; a field the repository lacks is left out with a `TYPE-SKIPPED`, `LABEL-SKIPPED` or
 `ASSIGNEE-SKIPPED` line saying why, and the issue still opens. The preview's `Opens with` line names them.

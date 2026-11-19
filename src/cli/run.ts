@@ -777,9 +777,10 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       title, body} with its public wording, or {id, decision "local", reason}; without --yes writes
       nothing but the --out preview of every issue in full; --yes opens each issue through gh and
       sets the task's ref to it, so issue sync adds no second task; stops at the first failure, and a
-      rerun skips each task already holding its issue; the issue opens with its type (task Task, bug
-      Bug, goal Feature), status and area labels and a started task's assignee, each one the
-      repository has (TYPE-SKIPPED, LABEL-SKIPPED, ASSIGNEE-SKIPPED say why one is left out)
+      rerun skips each task already holding its issue; the issue opens with its type (the first of
+      github.fields.types for its kind of work, none with github.fields.push off), status and area
+      labels and a started task's assignee, each one the repository has (TYPE-SKIPPED,
+      LABEL-SKIPPED, ASSIGNEE-SKIPPED say why one is left out)
   issue migrate --task <id> --issue <title> --issue-body <text> [--issue-repo <owner/name>] [--out <preview.md>] [--yes]
       the same for one task with no file: its kind of work and priority are the task's own, the
       repository --issue-repo, else github.issueAtAdd, else the only one of github.repos
