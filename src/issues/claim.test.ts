@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { DEFAULT_GITHUB } from '../config/defaults.ts';
+import { trustRules } from '../github/trust.ts';
 import { testHostIssue } from '../testing/host-issue.ts';
 import { CLAIM_DAYS, CLAIMS_PER_DAY, claimCandidates, claimKey, formatClaims, isClaim, parseClaims, planClaims } from './claim.ts';
 import type { Claim, ClaimPass, ClaimPlan } from './claim.ts';
@@ -10,7 +12,7 @@ const DAY = 86_400_000;
 const NOW = Date.parse('2026-11-15T12:00:00Z');
 const SINCE = NOW - 60_000;
 const ACCEPT = 'accepted';
-const TIMES = { now: NOW, since: SINCE, acceptLabel: ACCEPT };
+const TIMES = { now: NOW, since: SINCE, trust: trustRules({ ...DEFAULT_GITHUB, acceptLabel: ACCEPT }) };
 
 function claimComment(overrides: Partial<ReadComment> = {}): ReadComment {
   return { at: new Date(NOW - 1_000).toISOString(), login: 'ada', authorAssociation: 'NONE', authorKind: 'User', claims: true, ...overrides };

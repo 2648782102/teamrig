@@ -168,6 +168,8 @@ import {
   type GithubConfig,
   type IssueFieldsConfig,
   type IssueKind,
+  AUTHOR_ASSOCIATIONS,
+  type AuthorAssociation,
   type HiringConfig,
   type RuleConflict,
   type ServiceRoleConfig,
@@ -759,6 +761,8 @@ function parseGithub(read: ConfigReader, raw: JsonRecord, sessions: readonly str
     statusPush: read.boolean(raw, 'statusPush', 'github', DEFAULT_GITHUB.statusPush),
     fields: parseIssueFields(read, read.section(raw, 'fields', 'github')),
     acceptLabel: read.string(raw, 'acceptLabel', 'github', DEFAULT_GITHUB.acceptLabel, shortLine(GITHUB_LABEL_MAX_LENGTH)),
+    trustedAuthors: readTrustedAuthors(read, raw),
+    acceptors: readAcceptors(read, raw),
     similarThreshold: read.number(raw, 'similarThreshold', 'github', DEFAULT_GITHUB.similarThreshold, CONFIG_LIMITS.similarThreshold),
     activity: read.boolean(raw, 'activity', 'github', DEFAULT_GITHUB.activity),
     followMax: read.integer(raw, 'followMax', 'github', DEFAULT_GITHUB.followMax, CONFIG_LIMITS.githubFollowMax),
@@ -766,6 +770,27 @@ function parseGithub(read: ConfigReader, raw: JsonRecord, sessions: readonly str
     ...(issueAtAdd === undefined ? {} : { issueAtAdd }),
     stamp: read.boolean(raw, 'stamp', 'github', DEFAULT_GITHUB.stamp),
   };
+}
+
+/** `github.trustedAuthors`: each one of GitHub's author ties, matched without case and kept as GitHub spells it; an unknown one is reported and left out. */
+function readTrustedAuthors(read: ConfigReader, raw: JsonRecord): AuthorAssociation[] {
+  const tie = (value: unknown, itemPath: string): AuthorAssociation | undefined => {
+    const text = read.stringItem(value, itemPath, (item) => (isAuthorAssociation(item.toUpperCase()) ? undefined : `expected one of ${AUTHOR_ASSOCIATIONS.join(', ')}`));
+    const upper = text?.toUpperCase();
+    return upper !== undefined && isAuthorAssociation(upper) ? upper : undefined;
+  };
+  return [...new Set(read.list(raw, 'trustedAuthors', 'github', DEFAULT_GITHUB.trustedAuthors, tie, AUTHOR_ASSOCIATIONS.length))];
+}
+
+function isAuthorAssociation(value: string): value is AuthorAssociation {
+  return AUTHOR_ASSOCIATIONS.some((tie) => tie === value);
+}
+
+/** `github.acceptors`: GitHub logins, kept in lowercase as GitHub matches them; a wrong one is reported and left out. */
+function readAcceptors(read: ConfigReader, raw: JsonRecord): string[] {
+  const login: Check<string> = (value) => (GITHUB_LOGIN.test(value) ? undefined : 'expected a GitHub login: letters, digits or -, at most 39 characters');
+  const logins = read.stringList(raw, 'acceptors', 'github', DEFAULT_GITHUB.acceptors, login, CONFIG_LIMITS.githubAcceptors.maxItems);
+  return [...new Set(logins.map((one) => one.toLowerCase()))];
 }
 
 /** `github.issueAtAdd`: unset, or one of `repos` in lowercase; any other repository is reported and reads as unset. */

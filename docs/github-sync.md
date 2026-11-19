@@ -43,6 +43,8 @@ Add a `github` block to the team config (`~/.teamrig/teams/<team>/config.json`):
 | `closedDays` | How many days back closed issues are read, to finish their tasks. Default 14. |
 | `probeSeconds` | How often it asks GitHub whether a repository changed, in seconds: 0, or 30 to 3600. Default 60; 0 leaves the sync to `teamrig issue sync --yes`. |
 | `acceptLabel` | Optional. The label that lets an issue by someone outside the repository become a task ([below](#whose-issues-become-tasks)). Default `teamrig`. |
+| `trustedAuthors` | Optional. The author ties, as GitHub names them, whose issues become tasks with no label ([below](#whose-issues-become-tasks)). Default `["OWNER", "MEMBER", "COLLABORATOR"]`. |
+| `acceptors` | Optional. The GitHub logins whose `acceptLabel` counts. Default empty: anyone with triage rights accepts. |
 
 Who owns a new issue's task: the session of its first assignee listed in `owners`; else the session of its first
 label listed in `areaOwners`, so a person's pick beats the area; else its repository's session in `sessions`; else
@@ -55,10 +57,12 @@ GitHub after that (reopened, edited or commented on).
 Anyone can open an issue on a public repository, so teamrig takes only the issues of people you trust:
 
 - **The repository's people.** An issue whose author GitHub ties to the repository as its owner, a member of its
-  organisation or a collaborator becomes a task at the next sync.
+  organisation or a collaborator becomes a task at the next sync. `trustedAuthors` changes that list: `["OWNER"]`
+  makes members' and collaborators' issues wait for the label too.
 - **Anyone else's, once accepted.** An issue by any other author (one with a merged pull request too) waits until
   someone other than its author adds the `acceptLabel` label, `teamrig` by default (any case). Only people with
-  triage rights can label an issue; a label put on by a bot, a workflow or an issue template does not count.
+  triage rights can label an issue; a label put on by a bot, a workflow or an issue template does not count. With
+  `acceptors` set, only a label one of those logins put on counts.
 - **A workflow's issue waits too.** An issue a GitHub Actions workflow or another app opens waits for the label like
   an outsider's, since a workflow may copy an outsider's text into it.
 - **An edit undoes the accept.** When the title or body changes at or after the label went on, whoever edited it,

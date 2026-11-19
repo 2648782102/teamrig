@@ -1,4 +1,5 @@
 import type { KitConfig } from '../../config/types.ts';
+import { trustRules } from '../../github/trust.ts';
 import { CLAIM_DAYS, CLAIM_READS, claimCandidates, claimKey, formatClaims, parseClaims, planClaims, type Claim, type ClaimCandidate, type ClaimState } from '../../issues/claim.ts';
 import { targetText, type IssueHost, type IssueTarget } from '../../issues/host.ts';
 import type { HostIssue, ReadComment } from '../../issues/issue.ts';
@@ -87,7 +88,7 @@ export async function recordClaims(runtime: CliRuntime, kit: Kit, config: KitCon
   const checked = new Map(before.checked);
   for (const [repo, issues] of run.read) {
     const since = before.checked.get(repo) ?? run.started;
-    const pass = { now, since, acceptLabel: config.github.acceptLabel };
+    const pass = { now, since, trust: trustRules(config.github) };
     const own = before.claims.filter((claim) => claim.repo === repo);
     const read = await readCandidates(run.host, claimCandidates(issues, own, pass), since, say);
     const plan = planClaims(issues, own, pass, read.comments);

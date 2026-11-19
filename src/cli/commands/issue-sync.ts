@@ -164,7 +164,7 @@ export async function issueSync(args: ParsedArgs, runtime: CliRuntime): Promise<
       issueRoutes.push(...marked.routes);
       marked.routes.forEach((route) => say(`ISSUE NEWS ${route.to}: ${route.ref} ${route.changes.join(', ')}`));
     }
-    const leftOutText = leftOutLines(repo, plan.leftOut, rules.acceptLabel);
+    const leftOutText = leftOutLines(repo, plan.leftOut, rules.trust.acceptLabel);
     let end: RepoEnd = 'ok';
     let issueThreads: Thread[] = [];
     if (write) {

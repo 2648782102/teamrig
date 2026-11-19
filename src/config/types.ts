@@ -676,6 +676,10 @@ export interface TestsConfig {
 export const ISSUE_KINDS = ['task', 'bug', 'goal', 'design'] as const;
 export type IssueKind = (typeof ISSUE_KINDS)[number];
 
+/** The ties GitHub gives an issue's author to its repository (`authorAssociation`), as GitHub names them. */
+export const AUTHOR_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'MANNEQUIN', 'NONE'] as const;
+export type AuthorAssociation = (typeof AUTHOR_ASSOCIATIONS)[number];
+
 /**
  * What the status push writes to the issue fields and the type of each open issue a task holds (T3406), one way from
  * the register, on a tracker that has fields: the priority, the day the task first went in progress, its due day and
@@ -736,6 +740,16 @@ export interface GithubConfig {
    * were not edited after that. Matched without case.
    */
   readonly acceptLabel: string;
+  /**
+   * The author ties (as GitHub names them) whose issues the sync trusts: each becomes a task with no accept label.
+   * Every other author's issue waits for `acceptLabel`.
+   */
+  readonly trustedAuthors: readonly AuthorAssociation[];
+  /**
+   * The logins (lowercase) whose `acceptLabel` counts; empty, anyone who can label the repository's issues (triage
+   * rights) accepts.
+   */
+  readonly acceptors: readonly string[];
   /**
    * The score, from 0 to 1, at which a mirrored issue counts as a duplicate candidate of a new one: the cosine of
    * their TF-IDF word vectors (src/issues/similar.ts). Higher lists fewer, closer candidates.

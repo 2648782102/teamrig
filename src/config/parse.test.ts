@@ -28,7 +28,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.needsYou, { enabled: true, kinds: ['permission', 'question', 'elicitation', 'decision'], osToast: false });
     assert.deepEqual(config.meetingNotices, { enabled: true, beforeMinutes: 10, atStart: true, missedAfterMinutes: 5, osToast: true, tabToast: true, leadInbox: true });
     assert.deepEqual(config.tests, { maxFailureChars: 4000 });
-    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, fields: DEFAULT_ISSUE_FIELDS });
+    assert.deepEqual(config.github, { repos: [], owners: {}, areaOwners: {}, sessions: {}, closedDays: 14, probeSeconds: 60, statusPush: false, acceptLabel: 'teamrig', trustedAuthors: ['OWNER', 'MEMBER', 'COLLABORATOR'], acceptors: [], similarThreshold: 0.35, activity: true, followMax: 20, stamp: true, fields: DEFAULT_ISSUE_FIELDS });
     assert.deepEqual(config.register, DEFAULT_REGISTER);
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
@@ -478,6 +478,8 @@ describe('parseConfig', () => {
       statusPush: false,
       fields: DEFAULT_ISSUE_FIELDS,
       acceptLabel: 'teamrig',
+      trustedAuthors: ['OWNER', 'MEMBER', 'COLLABORATOR'],
+      acceptors: [],
       similarThreshold: 0.35,
       activity: true,
       followMax: 20,
@@ -573,6 +575,34 @@ describe('parseConfig', () => {
       assert.deepEqual(paths(parsed.issues), ['github.acceptLabel'], JSON.stringify(wrong));
       assert.equal(parsed.config.github.acceptLabel, 'teamrig');
     }
+  });
+
+  it("reads github.trustedAuthors as GitHub's author ties in any case, once each, leaving out a wrong one", () => {
+    const { config, issues } = parseConfig({ ...ROSTER, github: { trustedAuthors: ['owner', 'Contributor', 'OWNER'] } });
+    assert.deepEqual(issues, []);
+    assert.deepEqual(config.github.trustedAuthors, ['OWNER', 'CONTRIBUTOR']);
+    assert.deepEqual(parseConfig({ ...ROSTER, github: { trustedAuthors: [] } }).config.github.trustedAuthors, []);
+    const parsed = parseConfig({ ...ROSTER, github: { trustedAuthors: ['OWNER', 'MAINTAINER', 7] } });
+    assert.deepEqual(paths(parsed.issues), ['github.trustedAuthors[1]', 'github.trustedAuthors[2]']);
+    assert.deepEqual(parsed.config.github.trustedAuthors, ['OWNER']);
+    for (const wrong of ['OWNER', Array.from({ length: 9 }, () => 'OWNER')]) {
+      const bad = parseConfig({ ...ROSTER, github: { trustedAuthors: wrong } });
+      assert.deepEqual(paths(bad.issues), ['github.trustedAuthors'], JSON.stringify(wrong));
+      assert.deepEqual(bad.config.github.trustedAuthors, ['OWNER', 'MEMBER', 'COLLABORATOR']);
+    }
+  });
+
+  it('reads github.acceptors as GitHub logins in lowercase, once each, leaving out a wrong one', () => {
+    const { config, issues } = parseConfig({ ...ROSTER, github: { acceptors: ['Ada-L', 'ada-l', 'bob7'] } });
+    assert.deepEqual(issues, []);
+    assert.deepEqual(config.github.acceptors, ['ada-l', 'bob7']);
+    assert.deepEqual(parseConfig(ROSTER).config.github.acceptors, []);
+    const parsed = parseConfig({ ...ROSTER, github: { acceptors: ['ada', '-dash', 'has space', 'x'.repeat(40), ''] } });
+    assert.deepEqual(paths(parsed.issues), ['github.acceptors[1]', 'github.acceptors[2]', 'github.acceptors[3]', 'github.acceptors[4]']);
+    assert.deepEqual(parsed.config.github.acceptors, ['ada']);
+    const many = parseConfig({ ...ROSTER, github: { acceptors: Array.from({ length: 51 }, (_, index) => `user${String(index)}`) } });
+    assert.deepEqual(paths(many.issues), ['github.acceptors']);
+    assert.deepEqual(many.config.github.acceptors, []);
   });
 
   it('reads no service roles by default', () => {

@@ -2,8 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { testConfig } from '../testing/config.ts';
 import type { HostIssue } from '../issues/issue.ts';
-import { MAX_DESCRIPTION } from '../config/defaults.ts';
+import { DEFAULT_GITHUB, MAX_DESCRIPTION } from '../config/defaults.ts';
 import { SecretScanner } from '../core/secrets.ts';
+import { trustRules } from './trust.ts';
 import { importRules, issueOutcome, issueOwner, issuePriority, issueRef, issueTask, SECRET_BODY, taskDescription, taskTitle, type ImportRules } from './map.ts';
 
 const RULES: ImportRules = importRules(testConfig({ github: { repos: ['acme/web'], owners: { octocat: 'bravo', hubot: 'alpha' } } }));
@@ -50,9 +51,11 @@ describe('importRules', () => {
       areaOwners: new Map(),
       repoSessions: new Map(),
       lead: 'lead',
-      acceptLabel: 'teamrig',
+      trust: trustRules(DEFAULT_GITHUB),
     });
-    assert.equal(importRules(testConfig({ github: { acceptLabel: 'Accepted' } })).acceptLabel, 'Accepted');
+    assert.equal(importRules(testConfig({ github: { acceptLabel: 'Accepted' } })).trust.acceptLabel, 'Accepted');
+    const narrowed = importRules(testConfig({ github: { trustedAuthors: ['OWNER'], acceptors: ['Ada'] } })).trust;
+    assert.deepEqual([narrowed.trustedAuthors, narrowed.acceptors], [new Set(['OWNER']), new Set(['ada'])]);
     assert.equal(secrets.find('uses tok_abcd1234'), undefined);
     const strict = importRules(testConfig({ register: { secretPatterns: ['tok_[a-z0-9]{8}'] } }));
     assert.equal(strict.secrets.find('uses tok_abcd1234')?.id, 'config-1');

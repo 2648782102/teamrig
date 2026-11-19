@@ -109,7 +109,7 @@ interface IssueSteps {
 function issueSteps(issue: HostIssue, imported: ReadonlyMap<string, Task>, rules: ImportRules, linked: ReadonlySet<string>): IssueSteps {
   const wanted = issueTask(issue, rules);
   const task = imported.get(wanted.ref);
-  const followsText = issueTrust(issue, rules.acceptLabel) !== 'untrusted';
+  const followsText = issueTrust(issue, rules.trust) !== 'untrusted';
   if (task === undefined && linked.has(wanted.ref)) {
     return { known: true, steps: [] };
   }

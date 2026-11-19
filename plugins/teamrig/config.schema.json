@@ -1544,6 +1544,26 @@
           "maxLength": 50,
           "pattern": "^[^\\r\\n]+$",
           "default": "teamrig"
+        },
+        "trustedAuthors": {
+          "description": "The author ties, as GitHub names them, whose issues become tasks with no accept label; matched without case. Every other author's issue waits for acceptLabel. Widening it trusts more people's issues, so only the owner changes it.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", "NONE"]
+          },
+          "maxItems": 8,
+          "default": ["OWNER", "MEMBER", "COLLABORATOR"]
+        },
+        "acceptors": {
+          "description": "The GitHub logins whose acceptLabel counts; matched without case. Empty, anyone who can label the repository's issues (triage rights) accepts an outside author's issue.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
+          },
+          "maxItems": 50,
+          "default": []
         }
       }
     },

@@ -1300,9 +1300,11 @@ the `gh` login in its place.
   characters it is cut, ending with `…`. An empty body gives none; a body that looks like it holds a secret
   gives a line saying it was left out, to be read on GitHub.
 - Only the issues of the repository's people, or ones they accepted, become tasks. An author
-  GitHub ties to the repository as its owner, an organization member or a collaborator counts at once. Any other
-  author's issue (one with a merged pull request too) waits until someone other than the author adds the
-  `github.acceptLabel` label (`teamrig` by default, any case): a person, not a bot, a workflow or an issue template.
+  GitHub ties to the repository with one of the trusted ties [github.trustedAuthors] (its owner, an organization
+  member or a collaborator by default) counts at once. Any other author's issue (one with a merged pull request too)
+  waits until someone other than the author adds the `github.acceptLabel` label (`teamrig` by default, any case): a
+  person, not a bot, a workflow or an issue template, and with [github.acceptors] set, one of those logins. Both keys
+  widen or narrow whose text becomes work, so only the owner changes them.
   An edit of its title or body at or after that label undoes the accept, the accepter's own edit too: once the new
   text is read, remove the label and add it again. An issue left out writes nothing; a `LEFT OUT` line names it
   by its number only, never its text, at most 20 per repository and then how many more.

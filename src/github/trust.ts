@@ -2,22 +2,42 @@ import type { GithubConfig } from '../config/types.ts';
 import type { HostIssue, LabelEvent } from '../issues/issue.ts';
 
 /**
- * How far the sync takes an issue's text: `trusted` for an author inside the repository, `accepted` for an outsider's issue someone else labelled with the accept label after its last edit,
- * `untrusted` for any other. Only a trusted or accepted open issue becomes a task, and only their title and body follow
- * GitHub onto a task the sync added.
+ * How far the sync takes an issue's text: `trusted` for an author of a trusted tie (`github.trustedAuthors`),
+ * `accepted` for another author's issue an acceptor labelled with the accept label after its last edit, `untrusted`
+ * for any other. Only a trusted or accepted open issue becomes a task, and only their title and body follow GitHub
+ * onto a task the sync added.
  */
 export type IssueTrust = 'trusted' | 'accepted' | 'untrusted';
 
 /**
- * The author ties GitHub gives the repository's owner, its organization's members and its collaborators. Every other
- * one (`CONTRIBUTOR` for any merged pull request, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `MANNEQUIN`, `NONE`, a
- * deleted author) waits for the accept label.
+ * The author ties GitHub gives the people inside a repository: its owner, its organization's members and its
+ * collaborators. Every other one (`CONTRIBUTOR` for any merged pull request, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`,
+ * `MANNEQUIN`, `NONE`, a deleted author) is outside it.
  */
-const TRUSTED_ASSOCIATIONS: ReadonlySet<string> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const INSIDE_ASSOCIATIONS: ReadonlySet<string> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 /** Whether an author tie, as GitHub names it, is one inside the repository: its owner, a member or a collaborator. */
 export function isInsideAuthor(association: string): boolean {
-  return TRUSTED_ASSOCIATIONS.has(association.toUpperCase());
+  return INSIDE_ASSOCIATIONS.has(association.toUpperCase());
+}
+
+/** Whose issues the sync takes as work: the trusted author ties, the accept label, and who may put it on. */
+export interface TrustRules {
+  /** [github.acceptLabel] */
+  readonly acceptLabel: string;
+  /** [github.trustedAuthors], in uppercase as GitHub names them. */
+  readonly trustedAuthors: ReadonlySet<string>;
+  /** [github.acceptors], in lowercase; empty, anyone who can label issues accepts. */
+  readonly acceptors: ReadonlySet<string>;
+}
+
+/** The trust rules of a team's GitHub config. */
+export function trustRules(github: Pick<GithubConfig, 'acceptLabel' | 'trustedAuthors' | 'acceptors'>): TrustRules {
+  return {
+    acceptLabel: github.acceptLabel,
+    trustedAuthors: new Set(github.trustedAuthors.map((tie) => tie.toUpperCase())),
+    acceptors: new Set(github.acceptors.map((login) => login.toLowerCase())),
+  };
 }
 
 /** The logins a team counts as its own, in lowercase: the keys of `github.owners`, each a person the team named. */
@@ -44,17 +64,23 @@ const PERSON = 'User';
  * How far the sync takes `issue`'s text. Only someone with triage rights can label an issue, so a label needs no
  * rights lookup; the two other ways a label lands are refused by its actor: an issue template applies it with the
  * author as actor, a workflow or app with a `Bot` one. An edit of the title or body at or after the accept undoes it
- * (the person who accepted read the older text), until someone adds the label again.
+ * (the person who accepted read the older text), until someone adds the label again. With `rules.acceptors` set,
+ * only the last accept by one of them counts.
  */
-export function issueTrust(issue: HostIssue, acceptLabel: string): IssueTrust {
-  if (isInsideAuthor(issue.authorAssociation)) {
+export function issueTrust(issue: HostIssue, rules: TrustRules): IssueTrust {
+  if (rules.trustedAuthors.has(issue.authorAssociation.toUpperCase())) {
     return 'trusted';
   }
-  if (!issue.labels.some((label) => sameLabel(label, acceptLabel))) {
+  if (!issue.labels.some((label) => sameLabel(label, rules.acceptLabel))) {
     return 'untrusted';
   }
-  const accept = issue.labelEvents.filter((event) => sameLabel(event.label, acceptLabel)).at(-1);
-  return accept !== undefined && byAnotherPerson(accept, issue.author) && !editedSince(issue, accept.at) ? 'accepted' : 'untrusted';
+  const accept = issue.labelEvents.filter((event) => sameLabel(event.label, rules.acceptLabel)).at(-1);
+  return accept !== undefined && byAnotherPerson(accept, issue.author) && mayAccept(accept, rules) && !editedSince(issue, accept.at) ? 'accepted' : 'untrusted';
+}
+
+/** Whether the person who put the accept label on is one whose accept counts: any, or one of `rules.acceptors`. */
+function mayAccept(event: LabelEvent, rules: TrustRules): boolean {
+  return rules.acceptors.size === 0 || rules.acceptors.has(event.actor.toLowerCase());
 }
 
 /** GitHub matches label names without case. */

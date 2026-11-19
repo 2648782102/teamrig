@@ -3,7 +3,7 @@ import { parseObject, toJsonlLine, VERSION_FIELD } from '../core/jsonl.ts';
 import { DESIGN_LABEL } from './design-label.ts';
 import type { HostIssue, IssueComment, ReadComment } from './issue.ts';
 import { isLogin } from '../github/gh.ts';
-import { isInsideAuthor, issueTrust } from '../github/trust.ts';
+import { isInsideAuthor, issueTrust, type TrustRules } from '../github/trust.ts';
 
 /**
  * A contributor claims an open issue by a comment, and code assigns them (T3021 design, section 1). This file holds
@@ -110,13 +110,13 @@ export interface ClaimPlan {
   readonly kept: readonly Claim[];
 }
 
-/** One claim pass of a repository: its times (ms since the epoch) and the label that accepts an outsider's issue. */
+/** One claim pass of a repository: its times (ms since the epoch) and whose issues are work (trust.ts). */
 export interface ClaimPass {
   readonly now: number;
   /** The previous sync's start: a comment before it was read then, so it claims nothing now. */
   readonly since: number;
-  /** [github.acceptLabel]: an outsider's issue is work to take only once someone with triage rights accepted it. */
-  readonly acceptLabel: string;
+  /** [github.trustedAuthors], [github.acceptLabel], [github.acceptors]: an outsider's issue is work to take only once an acceptor accepted it. */
+  readonly trust: TrustRules;
 }
 
 /**
@@ -168,7 +168,7 @@ export function claimCandidates(issues: readonly HostIssue[], claims: readonly C
   const candidates: ClaimCandidate[] = [];
   for (const issue of issues) {
     const own = kept.filter((claim) => claim.repo === issue.repo);
-    if (own.filter((claim) => pass.now - claim.at < DAY_MS).length >= CLAIMS_PER_DAY || !claimable(issue, pass.acceptLabel)) {
+    if (own.filter((claim) => pass.now - claim.at < DAY_MS).length >= CLAIMS_PER_DAY || !claimable(issue, pass.trust)) {
       continue;
     }
     const holding = new Set(own.map((claim) => claim.login));
@@ -190,7 +190,7 @@ export function planClaims(issues: readonly HostIssue[], claims: readonly Claim[
   const made: Claim[] = [];
   const today = (repo: string): number => [...kept, ...made].filter((claim) => claim.repo === repo && times.now - claim.at < DAY_MS).length;
   for (const issue of issues) {
-    if (today(issue.repo) >= CLAIMS_PER_DAY || !claimable(issue, times.acceptLabel)) {
+    if (today(issue.repo) >= CLAIMS_PER_DAY || !claimable(issue, times.trust)) {
       continue;
     }
     const holding = new Set([...kept, ...made].filter((claim) => claim.repo === issue.repo).map((claim) => claim.login));
@@ -208,14 +208,14 @@ export function planClaims(issues: readonly HostIssue[], claims: readonly Claim[
  * An open issue with no assignee that is neither a design issue (talk, never work to take) nor a security one, and is
  * the repository's own or accepted: an outsider's issue no one accepted is no work yet, so it is no one's to claim.
  */
-function claimable(issue: HostIssue, acceptLabel: string): boolean {
+function claimable(issue: HostIssue, trust: TrustRules): boolean {
   const labels = issue.labels.map((label) => label.toLowerCase());
   return (
     issue.state === 'open' &&
     issue.assignees.length === 0 &&
     !labels.includes(DESIGN_LABEL) &&
     !labels.includes(SECURITY_LABEL) &&
-    issueTrust(issue, acceptLabel) !== 'untrusted'
+    issueTrust(issue, trust) !== 'untrusted'
   );
 }
 
