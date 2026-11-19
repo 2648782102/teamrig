@@ -2,7 +2,7 @@ import { ENV } from "../../core/home.js";
 import { SecretScanner } from "../../core/secrets.js";
 import { KIT_VERSION } from "../../core/version.js";
 import { formatWatchLease, idleDone, leaseHeld, LIFETIME_MS, leaseOutdated, lifetimeDone, parseWatchLease, readDue, } from "../../github/watch.js";
-import { runsClaude } from "../../open/session-processes.js";
+import { claudeRunOf } from "../../open/session-processes.js";
 import { SessionRecordStore } from "../../sessions/record.js";
 import { noPositionals } from "../args.js";
 import { fileLockOf } from "../file-locks.js";
@@ -173,7 +173,7 @@ async function beat(runtime, kit, config) {
 async function anySessionRuns(runtime, kit, config) {
     const records = await new SessionRecordStore(runtime.files, kit.paths).readEach(config.sessions);
     for (const record of records.values()) {
-        if (record !== undefined && (await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+        if (record !== undefined && (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'other') {
             return true;
         }
     }

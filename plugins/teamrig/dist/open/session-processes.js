@@ -12,13 +12,17 @@ const NODE_PROGRAM = /^node(\.exe)?$/i;
 export function isClaudeProcess(info) {
     return CLAUDE_PROGRAM.test(info.name) || (NODE_PROGRAM.test(info.name) && /claude/i.test(info.commandLine));
 }
-/** Whether `pid` still runs Claude Code: a pid the system gave another program since does not count. */
-export async function runsClaude(processes, pid) {
+/** Whether `pid` still runs Claude Code (`ClaudeRun`). */
+export async function claudeRunOf(processes, pid) {
     if (pid === undefined || !processes.alive(pid)) {
-        return false;
+        return 'other';
     }
     const info = await processes.describe(pid);
-    return info !== undefined && isClaudeProcess(info);
+    if (info === undefined) {
+        // It was alive a moment ago: the lookup failed, or it ended in between; only a later look can tell which.
+        return processes.alive(pid) ? 'unknown' : 'other';
+    }
+    return isClaudeProcess(info) ? 'claude' : 'other';
 }
 /** PowerShell's start alone can take seconds on a busy machine. */
 export const LOOKUP_TIMEOUT_MS = 20_000;

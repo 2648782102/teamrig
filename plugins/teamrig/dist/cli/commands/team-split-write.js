@@ -1,7 +1,7 @@
 import { relative } from 'node:path';
 import { formatConfig } from "../../config/load.js";
 import { splitRenameLog } from "../../names/rename.js";
-import { runsClaude } from "../../open/session-processes.js";
+import { claudeRunOf } from "../../open/session-processes.js";
 import { readRegister } from "../../register/snapshot.js";
 import { SessionRecordStore } from "../../sessions/record.js";
 import { sessionFilesOf } from "../../setup/session-files.js";
@@ -15,7 +15,7 @@ export async function liveSessionsOf(runtime, paths, ids) {
     const records = await new SessionRecordStore(runtime.files, paths).readEach(ids);
     const live = [];
     for (const [id, record] of records) {
-        if (record !== undefined && (await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+        if (record !== undefined && (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'other') {
             live.push({ id, pid: record.claudePid });
         }
     }

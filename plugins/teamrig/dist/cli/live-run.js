@@ -1,6 +1,6 @@
 import { treeOf } from "../delivery/processes.js";
 import { KIT_NAME } from "../core/home.js";
-import { runsClaude } from "../open/session-processes.js";
+import { claudeRunOf } from "../open/session-processes.js";
 import { KIND_TAIL_BYTES, transcriptKindOf } from "../restore/transcript-kind.js";
 import { measureSessions, runningPlaces } from "../sessions/measure.js";
 import { SessionRecordStore } from "../sessions/record.js";
@@ -28,7 +28,7 @@ export async function runningRecordOf(runtime, paths, ids, id) {
 export async function liveRunOf(runtime, paths, ids, id, own) {
     const records = await new SessionRecordStore(runtime.files, paths).readEach(ids);
     const record = records.get(id);
-    if (record === undefined || record.claudePid === own || !(await runsClaude(runtime.sessionProcesses, record.claudePid))) {
+    if (record === undefined || record.claudePid === own || (await claudeRunOf(runtime.sessionProcesses, record.claudePid)) !== 'claude') {
         return undefined;
     }
     const rows = await runtime.memory.processes();
