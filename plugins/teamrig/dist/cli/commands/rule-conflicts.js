@@ -182,7 +182,7 @@ async function leadConfig(args, runtime, what) {
     const kit = await openTeamKit(runtime);
     const config = requireConfig(kit, runtime, 'write');
     const roster = await rosterOf(runtime, kit, config);
-    leadOnly(roster, caller, what);
+    leadOnly(roster, caller, what, runtime.env);
     return { kit, config };
 }
 /**

@@ -219,7 +219,7 @@ export async function start(args, runtime) {
     const zone = teamZone(config, runtime);
     const deadline = timeFlag(flags, 'by', { nowMs: now, zone });
     const roster = await rosterOf(runtime, kit, config);
-    const by = leadOnly(roster, caller, 'starts a burst');
+    const by = leadOnly(roster, caller, 'starts a burst', runtime.env);
     const tasks = await tasksOf(runtime, flags.get('task'));
     const goal = await goalOf(runtime, kit, config, flags.get('goal'));
     const sessions = sessionsOf(roster, flags, kind, tasks.owners);
@@ -267,7 +267,7 @@ export async function end(args, runtime) {
     const kit = await openTeamKit(runtime);
     const config = requireConfig(kit, runtime, 'write');
     const roster = await rosterOf(runtime, kit, config);
-    const by = leadOnly(roster, caller, 'ends a burst');
+    const by = leadOnly(roster, caller, 'ends a burst', runtime.env);
     const now = runtime.clock.now();
     const { records, usedPct } = await readBursts(runtime, kit.paths, config.budget, now);
     const inForce = activeBurst(records, now, usedPct);

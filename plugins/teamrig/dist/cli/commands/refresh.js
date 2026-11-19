@@ -66,7 +66,7 @@ export async function refresh(args, runtime) {
         runtime.out.stdout(`Ready. ${next}; your next start reads ${store.handoverPath(by)}.`);
         return EXIT.ok;
     }
-    leadOnly(roster, by, 'asks for a refresh');
+    leadOnly(roster, by, 'asks for a refresh', runtime.env);
     const id = sessionIdOf(roster, target);
     await store.setRequest(id, { by, at: now });
     runtime.out.stdout(`REQUESTED a refresh of ${roster.nameOf(id) ?? id}: at its next turn end it writes its handover to ` +
