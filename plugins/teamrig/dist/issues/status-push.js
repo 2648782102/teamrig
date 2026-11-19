@@ -144,11 +144,10 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins, ope
     const held = holders(repo, tasks);
     for (const [target, task] of [...held.speakers].sort(([a], [b]) => a - b).map(([number, holder]) => [{ repo, number }, holder])) {
         const issue = listed.get(target.number);
-        const goal = issueGoal(task, { assigned: issue !== undefined && issue.assignees.length > 0, design: issue?.labels.includes(DESIGN_LABEL) ?? false });
         if (issue === undefined) {
             // The list holds every open issue, so one it left out is closed (or gone): as a closed task wants it. An open
             // pull request is never on it: the push writes only issues, so it leaves that one as it is.
-            if (goal.open) {
+            if (issueGoal(task, { assigned: false, design: false }).open) {
                 (openPulls.has(target.number) ? pulls : unlisted).push({ target, task: task.id, status: task.status });
             }
             else {
@@ -156,22 +155,18 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins, ope
             }
             continue;
         }
-        if (issue.state === 'closed' && goal.open) {
+        const plan = planIssue(target, task, issue, logins);
+        if (plan.kind === 'closed-active') {
             closedActive.push({ target, task: task.id, status: task.status, stateReason: issue.stateReason });
-            continue;
         }
-        const kept = goal.open || issue.state === 'closed' ? undefined : closeLeft(repo, issue, logins);
-        if (kept !== undefined) {
-            keptOpen.push({ target, task: task.id, status: task.status, why: kept });
-            continue;
+        else if (plan.kind === 'kept-open') {
+            keptOpen.push({ target, task: task.id, status: task.status, why: plan.why });
         }
-        const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(repo, task.owner, logins) : undefined;
-        const change = changeFor(target, task, issue, goal, assign);
-        if (change === undefined) {
+        else if (plan.kind === 'unchanged') {
             unchanged += 1;
         }
         else {
-            planned.push(change);
+            planned.push(plan.change);
         }
     }
     const heldCloses = limits.closes ? [] : planned.filter((change) => change.close !== undefined);
@@ -192,6 +187,38 @@ function closeLeft(repo, issue, logins) {
     const team = new Set([repo.slice(0, repo.indexOf('/')), ...(logins?.values() ?? [])].map((login) => login.toLowerCase()));
     const outside = issue.assignees.filter((login) => !team.has(login.toLowerCase()));
     return issue.assignees.length > 0 && outside.length === issue.assignees.length ? { kind: 'taken', assignees: outside } : undefined;
+}
+/**
+ * The push of the one issue `task` holds, planned against `issue` as the host has it now, the same way planPush plans
+ * each issue of a repository: with `logins` an open issue of a scheduled task with no assignee is assigned
+ * (assigneeOf), and without, nobody is.
+ */
+export function planIssue(target, task, issue, logins) {
+    const goal = issueGoal(task, { assigned: issue.assignees.length > 0, design: issue.labels.includes(DESIGN_LABEL) });
+    if (issue.state === 'closed' && goal.open) {
+        return { kind: 'closed-active' };
+    }
+    const kept = goal.open || issue.state === 'closed' ? undefined : closeLeft(target.repo, issue, logins);
+    if (kept !== undefined) {
+        return { kind: 'kept-open', why: kept };
+    }
+    const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(target.repo, task.owner, logins) : undefined;
+    const change = changeFor(target, task, issue, goal, assign);
+    return change === undefined ? { kind: 'unchanged' } : { kind: 'change', change };
+}
+/** A push plan of `repo` that sends `change` alone, for a write of one issue (issues/reply.ts) through applyPush. */
+export function onePushPlan(repo, change) {
+    return { repo, changes: [change], deferred: [], heldCloses: [], unchanged: 0, closedActive: [], keptOpen: [], unlisted: [], shared: [], openPulls: [] };
+}
+/** The holder of `target` as the push picks it (holders), or undefined when no task holds it. */
+export function holderOf(target, tasks) {
+    const held = holders(target.repo, tasks);
+    const speaker = held.speakers.get(target.number);
+    if (speaker !== undefined) {
+        return { kind: 'speaker', task: speaker };
+    }
+    const shared = held.shared.get(target.number);
+    return shared === undefined ? undefined : { kind: 'shared', tasks: shared };
 }
 /**
  * The tasks holding each issue number of `repo`: in `speakers`, the one task speaking for it, else the first one the
