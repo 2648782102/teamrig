@@ -5,7 +5,8 @@ import { addedTasks } from "../../github/auto.js";
 import { followersOf, parseFollows } from "../../github/follows.js";
 import { issueMarkStep } from "../../github/issue-marks.js";
 import { importRules, issueOwner, issueRef } from "../../github/map.js";
-import { importedTasks, linkedRefs, planSync, refHolders } from "../../github/plan.js";
+import { planRepo } from "../../github/moved.js";
+import { holdAdds, importedTasks, refHolders } from "../../github/plan.js";
 import { withCiExcerpts } from "../../github/ci-excerpt.js";
 import { firstMentionWatch, mentionItems, mentionReadSince, mentionStep, mentionTime, } from "../../github/mention-route.js";
 import { securityIssues } from "../../github/security-alert.js";
@@ -105,6 +106,8 @@ export async function issueSync(args, runtime) {
     /** The open threads of the repositories read, for the response clock, and those repositories. */
     const threads = [];
     const clocked = new Set();
+    /** The name each former repository name goes by now, read once a run. */
+    const formerNames = new Map();
     for (const repo of reposOf(config.github.repos, args.flags.get('repo'))) {
         const reach = await host.reach(repo, 'read');
         if (reach.kind === 'unreachable') {
@@ -127,9 +130,24 @@ export async function issueSync(args, runtime) {
             continue;
         }
         read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
-        const tasks = [...(await register.snapshot()).state.tasks.values()];
+        // Refs under a name the repository had before a rename or move match its issues, so none is added twice.
+        const planned = await planRepo(host, { repo, issues: read.issues, tasks: [...(await register.snapshot()).state.tasks.values()], listed: config.github.repos }, rules, formerNames);
+        if (planned.kind === 'failed') {
+            say(`FAILED ${repo}: ${planned.reason}; its tasks stay as they are`);
+            ends.push('failed');
+            failures.push({ repo, reason: planned.reason });
+            unread.add(repo);
+            continue;
+        }
+        planned.lines.forEach(say);
+        const { tasks } = planned;
+        // The automatic sync adds at most github.addMaxPerRun tasks a repository: a mass add waits for a person's --yes.
+        const { plan, held } = auto ? holdAdds(planned.plan, config.github.addMaxPerRun) : { plan: planned.plan, held: 0 };
+        const heldReason = `${held} issue(s) to add, more than github.addMaxPerRun (${config.github.addMaxPerRun}) a round, so none was added: check the repository was not renamed or moved, then teamrig issue sync --yes adds them`;
+        if (held > 0) {
+            say(`HELD ${repo}: ${heldReason}`);
+        }
         const imported = importedTasks(tasks);
-        const plan = planSync(read.issues, imported, rules, linkedRefs(tasks));
         // A security issue goes to its task's owner, else where the import would route it; an outsider's left-out report too.
         security.set(repo, securityIssues(read.issues, (issue) => imported.get(issueRef(issue.repo, issue.number))?.owner ?? issueOwner(issue, rules)));
         leftOut.set(repo, plan.leftOut);
@@ -145,6 +163,11 @@ export async function issueSync(args, runtime) {
         const leftOutText = leftOutLines(repo, plan.leftOut, rules.acceptLabel);
         let end = 'ok';
         let issueThreads = [];
+        if (held > 0) {
+            // The lead hears of it once (failureNews), and again only after a round that held nothing.
+            failures.push({ repo, reason: heldReason });
+            end = 'refused';
+        }
         if (write) {
             const outcomes = await applySteps(register, plan.steps);
             // Against the tasks as written, so an issue the import just took is held by its new task.
@@ -155,7 +178,9 @@ export async function issueSync(args, runtime) {
             added.push(...addedTasks(outcomes));
             const refused = refusedReason(outcomes);
             if (refused !== undefined) {
-                failures.push({ repo, reason: refused });
+                if (end === 'ok') {
+                    failures.push({ repo, reason: refused });
+                }
                 end = 'refused';
             }
         }
