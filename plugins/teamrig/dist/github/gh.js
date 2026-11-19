@@ -14,11 +14,12 @@ import { QUERY_VARIABLES, RAW_FIELD } from "./queries.js";
  * assignees (a claim the sync made that ran out), the creation of one of the labels teamrig makes (the status push
  * and issue label), one sub-issue or blocked-by link added (issue links), and `issue watch`'s two probes,
  * conditional reads that tell whether a repository changed (isWatchProbe), the read of one failed Actions job's log
- * (the pull request monitor names its failed step), and the reads of a repository's comments, review comments, issue
- * and pull request bodies changed since a time and of one pull request's reviews (the mention scan). The runner
- * refuses any other command line before it starts: no title or state edit besides the close, no reopen, removal of
- * more than one assignee at once, label create but teamrig's own, label edit or delete, link removal, merge, branch
- * delete, run rerun or cancel, or log download.
+ * (the pull request monitor names its failed step), the reads of a repository's comments, review comments, issue
+ * and pull request bodies changed since a time and of one pull request's reviews (the mention scan), and the read of
+ * one page of a pull request's changed files (issue intake, which keeps their paths). The runner refuses any other
+ * command line before it starts: no title or state edit besides the close, no reopen, removal of more than one
+ * assignee at once, label create but teamrig's own, label edit or delete, link removal, merge, branch delete, run
+ * rerun or cancel, or log download.
  *
  * isIssueQuery is true for `gh api graphql -f query=<a text of queries.ts> -f <variable>=<value> ...` and nothing more: the query
  * word for word, each variable one it declares and given once, every field raw (`-f`). Any other flag (`-F`,
@@ -114,6 +115,31 @@ export const COMMENTS_PAGE = 30;
  */
 export function commentsReadArgs(target, since) {
     return ['api', `repos/${target.repo}/issues/${target.number}/comments`, '-X', 'GET', RAW_FIELD, `since=${since}`, RAW_FIELD, `per_page=${COMMENTS_PAGE}`];
+}
+/** The changed files one read of a pull request gives at most: issue intake routes by the paths of this one page. */
+export const PULL_FILES_PAGE = 100;
+/** The command line that reads the first page of one pull request's changed files, for their paths. */
+export function pullFilesArgs(target) {
+    return ['api', `repos/${target.repo}/pulls/${target.number}/files`, '-X', 'GET', RAW_FIELD, `per_page=${PULL_FILES_PAGE}`];
+}
+/** `repos/<owner>/<name>/pulls/<number>/files`. */
+const PULL_FILES_PATH = /^repos\/([^/]+\/[^/]+)\/pulls\/[1-9][0-9]{0,9}\/files$/;
+/**
+ * True for `gh api repos/<owner>/<name>/pulls/<number>/files -X GET -f per_page=100` and nothing more: one page of
+ * one pull request's changed files. Another field, page, page size, method or `--paginate` is refused, so the read
+ * stays one bounded page and writes nothing.
+ */
+export function isPullFilesRead(args) {
+    const match = PULL_FILES_PATH.exec(args[1] ?? '');
+    const [page, ...rest] = rawPairs(args.slice(4)) ?? [];
+    return (args[0] === 'api' &&
+        match !== null &&
+        REPO_NAME.test(match[1] ?? '') &&
+        args[2] === '-X' &&
+        args[3] === 'GET' &&
+        page?.[0] === 'per_page' &&
+        page[1] === String(PULL_FILES_PAGE) &&
+        rest.length === 0);
 }
 /** A UTC time as Date.toISOString writes it. */
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -529,11 +555,11 @@ export function isLinkAdd(args) {
         field.slice(0, equals) === key &&
         HOST_ID.test(field.slice(equals + 1)));
 }
-/** A command line the runner will not start: none of a shipped query's page, a watch probe, one issue's creation, comment, body, labels, close or link, a failed job's log, or a mention scan's read. */
+/** A command line the runner will not start: none of a shipped query's page, a watch probe, one issue's creation, comment, body, labels, close or link, a failed job's log, a mention scan's read, or a pull request's changed files. */
 export class GhRefusedError extends Error {
     name = 'GhRefusedError';
     constructor(args) {
-        super(`teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, to read a failed job's log, and to read the posts that may mention a user: it refuses gh ${args.slice(0, 2).join(' ')} with these arguments`);
+        super(`teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close or link an issue, to read a failed job's log, to read the posts that may mention a user, and to read a pull request's changed files: it refuses gh ${args.slice(0, 2).join(' ')} with these arguments`);
     }
 }
 /** True for each fixed command line the runner starts; it also makes a label a read label file named (isFileLabelCreate). */
@@ -558,7 +584,8 @@ export function isAllowedGh(args) {
         isWatchProbe(args) ||
         isJobLogRead(args) ||
         isMentionRead(args) ||
-        isReviewRead(args));
+        isReviewRead(args) ||
+        isPullFilesRead(args));
 }
 /** The lists the mention scan pages through, each changed since a time: comments on issues and pull requests, inline review comments, and the issues and pull requests themselves for their bodies. */
 export const MENTION_LISTS = ['issues/comments', 'pulls/comments', 'issues'];

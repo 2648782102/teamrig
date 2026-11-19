@@ -3,9 +3,9 @@ import { targetText, } from "../issues/host.js";
 import { LABEL_FILE, parseLabelFile } from "../issues/label-file.js";
 import { MAX_COMMENT } from "../issues/write.js";
 import { exitText } from "../open/processes.js";
-import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
+import { assigneeReadArgs, blockedByAddArgs, commentsReadArgs, pullFilesArgs, issueAssignArgs, issueUnassignArgs, issueBodyArgs, issueCloseArgs, issueCommentArgs, issueCreateArgs, issueLabelAddArgs, issueLabelRemoveArgs, issueReadArgs, jobLogArgs, labelReadArgs, isLogin, labelCreateArgs, labelFileReadArgs, subIssueAddArgs, WATCH_PATHS, watchProbeArgs, userReadArgs, } from "./gh.js";
 import { probeAnswerOf } from "./probe.js";
-import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, runRead, startFailureText } from "./issues.js";
+import { ghFailureKind, ISSUE_LIMIT, listIssues, plainLine, readCommentsIn, readPullFilesIn, runRead, startFailureText } from "./issues.js";
 import { failedLogExcerpt } from "./job-log.js";
 import { listLinks } from "./links.js";
 import { createdNumber } from "./migrate.js";
@@ -237,6 +237,22 @@ export class GitHubIssueHost {
         }
         const comments = readCommentsIn(read.stdout);
         return comments === undefined ? { kind: 'failed', reason: `gh printed no comment list for ${shown}` } : { kind: 'read', comments };
+    }
+    /**
+     * Reads one page of the pull request's changed files (gh.ts pullFilesArgs) and keeps their paths. An issue that is
+     * no pull request, or one GitHub does not show, fails the read.
+     */
+    async pullFiles(target) {
+        const shown = `the changed files of ${targetText(target)}`;
+        const read = await this.read(target.repo, pullFilesArgs(target), shown);
+        if (read.kind === 'missing') {
+            return { kind: 'failed', reason: `GitHub shows no pull request ${targetText(target)}: it is an issue, or one this access cannot see` };
+        }
+        if (read.kind === 'failed') {
+            return read;
+        }
+        const files = readPullFilesIn(read.stdout);
+        return files === undefined ? { kind: 'failed', reason: `gh printed no file list for ${shown}` } : { kind: 'read', ...files };
     }
     /**
      * Reads whether the login may be assigned, as GitHub spells it. GitHub's assignee check matches a login's case

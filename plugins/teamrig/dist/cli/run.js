@@ -88,6 +88,7 @@ const followCommands = () => import("./commands/follow.js");
 const issueWatchCommands = () => import("./commands/issue-watch.js");
 const issueMigrateCommands = () => import("./commands/issue-migrate.js");
 const issueCommands = () => import("./commands/issue.js");
+const issueIntakeCommands = () => import("./commands/issue-intake.js");
 const prCommands = () => import("./commands/pr.js");
 const issueLinksCommands = () => import("./commands/issue-links.js");
 const startCommands = () => import("./commands/start.js");
@@ -220,6 +221,7 @@ const COMMANDS = {
     'issue close': { effect: 'write', flags: ['session', 'comment', 'reason', 'duplicate-of'], load: async () => (await issueCommands()).issueClose },
     'issue label': { effect: 'write', flags: ['session', 'add', 'remove'], load: async () => (await issueCommands()).issueLabel },
     'issue similar': { effect: 'read', flags: [], load: async () => (await issueCommands()).issueSimilar },
+    'issue intake': { effect: 'write', flags: ['session', 'priority', 'due', 'goals'], load: async () => (await issueIntakeCommands()).issueIntake },
     'pr conflicts': { effect: 'write', flags: ['base'], load: async () => (await prCommands()).prConflicts },
     'issue links': { effect: 'write', flags: ['repo'], switches: ['yes'], load: async () => (await issueLinksCommands()).issueLinks },
     follow: { effect: 'write', flags: ['session'], switches: ['list'], load: async () => (await followCommands()).follow },
@@ -772,6 +774,12 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
   issue similar <owner/name#n>   the issues the task list mirrors that may be duplicates of this one,
       best first: at most 3 at or above github.similarThreshold by TF-IDF over their titles and bodies,
       with no model and no GitHub call; reads the task list only, so issue sync must have added the issue
+  issue intake <owner/name#n> --priority <p> [--due <when>] [--goals <tags>]   takes in an outside
+      pull request of the team's repositories: reads its changed paths once (one page of 100), asks the
+      session owning each area it changes (github.areaPaths, owned through github.areaOwners) a
+      best-fix and overlap review task, the security reviewer one too when it changes a guarded path,
+      then adds the caller's task to answer its author, planned after every review; writes nothing to
+      GitHub; refuses a pull request taken in already while its reply task is not dropped
   pr conflicts <owner/name#n> [--base <branch>]   in a clone of that repository, fetches the pull
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and

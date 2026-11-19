@@ -180,7 +180,7 @@ export async function issueSimilar(args, runtime) {
     return EXIT.ok;
 }
 /** The issue or pull request the one positional names; refused when it names none. */
-function targetOf(args) {
+export function targetOf(args) {
     const text = onePositional(args, 'issue');
     const target = parseIssueTarget(text);
     if (target === undefined) {
@@ -200,7 +200,7 @@ async function writeOn(args, runtime, write, textFlag) {
  * The host of `repo` once the caller is on the team, the repository is one of the team's and the text to post (if
  * any) may be posted; undefined, after an OFF line, while GitHub is off on the machine.
  */
-async function hostFor(args, runtime, repo, posted) {
+export async function hostFor(args, runtime, repo, posted) {
     return hostAfter(await checkedRepo(args, runtime, repo), runtime, posted);
 }
 /** The team's config and `repo`'s host kind once the caller is on the team and the repository is one of the team's. */
