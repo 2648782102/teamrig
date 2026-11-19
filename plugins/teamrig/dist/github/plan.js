@@ -76,7 +76,7 @@ export function planSync(issues, imported, rules, linked = new Set()) {
 function issueSteps(issue, imported, rules, linked) {
     const wanted = issueTask(issue, rules);
     const task = imported.get(wanted.ref);
-    const followsText = issueTrust(issue, rules.acceptLabel) !== 'untrusted';
+    const followsText = issueTrust(issue, rules.trust) !== 'untrusted';
     if (task === undefined && linked.has(wanted.ref)) {
         return { known: true, steps: [] };
     }

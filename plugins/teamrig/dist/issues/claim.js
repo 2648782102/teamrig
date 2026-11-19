@@ -2,7 +2,7 @@ import { isRecord } from "../core/guards.js";
 import { parseObject, toJsonlLine, VERSION_FIELD } from "../core/jsonl.js";
 import { DESIGN_LABEL } from "./design-label.js";
 import { isLogin } from "../github/gh.js";
-import { isInsider, issueTrust } from "../github/trust.js";
+import { isInsideAuthor, issueTrust } from "../github/trust.js";
 /**
  * A contributor claims an open issue by a comment, and code assigns them (T3021 design, section 1). This file holds
  * the decisions only: which comment is a claim, which claims a sync makes, and which run out. It reads and writes
@@ -116,7 +116,7 @@ export function claimCandidates(issues, claims, pass) {
     const candidates = [];
     for (const issue of issues) {
         const own = kept.filter((claim) => claim.repo === issue.repo);
-        if (own.filter((claim) => pass.now - claim.at < DAY_MS).length >= CLAIMS_PER_DAY || !claimable(issue, pass.acceptLabel)) {
+        if (own.filter((claim) => pass.now - claim.at < DAY_MS).length >= CLAIMS_PER_DAY || !claimable(issue, pass.trust)) {
             continue;
         }
         const holding = new Set(own.map((claim) => claim.login));
@@ -137,7 +137,7 @@ export function planClaims(issues, claims, times, comments) {
     const made = [];
     const today = (repo) => [...kept, ...made].filter((claim) => claim.repo === repo && times.now - claim.at < DAY_MS).length;
     for (const issue of issues) {
-        if (today(issue.repo) >= CLAIMS_PER_DAY || !claimable(issue, times.acceptLabel)) {
+        if (today(issue.repo) >= CLAIMS_PER_DAY || !claimable(issue, times.trust)) {
             continue;
         }
         const holding = new Set([...kept, ...made].filter((claim) => claim.repo === issue.repo).map((claim) => claim.login));
@@ -154,17 +154,17 @@ export function planClaims(issues, claims, times, comments) {
  * An open issue with no assignee that is neither a design issue (talk, never work to take) nor a security one, and is
  * the repository's own or accepted: an outsider's issue no one accepted is no work yet, so it is no one's to claim.
  */
-function claimable(issue, acceptLabel) {
+function claimable(issue, trust) {
     const labels = issue.labels.map((label) => label.toLowerCase());
     return (issue.state === 'open' &&
         issue.assignees.length === 0 &&
         !labels.includes(DESIGN_LABEL) &&
         !labels.includes(SECURITY_LABEL) &&
-        issueTrust(issue, acceptLabel) !== 'untrusted');
+        issueTrust(issue, trust) !== 'untrusted');
 }
 /** True for a comment since `since` by an outside person holding no other claim in the repository. */
 function mayClaim(comment, since, holding) {
-    return Date.parse(comment.at) >= since && isLogin(comment.login) && comment.authorKind === PERSON && !isInsider(comment.authorAssociation) && !holding.has(comment.login);
+    return Date.parse(comment.at) >= since && isLogin(comment.login) && comment.authorKind === PERSON && !isInsideAuthor(comment.authorAssociation) && !holding.has(comment.login);
 }
 /** The oldest claim comment among `comments` that mayClaim allows. */
 function firstClaim(comments, since, holding) {

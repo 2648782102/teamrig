@@ -2,6 +2,7 @@ import { MAX_DESCRIPTION } from "../config/defaults.js";
 import { SecretScanner } from "../core/secrets.js";
 import { ISSUE_REF_PREFIX } from "../register/model.js";
 import { plainLine } from "./issues.js";
+import { trustRules } from "./trust.js";
 /** The priority of an issue with no priority label of the team's: p2, or the team's least urgent level when it has no p2. */
 export const ISSUE_PRIORITY = 2;
 /** The description of an issue whose body looks like it holds a secret: the body stays on GitHub only. */
@@ -19,7 +20,7 @@ export function importRules(config) {
         repoSessions: new Map(Object.entries(config.github.sessions)),
         lead: config.roles.lead,
         secrets: new SecretScanner(config.register.secretPatterns),
-        acceptLabel: config.github.acceptLabel,
+        trust: trustRules(config.github),
     };
 }
 /** The ref of an issue's task: one per issue, whatever its title or state. */

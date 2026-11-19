@@ -70,6 +70,8 @@ export const CONFIG_LIMITS = {
     githubProbeSeconds: { min: 0, max: 3600 },
     similarThreshold: { min: 0, max: 1 },
     githubFollowMax: { min: 0, max: 100 },
+    githubAcceptors: { maxItems: 50 },
+    githubRestrictedLabels: { maxItems: 20 },
     budgetTargetPct: { min: 1, max: 100 },
     budgetReservePct: { min: 0, max: 50 },
     /** 0 turns the floor off; past 50 one team's floor would leave a second less than its own (T2215). */

@@ -3,6 +3,7 @@ import { SecretScanner } from "../../core/secrets.js";
 import { closedSince } from "../../github/sync.js";
 import { targetText } from "../../issues/host.js";
 import { applyPush } from "../../issues/push-apply.js";
+import { planTriage, sendTriage, triageRules } from "../../issues/triage.js";
 import { changeLine, changeWrites, planPush, SESSION_PUSH, sessionLogins } from "../../issues/status-push.js";
 import { RegisterPolicy } from "../../register/policy.js";
 import { noPositionals } from "../args.js";
@@ -57,6 +58,7 @@ export async function issuePush(args, runtime) {
         logins: sessionLogins(config.github.owners),
         told: new Set(),
         fields: await fieldRunOf(runtime, config, team.paths, team.register),
+        triage: triageRules(config.github),
     }, say);
     say(pushEndLine(send, totals, SESSION_PUSH.writesPerRun));
     return totals.failures.length > 0 ? EXIT.failed : EXIT.ok;
@@ -108,7 +110,15 @@ export async function pushRepos(run, say) {
         else {
             writes += planned;
         }
-        // After the labels, in the run's writes they left; a repository whose label push failed sends no field.
+        // After the status labels, in the run's writes they left; a repository whose label push failed triages nothing.
+        if (failed === undefined && run.triage !== undefined) {
+            const triaged = await sendTriage(run.host, planTriage(repo, read.issues, run.triage, left), run.send, say);
+            left -= triaged.planned;
+            writes += triaged.writes;
+            sent += triaged.sent;
+            failed = triaged.failed;
+        }
+        // After the labels and the triage, in the writes they left; a repository whose label push or triage failed sends no field.
         if (failed === undefined && run.fields !== undefined) {
             const fielded = await pushFields({ host: run.host, run: run.fields, repo, issues: read.issues, tasks, writes: left, send: run.send }, say);
             left -= fielded.planned;

@@ -1,3 +1,4 @@
+import { trustRules } from "../../github/trust.js";
 import { CLAIM_DAYS, CLAIM_READS, claimCandidates, claimKey, formatClaims, parseClaims, planClaims } from "../../issues/claim.js";
 import { targetText } from "../../issues/host.js";
 import { STATUS_LABELS } from "../../issues/status-push.js";
@@ -61,7 +62,7 @@ export async function recordClaims(runtime, kit, config, run) {
     const checked = new Map(before.checked);
     for (const [repo, issues] of run.read) {
         const since = before.checked.get(repo) ?? run.started;
-        const pass = { now, since, acceptLabel: config.github.acceptLabel };
+        const pass = { now, since, trust: trustRules(config.github) };
         const own = before.claims.filter((claim) => claim.repo === repo);
         const read = await readCandidates(run.host, claimCandidates(issues, own, pass), since, say);
         const plan = planClaims(issues, own, pass, read.comments);

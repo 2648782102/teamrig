@@ -24,6 +24,7 @@ import { claimBudget, recordClaims } from "./issue-claim.js";
 import { pullThreads, recordClocks, repoThreads } from "./issue-clock.js";
 import { fieldRunOf } from "./issue-field-push.js";
 import { issuePush, pushEndLine, pushRepos } from "./issue-push.js";
+import { triageRules } from "../../issues/triage.js";
 import { GITHUB_OFF, githubOff, readSyncState, reportAutoSync } from "./issue-sync-auto.js";
 import { githubWatcher } from "../../github/watcher.js";
 /** The rows of steps a repository prints; the rest are counted. */
@@ -142,7 +143,7 @@ export async function issueSync(args, runtime) {
             issueRoutes.push(...marked.routes);
             marked.routes.forEach((route) => say(`ISSUE NEWS ${route.to}: ${route.ref} ${route.changes.join(', ')}`));
         }
-        const leftOutText = leftOutLines(repo, plan.leftOut, rules.acceptLabel);
+        const leftOutText = leftOutLines(repo, plan.leftOut, rules.trust.acceptLabel);
         let end = 'ok';
         let issueThreads = [];
         if (write) {
@@ -240,6 +241,7 @@ export async function issueSync(args, runtime) {
             logins: sessionLogins(config.github.owners),
             told,
             fields: await fieldRunOf(runtime, config, kit.paths, register),
+            triage: triageRules(config.github),
         }, say);
         say(pushEndLine(true, pushed, writesPerRun));
         for (const failure of pushed.failures) {
