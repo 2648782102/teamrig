@@ -2,9 +2,8 @@ import { GUARD_LIMIT_MS } from "./guard-runner.js";
 /**
  * Each `hook <name>` command's time limit, in ms: what Claude Code gives it in plugins/teamrig/hooks/hooks.json (for a
  * guard that runs through guard-main.js, the runner's own shorter GUARD_LIMIT_MS, which blocks the call at its end), or
- * what the plugin's mod gives the hooks its hands run (src/mod/*-hand.ts); null for one run with no limit (the clear
- * hand's). The one place that knows them (#737): hook-timeouts.test.ts holds hooks.json and the hands to it, and
- * that every `hook` command has one.
+ * what the plugin's mod gives the hooks its hands run (src/mod/*-hand.ts, src/mod/hand-watch.ts). The one place that
+ * knows them (#737): hook-timeouts.test.ts holds hooks.json and the hands to it, and that every `hook` command has one.
  */
 export const HOOK_TIMEOUT_MS = {
     'push-guard': GUARD_LIMIT_MS,
@@ -36,8 +35,9 @@ export const HOOK_TIMEOUT_MS = {
     'prompt-refuse': 15_000,
     'route-allow': 15_000,
     'pre-compact': 15_000,
-    'clear-dir': null,
-    'clear-claim': null,
+    'clear-dir': 30_000,
+    'clear-claim': 30_000,
+    'hand-trace': 10_000,
     'wake-check': 30_000,
     'wake-dropped': 30_000,
     'meeting-due': 30_000,
@@ -58,10 +58,10 @@ export const HOOK_OUTPUT_MARGIN_MS = 3_000;
 /**
  * The time by which every lock wait of `hook <name>` (the command's name, `hook <name>`) started at `startedAt` gives
  * up, so a busy lock never outlasts the hook's time limit and the hook still prints its output (#737); undefined for
- * any other command, or a hook with no limit.
+ * any other command.
  */
 export function hookLockDeadline(command, startedAt) {
     const name = command.startsWith('hook ') ? command.slice('hook '.length) : undefined;
     const limit = name === undefined ? undefined : LIMITS.get(name);
-    return limit === undefined || limit === null ? undefined : startedAt + Math.max(0, limit - HOOK_OUTPUT_MARGIN_MS);
+    return limit === undefined ? undefined : startedAt + Math.max(0, limit - HOOK_OUTPUT_MARGIN_MS);
 }

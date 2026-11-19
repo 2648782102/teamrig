@@ -165,6 +165,7 @@ export function teamPaths(kitHome, team, claudeDir, overrides = {}) {
         wake: join(state, 'wake'),
         wakeAsks: join(state, 'wake-asks'),
         wakeLog: join(state, 'wakes.jsonl'),
+        handTraceLog: join(state, 'hand-trace.jsonl'),
         launchSettings: join(state, 'launch'),
         promptAnswers: join(state, 'prompt-answers.jsonl'),
         promptAnswersLock: join(state, 'prompt-answers.lock'),
