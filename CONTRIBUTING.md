@@ -180,6 +180,12 @@ matrix.
   14 days hold version updates only: a security update for an advisory comes at once, and is landed the same way.
 - **Every action is pinned** to a full commit SHA with its version in a comment (`tools/ci/security-workflows.test.ts`
   holds every workflow to it), so a moved tag cannot change what runs.
+- **An outside pull request's CI runs without a maintainer's click**, so the same spec stands in for that click: no
+  workflow starts on `workflow_run` or `pull_request_target`, and each one a pull request or merge queue group starts
+  (read from its triggers; one it cannot read counts) runs only on GitHub-hosted runners, named from an allowed list,
+  calls no reusable workflow, and writes no Actions cache (no caching action, no `cache` input, and no setup-node
+  caching npm by itself once `package.json` names a package manager). Any change to these rules, or to the workflows
+  past them, needs a security review first.
 - **A vulnerability** is reported privately, never in an issue: [SECURITY.md](SECURITY.md).
 
 ## Branches and releases
