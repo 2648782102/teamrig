@@ -1,7 +1,7 @@
 import { MAX_DESCRIPTION } from '../config/defaults.ts';
 import type { KitConfig } from '../config/types.ts';
 import { SecretScanner } from '../core/secrets.ts';
-import { ISSUE_REF_PREFIX } from '../register/model.ts';
+import { BLOCKER_PRIORITY_ID, BLOCKER_PRIORITY_TEXT, ISSUE_REF_PREFIX } from '../register/model.ts';
 import type { HostIssue } from '../issues/issue.ts';
 import { plainLine } from './issues.ts';
 
@@ -119,8 +119,14 @@ export function taskDescription(body: string, secrets: SecretScanner): string | 
   return secrets.find(text) === undefined && secrets.find(kept) === undefined ? kept : SECRET_BODY;
 }
 
-/** The most urgent `p<n>` label that is one of the team's levels; else ISSUE_PRIORITY, or the least urgent level without it. */
+/**
+ * A `blocker` label's blocker level (T4329), which every team has; else the most urgent `p<n>` label that is one of the
+ * team's levels; else ISSUE_PRIORITY, or the least urgent level without it.
+ */
 export function issuePriority(labels: readonly string[], priorities: readonly number[]): number {
+  if (labels.some((label) => label.trim().toLowerCase() === BLOCKER_PRIORITY_TEXT)) {
+    return BLOCKER_PRIORITY_ID;
+  }
   const levels = labels
     .map((label) => PRIORITY_LABEL.exec(label.trim())?.[1])
     .filter((level) => level !== undefined)

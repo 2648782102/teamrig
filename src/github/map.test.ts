@@ -4,6 +4,7 @@ import { testConfig } from '../testing/config.ts';
 import type { HostIssue } from '../issues/issue.ts';
 import { MAX_DESCRIPTION } from '../config/defaults.ts';
 import { SecretScanner } from '../core/secrets.ts';
+import { BLOCKER_PRIORITY_ID } from '../register/model.ts';
 import { importRules, issueOutcome, issueOwner, issuePriority, issueRef, issueTask, SECRET_BODY, taskDescription, taskTitle, type ImportRules } from './map.ts';
 
 const RULES: ImportRules = importRules(testConfig({ github: { repos: ['acme/web'], owners: { octocat: 'bravo', hubot: 'alpha' } } }));
@@ -128,6 +129,11 @@ describe('issuePriority', () => {
   it('falls back to p2, or to the least urgent level of a team with no p2', () => {
     assert.equal(issuePriority(['bug', 'p9', 'priority-1', 'p0'], [1, 2, 3]), 2);
     assert.equal(issuePriority([], [1, 3, 4]), 4);
+  });
+
+  it('takes a blocker label, in any case, over every p<n> label: teamrig has the level whatever the config lists (T4329)', () => {
+    assert.equal(issuePriority(['p1', ' Blocker '], [1, 2, 3]), BLOCKER_PRIORITY_ID);
+    assert.equal(issuePriority(['blocked', 'blockers'], [1, 2, 3]), 2);
   });
 });
 
