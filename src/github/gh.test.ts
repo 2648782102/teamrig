@@ -371,8 +371,8 @@ describe('the duplicate close and the issue read', () => {
 describe('the managed label create (T2999, T3096)', () => {
   const [OPEN_LABEL] = MANAGED_LABEL_SPECS;
 
-  it('takes the create of each of the push\'s own status labels and design', () => {
-    assert.deepEqual(MANAGED_LABEL_SPECS.map((label) => label.name).slice(-2), ['status:in review', 'design']);
+  it('takes the create of each of the push\'s own status labels, design and feature', () => {
+    assert.deepEqual(MANAGED_LABEL_SPECS.map((label) => label.name).slice(-3), ['status:in review', 'design', 'feature']);
     for (const label of MANAGED_LABEL_SPECS) {
       const args = labelCreateArgs('acme/web', label);
       assert.deepEqual(args, ['api', 'repos/acme/web/labels', '-X', 'POST', '-f', `name=${label.name}`, '-f', `color=${label.color}`, '-f', `description=${label.description}`]);
