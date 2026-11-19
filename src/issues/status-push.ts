@@ -357,7 +357,7 @@ export function planIssue(target: IssueTarget, task: Task, issue: IssueNow, logi
 
 /** A push plan of `repo` that sends `change` alone, for a write of one issue (issues/reply.ts) through applyPush. */
 export function onePushPlan(repo: string, change: IssueChange): PushPlan {
-  return { repo, changes: [change], deferred: [], heldCloses: [], unchanged: 0, closedActive: [], keptOpen: [], unlisted: [], shared: [] };
+  return { repo, changes: [change], deferred: [], heldCloses: [], unchanged: 0, closedActive: [], keptOpen: [], unlisted: [], shared: [], openPulls: [] };
 }
 
 /** Who holds one issue as the push picks it (holders): the one task speaking for it, or the active tasks sharing it. */
