@@ -117,6 +117,13 @@ export function sessionLogins(owners) {
 export function assigneeOf(repo, session, logins) {
     return logins.get(session) ?? repo.slice(0, repo.indexOf('/'));
 }
+/** The logins an open issue with no assignee is assigned to, or undefined for none: a design issue's, else a scheduled task's. */
+function assignFor(repo, owner, issue, assignees) {
+    if (issue.design) {
+        return assignees.design.length > 0 ? assignees.design : undefined;
+    }
+    return issue.claim ? [assigneeOf(repo, owner, assignees.sessions)] : undefined;
+}
 /** The writes one change sends: one per label added or taken off, one for the assign, and one for the close. */
 export function changeWrites(change) {
     return change.add.length + change.remove.length + (change.assign === undefined ? 0 : 1) + (change.close === undefined ? 0 : 1);
@@ -128,11 +135,12 @@ export const SESSION_PUSH = { writesPerRun: PUSH_WRITES_PER_RUN, closes: true };
  * show the task's status, planned against `issues` as the host listed them now (open ones and those closed lately).
  * When a team task and an imported one hold the same issue, the team task speaks for it: the issue is its work. When
  * two or more active team tasks hold it, none does: the plan writes nothing to it and names them (SharedIssue); one
- * active team task speaks over finished ones (holders). The run sends at most `limits.writesPerRun` writes; the rest is deferred. Without `limits.closes` a closing change
- * is held instead, taking none of the run's writes. With `logins` an open issue of a scheduled task with no assignee
- * is assigned (assigneeOf); without, the plan assigns nobody.
+ * active team task speaks over finished ones (holders). The run sends at most `limits.writesPerRun` writes; the rest
+ * is deferred. Without `limits.closes` a closing change is held instead, taking none of the run's writes. With
+ * `assignees` an open issue with no assignee is assigned: a scheduled task's to its owner's login (assigneeOf), a
+ * design issue to the design assignees; without, nobody is.
  */
-export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins) {
+export function planPush(repo, issues, tasks, limits = SESSION_PUSH, assignees) {
     const listed = new Map(issues.filter((issue) => issue.repo === repo).map((issue) => [issue.number, issue]));
     const planned = [];
     const closedActive = [];
@@ -142,7 +150,8 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins) {
     const held = holders(repo, tasks);
     for (const [target, task] of [...held.speakers].sort(([a], [b]) => a - b).map(([number, holder]) => [{ repo, number }, holder])) {
         const issue = listed.get(target.number);
-        const goal = issueGoal(task, { assigned: issue !== undefined && issue.assignees.length > 0, design: issue?.labels.includes(DESIGN_LABEL) ?? false });
+        const design = issue?.labels.includes(DESIGN_LABEL) ?? false;
+        const goal = issueGoal(task, { assigned: issue !== undefined && issue.assignees.length > 0, design });
         if (issue === undefined) {
             // The list holds every open issue, so one it left out is closed (or gone): as a closed task wants it.
             if (goal.open) {
@@ -157,12 +166,12 @@ export function planPush(repo, issues, tasks, limits = SESSION_PUSH, logins) {
             closedActive.push({ target, task: task.id, status: task.status, stateReason: issue.stateReason });
             continue;
         }
-        const kept = goal.open || issue.state === 'closed' ? undefined : closeLeft(repo, issue, logins);
+        const kept = goal.open || issue.state === 'closed' ? undefined : closeLeft(repo, issue, assignees?.sessions);
         if (kept !== undefined) {
             keptOpen.push({ target, task: task.id, status: task.status, why: kept });
             continue;
         }
-        const assign = goal.open && goal.claim && logins !== undefined && issue.assignees.length === 0 ? assigneeOf(repo, task.owner, logins) : undefined;
+        const assign = goal.open && assignees !== undefined && issue.assignees.length === 0 ? assignFor(repo, task.owner, { design, claim: goal.claim }, assignees) : undefined;
         const change = changeFor(target, task, issue, goal, assign);
         if (change === undefined) {
             unchanged += 1;
@@ -235,7 +244,7 @@ export function heldIssue(task) {
 /**
  * The writes for one listed issue, or undefined when it already shows its task's status. A closing issue loses its
  * status labels too, so a closed issue never shows work as still going on. `assign`, set for an open issue with no
- * assignee, is the login it gets.
+ * assignee, is the logins it gets.
  */
 function changeFor(target, task, issue, goal, assign) {
     const statusLabels = issue.labels.filter((label) => label.startsWith(STATUS_LABEL_PREFIX));
@@ -276,7 +285,7 @@ export function changeLine(change) {
         ...(change.close === undefined ? [] : [`close as ${change.close}`]),
         ...change.add.map((label) => `add ${label}`),
         ...change.remove.map((label) => `take off ${label}`),
-        ...(change.assign === undefined ? [] : [`assign ${change.assign}`]),
+        ...(change.assign === undefined ? [] : [`assign ${change.assign.join(', ')}`]),
     ];
     return `${changeTag(change)} ${targetText(change.target)} ${change.task} ${change.status}: ${writes.join(', ')}`;
 }

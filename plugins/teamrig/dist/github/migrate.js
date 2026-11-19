@@ -3,6 +3,7 @@ import { privateShapeIn } from "../core/private-shapes.js";
 import { SecretScanner } from "../core/secrets.js";
 import { taskIdIn } from "../issues/posted.js";
 import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from "../register/model.js";
+import { DESIGN_LABEL } from "../issues/design-label.js";
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
  * whether it becomes an issue, with the public wording the team wrote for it, or stays on the team's own list
@@ -13,8 +14,12 @@ import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from "../register/model.js";
  */
 /** The priorities a row gives, as the sync reads them back from an issue's labels (map.ts). */
 const PRIORITY_LABELS = ['p1', 'p2', 'p3'];
-/** A row's kind of work, and the GitHub label each one gets: a bug stays `bug`, a task is an `enhancement`. */
-const TYPE_LABELS = { bug: 'bug', task: 'enhancement' };
+/**
+ * A row's kind of work, and the GitHub label each one gets: a bug stays `bug`, a task is an `enhancement`, and a
+ * design question is a design issue (issues/design-label.ts), talk until it is agreed.
+ */
+const TYPE_LABELS = { bug: 'bug', task: 'enhancement', design: DESIGN_LABEL };
+const ROW_TYPES = ['bug', 'task', 'design'];
 /** The priority label of a task's priority: p0 and p1 are `p1`, the sync's highest, p2 is `p2`, any lower `p3`. */
 export function priorityLabelOf(priority) {
     return priority <= 1 ? 'p1' : priority === 2 ? 'p2' : 'p3';
@@ -106,8 +111,9 @@ function issueRow(raw, id, scanner) {
     if (typeof repo !== 'string' || typeof title !== 'string' || typeof body !== 'string') {
         return { ok: false, error: `${id}: repo, title and body are text` };
     }
-    if (type !== 'bug' && type !== 'task') {
-        return { ok: false, error: `${id}: type is neither "bug" nor "task"` };
+    const kind = ROW_TYPES.find((one) => one === type);
+    if (kind === undefined) {
+        return { ok: false, error: `${id}: type is not one of ${ROW_TYPES.join(', ')}` };
     }
     const label = PRIORITY_LABELS.find((one) => one === priority);
     if (label === undefined) {
@@ -117,7 +123,7 @@ function issueRow(raw, id, scanner) {
     if (!text.ok) {
         return text;
     }
-    return { ok: true, value: { decision: 'issue', id, repo: repo.trim().toLowerCase(), type, priority: label, ...text.value } };
+    return { ok: true, value: { decision: 'issue', id, repo: repo.trim().toLowerCase(), type: kind, priority: label, ...text.value } };
 }
 /**
  * The checks every issue teamrig opens passes, named after `who` (a task id, or the new task): a one-line title of
