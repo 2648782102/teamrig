@@ -11,7 +11,7 @@ import { waitsLetGoOn } from "../register/can-move.js";
 import { taskNumber } from "../register/fold.js";
 import { wouldPark } from "../register/park.js";
 import { neededIds } from "../register/tree.js";
-import { unfinishedAfter, waitContext } from "../register/waits.js";
+import { hasStarted, unfinishedAfter, waitContext } from "../register/waits.js";
 /**
  * Waking a session idle at its prompt when work is handed to it, pure. A wake is a model turn, so only work the
  * session can go on with now ({@link canGoOn}) and has not seen wakes it: its own task at `wake.priority` or more
@@ -55,9 +55,10 @@ function goesOnByWaits(status) {
 }
 /**
  * True when the task's owner can go on with it now: an open or in-progress task, or a waiting task (a verifying
- * task's proof waits) whose every reason cleared or was answered ({@link waitsLetGoOn}). A task never started also
- * waits for every task it comes after to finish: `after` gates its start, so a task already started is past it. A
- * finished task, or one waiting on a decision or an approval not yet answered, never.
+ * task's proof waits) whose every reason cleared or was answered ({@link waitsLetGoOn}). A task not started
+ * ({@link hasStarted}, the rule `set` keeps) also waits for every task it comes after to finish: `after` gates its
+ * start, so a task underway is past it, and an open one put back after its start is not. A finished task, or one
+ * waiting on a decision or an approval not yet answered, never.
  */
 export function canGoOn(task, context) {
     if (task.status === 'done' || task.status === 'dropped') {
@@ -66,7 +67,7 @@ export function canGoOn(task, context) {
     if (goesOnByWaits(task.status) && !waitsLetGoOn(task, context)) {
         return false;
     }
-    return task.startedAt !== null || unfinishedAfter(task.after, context).length === 0;
+    return hasStarted(task) || unfinishedAfter(task.after, context).length === 0;
 }
 /**
  * The context of a wake's read at `now`. Which tasks are needed is built on the first task that reaches that test of

@@ -18,7 +18,7 @@ import { waitsOnOwner } from "./owner-waits.js";
 import { asksReview, missedTaskIds, reviewGap, reviewGapText, reviewProblem, reviewTexts } from "./review.js";
 import { loopFix, needPath, NO_TASKS_ELSEWHERE, pathText } from "./tree.js";
 import { dueStartHolds, dueVerifyHold, heldStart, startHolds, WATCH_USAGE } from "./verify.js";
-import { isPeerWait, isReady, sameWait, sameWaits, waitContext, waitSpelling } from "./waits.js";
+import { hasStarted, isPeerWait, isReady, sameWait, sameWaits, waitContext, waitSpelling } from "./waits.js";
 import { wipHold } from "./wip.js";
 /** The skill name that closes a task which produced no reusable procedure. */
 export const NO_SKILL = 'none';
@@ -1262,13 +1262,6 @@ function treeTasks(state, elsewhere) {
         return state.tasks;
     }
     return new Map([...[...elsewhere].map(([id, held]) => [id, held.task]), ...state.tasks]);
-}
-/**
- * In progress, verifying (its work shipped, whatever an older register's row says of its start) or waiting after it
- * started: a task that can wait on another.
- */
-function hasStarted(task) {
-    return task.status === 'in-progress' || task.status === 'verifying' || (task.status === 'waiting' && task.startedAt !== null);
 }
 /** Open, or waiting without ever starting (on an approval, or a row an older register migrated): a task a plan fits. */
 function notStarted(task) {
