@@ -30,7 +30,7 @@ import { blockOutput, stopOutput } from "../../hooks/stop.js";
 import { adoptTitle, promptNote, sessionStartNote } from "../../names/detect.js";
 import { JsonlRenameLog } from "../../names/log.js";
 import { TRANSCRIPT_TAIL_BYTES } from "../../names/title.js";
-import { decideStart, decideStop, reaskGrowth, thousands, thresholdOf, } from "../../refresh/decide.js";
+import { decideStart, decideStop, reaskGrowth, thousands, } from "../../refresh/decide.js";
 import { ownerTurnsLine, ownerTurnsText } from "../../refresh/owner-turns.js";
 import { carryLines, carryStartOf, readCarry } from "../../refresh/carry.js";
 import { claudeProcessOf } from "../../refresh/restart.js";
@@ -225,8 +225,7 @@ async function cancelledRestartLine(runtime, kit, id, refresh) {
     if (!parked && !pending) {
         return undefined;
     }
-    // The growth past its ask at the session's own threshold: the larger one on a large window.
-    const growth = reaskGrowth({ contextTokens: thresholdOf(await store.state(id), refresh) });
+    const growth = reaskGrowth(refresh);
     return `${KIT_NAME}: the user typed, so the automatic restart is cancelled and you keep this context; a new handover is asked at your next task end, or once your context grew ${thousands(growth)} more`;
 }
 /**
