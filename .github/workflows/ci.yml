@@ -143,6 +143,8 @@ jobs:
       - run: node tools/docs/images-cli.ts --check
       # The configuration reference is drawn from the config schema; it must match the committed page.
       - run: node tools/docs/configuration-cli.ts --check
+      # The layer boundaries of src (what the core and an adapter import, who imports an adapter, where a tool is named): counted, failing nothing in warn mode.
+      - run: node tools/ci/boundaries-cli.ts
       # Every link, anchor and Mermaid block in the Markdown must resolve on every OS.
       - run: node tools/docs/doc-check-cli.ts
 
