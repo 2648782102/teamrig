@@ -110,20 +110,20 @@ On a team that tracks its work on GitHub (`github.repos` set), a task you start 
 so a contributor sees the work is taken and its pull request has an issue to link. The issue is written by this
 skill, whole, as for any taker.
 
-1. Look at the task's ref (`teamrig show <id>`). A `gh:<owner>/<name>#<n>` ref means it has its issue: go on with
-   the work.
-2. Search for one first (step 1's search). An open issue that is the same work becomes the task's ref:
+1. Look at the task (`teamrig show <id>`). A task the security reviewer owns, a critical bug, or one whose ref
+   starts with `local:` never gets an issue: go on with the work. The commands below refuse them too.
+2. A `gh:<owner>/<name>#<n>` ref means it has its issue: go on with the work.
+3. Search for one first (step 1's search). An open issue that is the same work becomes the task's ref:
    `teamrig update <id> --ref gh:<owner>/<name>#<n>`.
-3. Else write its body by steps 1 to 3 and open it with `teamrig issue migrate <rows.jsonl> --yes`, one issue row for
-   the task: it labels the issue with the task's type and priority (p0 and p1 both as `p1`) and sets the task's ref
-   to it. A task you are adding gets its issue in the same step: `teamrig add ... --issue "<title>" --issue-body
-   "<text>"`.
-4. Label what it is now: `teamrig issue label <owner/name#n> --add "status:in progress"`, with the area label too
-   when the repository has area labels.
+4. Else write its body by steps 1 to 3 and open it with `teamrig issue migrate --task <id> --issue "<title>"
+   --issue-body "<text>" --yes`, no row file: the issue opens with the task's type and priority (p0 stays `p0`),
+   its status label, its owner's area label and its owner as assignee, as far as the repository has them, and the
+   task's ref is set to it. A task you are adding gets its issue in the same step: `teamrig add ... --issue
+   "<title>" --issue-body "<text>"`.
 5. Read it back by step 7.
 
-A task that must stay off GitHub (a security hole, or private data that cannot be worded out) takes a local row in
-place of the issue row, with its reason, or `--local "<why>"` as it is added.
+Any other task that must stay off GitHub (a security hole, or private data that cannot be worded out) gets
+`--local "<why>"` as it is added, or `teamrig update <id> --ref "local: <why>"`, in place of the issue.
 
 ## Posting
 

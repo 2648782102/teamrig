@@ -103,12 +103,13 @@ describe('the write-issue skill', () => {
     ]);
   });
 
-  it('gives a task you start its issue first: the ref checked, a duplicate looked for, opened and labelled, never by the status push', () => {
+  it('gives a task you start its issue first: the task kept off GitHub checked, the ref, a duplicate looked for, opened with its fields, never by the status push', () => {
     const section = skill.slice(skill.indexOf('## A task you start with no issue'), skill.indexOf('## Posting'));
-    for (const step of ['`teamrig show <id>`', '`teamrig update <id> --ref gh:<owner>/<name>#<n>`', '`teamrig issue migrate <rows.jsonl> --yes`', '`teamrig issue label <owner/name#n> --add "status:in progress"`', '`--local "<why>"`']) {
+    for (const step of ['`teamrig show <id>`', 'A task the security reviewer owns, a critical bug, or one whose ref\n   starts with `local:` never gets an issue', '`teamrig update <id> --ref gh:<owner>/<name>#<n>`', '`teamrig issue migrate --task <id> --issue "<title>"\n   --issue-body "<text>" --yes`', '(p0 stays `p0`)', '`--local "<why>"`']) {
       assert.ok(section.includes(step), step);
     }
     assert.doesNotMatch(section, /--push/, 'the status push writes every issue of the repository, so it is not the way to label one');
+    assert.doesNotMatch(section, /rows\.jsonl|both as `p1`/u, 'one task needs no row file, and p0 maps to p0 as the code does');
   });
 
   it('keeps a design issue as talk: the design label, no status or assignee, its own sections, agreed by the maintainer, nothing sensitive', () => {

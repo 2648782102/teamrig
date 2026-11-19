@@ -91,7 +91,8 @@ Flags:
   one repository of `github.repos`.
 - `--local "<why>"`: the task gets no issue; the reason is written as its ref, `local: <why>`. Not with `--issue`
   or `--ref`. A security hole is always added with `--local` (say `--local "security, private report"`): it is
-  reported only in private (core rule 11).
+  reported only in private (core rule 11). A critical bug (`--type bug --critical`) and a task the security reviewer
+  owns (`roles.securityReviewer`) never get an issue: `--issue` is refused for them, so they take `--local`.
 - While `[github.issueAtAdd]` names a repository, every add gives `--issue` and `--issue-body`, or `--local`, or a
   `--ref` to an issue it has; any other add is refused and writes nothing. None of the four flags goes with `--team`.
 
@@ -1480,8 +1481,8 @@ others by `#number`), refuses the whole file, naming the line. Write each body b
 
 Without `--yes` it writes nothing. It prints a `REPLACES` line for each task whose ref is not an issue (the issue
 takes the ref's place; the update's note keeps `ref was: <old>`), a `SKIPPED` line for each row it will not act on
-(no such task in the working set, the task is finished, the task holds its issue already, the repository is not
-one of `github.repos`, or the register would refuse the ref), a `NO ROW` line naming the live tasks no row covers
+(no such task in the working set, the task is finished, the task holds its issue already, the task gets no public
+issue, the repository is not one of `github.repos`, or the register would refuse the ref), a `NO ROW` line naming the live tasks no row covers
 (the first 20, then how many more), and the counts. `--out` also writes a Markdown preview with every issue in
 full (task, repository, labels, title, body), the tasks kept local with their reasons and the skipped rows, for a
 reviewer to read before anything is posted.
@@ -1501,10 +1502,16 @@ Bug, a goal Feature; only a repository an organisation owns has types), its `sta
 missing `status:` label is made; a field the repository lacks is left out with a `TYPE-SKIPPED`, `LABEL-SKIPPED` or
 `ASSIGNEE-SKIPPED` line saying why, and the issue still opens. The preview's `Opens with` line names them.
 
+A task whose ref starts with `local: `, a critical bug and a task the security reviewer owns (`roles.securityReviewer`)
+never get a public issue, whatever their wording, since the wording check catches a secret's shape, not a security
+hole told in plain words: their issue rows are skipped (`it gets no public issue: ...; give it a local row`). A
+local ref gives way only once the task's owner clears it with `teamrig update <id> --ref none`.
+
 One task needs no row file: `--task <id> --issue <title> --issue-body <text>` opens that task's issue, its kind of
 work and priority the task's own, in `--issue-repo`, else `github.issueAtAdd`, else the only repository of
 `github.repos`, with the same checks, preview and `--yes`. It refuses a file named beside it, a missing title or
-body (exit 64), and a task not in the working set (exit 2); the issue flags without `--task` are refused too.
+body (exit 64), and a task not in the working set or one that gets no public issue (exit 2), before any gh call;
+the issue flags without `--task` are refused too.
 
 `TEAMRIG_GITHUB=off` makes `--yes` print an `OFF` line and open nothing. Exit 1 when gh failed, 2 when the register
 refused a ref, else 0.
