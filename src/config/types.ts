@@ -672,6 +672,35 @@ export interface TestsConfig {
   readonly maxFailureChars: number;
 }
 
+/** The kinds of issue a task's issue is typed as (T3406): a design issue, a goal (a task planned after its parts), a bug, else a task. */
+export const ISSUE_KINDS = ['task', 'bug', 'goal', 'design'] as const;
+export type IssueKind = (typeof ISSUE_KINDS)[number];
+
+/**
+ * What the status push writes to the issue fields and the type of each open issue a task holds (T3406), one way from
+ * the register, on a tracker that has fields: the priority, the day the task first went in progress, its due day and
+ * its score, each only when it differs from what the issue holds. Labels stay as they are.
+ */
+export interface IssueFieldsConfig {
+  /** Off: the push writes no field and no type. */
+  readonly push: boolean;
+  /** The single-select field the priority goes to, as the option priorityOptions names for it; empty writes none. */
+  readonly priority: string;
+  /**
+   * The options each priority level is written as, by `p<n>`: the first one the field has wins (case aside, or one
+   * that starts with it, such as `P1 - high`). A level not listed is written as its `P<n>` option.
+   */
+  readonly priorityOptions: Readonly<Record<string, readonly string[]>>;
+  /** The date field the day the task first went in progress goes to, on the team's clock; empty writes none. */
+  readonly startDate: string;
+  /** The date field the task's due day goes to; empty writes none. */
+  readonly targetDate: string;
+  /** The number field the task's score goes to, rounded to a whole number, so it is written only when that changed; empty writes none. */
+  readonly score: string;
+  /** The issue types each kind is set as: the first one the repository has wins; an empty list sets no type for that kind. */
+  readonly types: Readonly<Record<IssueKind, readonly string[]>>;
+}
+
 /** The team's GitHub repositories: `teamrig issue sync` reads their issues into the register, never writing to GitHub; `issue migrate` and `issue comment`/`issue close`, run by hand, write only to them. */
 export interface GithubConfig {
   /** The repositories it reads, as `owner/name` in lowercase; empty turns the import off. */
@@ -699,6 +728,8 @@ export interface GithubConfig {
    * Off by default: read the push's dry run first.
    */
   readonly statusPush: boolean;
+  /** The issue fields and types the status push sets (T3406). */
+  readonly fields: IssueFieldsConfig;
   /**
    * The label that lets an issue by an author outside the repository (not its owner, an organization member or a
    * collaborator) become a task: it counts when someone other than the author added it last and the title and body
@@ -808,9 +839,18 @@ export interface BudgetReset {
 
 /**
  * The resets the account holds beside its weekly one: `fable` refills the Fable bar and gives back what Fable used of the
- * weekly limit, `full` clears all of the week's usage.
+ * weekly limit, `full` clears all of the week's usage. Both come as grants that expire.
  */
-export const RESET_KINDS = ['fable', 'full'] as const;
+export const EXPIRING_RESET_KINDS = ['fable', 'full'] as const;
+
+export type ExpiringResetKind = (typeof EXPIRING_RESET_KINDS)[number];
+
+/**
+ * `account`: the person's other Claude accounts (T939). teamrig never switches accounts; the user signs
+ * in to the next one, and to the meter that looks like a full reset. Each comes back a week after its use, as that
+ * account's own week runs from about then, so a stock of them never expires.
+ */
+export const RESET_KINDS = [...EXPIRING_RESET_KINDS, 'account'] as const;
 
 export type ResetKind = (typeof RESET_KINDS)[number];
 
@@ -818,20 +858,34 @@ export function isResetKind(value: unknown): value is ResetKind {
   return RESET_KINDS.some((kind) => kind === value);
 }
 
-/**
- * One grant of resets the account holds, with the uses taken from it: what is left is `count` minus `usedUtc`, and
- * none of it can be used past `expiresUtc`. Claude Code does not tell a session about these, so the team writes them
- * down as they are granted and used.
- */
-export interface ResetStock {
-  readonly kind: ResetKind;
+export function isExpiringResetKind(value: unknown): value is ExpiringResetKind {
+  return EXPIRING_RESET_KINDS.some((kind) => kind === value);
+}
+
+/** What every stock of resets holds. Claude Code does not tell a session about these, so the team writes them down. */
+interface ResetStockBase {
   readonly count: number;
-  /** YYYY-MM-DD HH:MM, UTC. */
-  readonly expiresUtc: string;
   /** When each use was taken, YYYY-MM-DD HH:MM UTC; at most `count`. */
   readonly usedUtc: readonly string[];
   readonly note?: string;
 }
+
+/** One grant of resets: what is left is `count` minus `usedUtc`, and none of it can be used past `expiresUtc`. */
+export interface ExpiringResetStock extends ResetStockBase {
+  readonly kind: ExpiringResetKind;
+  /** YYYY-MM-DD HH:MM, UTC. */
+  readonly expiresUtc: string;
+}
+
+/**
+ * The person's other accounts, `count` of them: `usedUtc` holds the last switch to each (a new switch replaces the
+ * oldest), and one is free again a week after its switch (budget/resets.ts `resetsLeft`).
+ */
+export interface AccountResetStock extends ResetStockBase {
+  readonly kind: 'account';
+}
+
+export type ResetStock = ExpiringResetStock | AccountResetStock;
 
 /**
  * What one W of a model's calls moves the weekly meter, against 1 for any model unlisted: the account's limit
@@ -982,7 +1036,10 @@ export interface QueueConfig {
   readonly lockPath?: string;
   /** A taken host lock lasts this many minutes; past it, another step takes it over. */
   readonly lockTtlMinutes: number;
-  /** A queued step still running after this many minutes is killed with every process it started. */
+  /**
+   * A queued step still running after this many minutes is killed with every process it started; the time its share is
+   * set aside (`teamrig step-away` until `teamrig step-back` takes it back) does not count (T4218).
+   */
   readonly maxRunMinutes: number;
   /**
    * A small step (`queue --small`) still running after this many minutes is killed the same way; at most

@@ -18,7 +18,7 @@ import { formatTaskLines, taskLinesOf } from "../../inbox/task-lines.js";
 import { WakeAsks } from "../../wake/asks.js";
 import { teamDayStartAt } from "../../wake/day-start.js";
 import { waitAnswerersOf } from "../../register/approval.js";
-import { byFlagKind, checkTasks, leaderWaitFlags, noIssueFlags, peerWaitFlags, runFileFlags, untriagedFlags } from "../../register/check.js";
+import { byFlagKind, checkTasks, leaderWaitFlags, noIssueFlags, peerWaitFlags, runFileFlags, unknownGoalFlags, untriagedFlags } from "../../register/check.js";
 import { currentWeekOf } from "../../register/week.js";
 import { fitLines, leftOfWeek, overLimitFlag, weekFit } from "../../register/fit.js";
 import { heldFirst } from "../../register/leader-wait.js";
@@ -51,6 +51,7 @@ import { fiveHourWarnings } from "../five-hour-check.js";
 import { logSizeWarnings } from "../log-size-check.js";
 import { githubLateWarnings } from "../github-late-check.js";
 import { promptHoldWarnings } from "../prompt-hold-page.js";
+import { restartStalledWarnings } from "../restart-stalled-check.js";
 import { resetExpiryWarnings } from "../reset-expiry-check.js";
 import { idlePassWarnings } from "../idle-pass-check.js";
 import { restoreLauncherWarnings } from "../launcher-record-check.js";
@@ -75,7 +76,7 @@ import { markBoundary } from "./refresh.js";
 import { markKeepWorkingAsk } from "./keep-working.js";
 import { markLastTaskAsk } from "./last-task-ask.js";
 import { readSpentClasses } from "../class-share.js";
-import { openTeam, postNamed, teamOf, tellAnswer, tellAssigned, tellLine } from "./register-team.js";
+import { openTeam, postNamed, teamOf, tellAnswer, tellAssigned, tellLine, wakeWaitedOn } from "./register-team.js";
 import { askTeam, treeCallerOf } from "./team-ask.js";
 /** What a time the caller types is read against: this moment and the zone of the caller's own team. */
 function typedTimes(runtime, zone) {
@@ -214,7 +215,7 @@ async function addHere(args, runtime, caller) {
             runtime.out.stdout(`OPENED ${end.verdict.value.task.id} ${end.ref}`);
         }
     }
-    await tellNewOwner(runtime, team, by, end.verdict);
+    await wakeWaitedOn(runtime, team, by, end.verdict, await tellNewOwner(runtime, team, by, end.verdict));
     return code;
 }
 /** A NOTE asking to mark the task a bug when its text reads like one and no one gave it a type (register/bug-hint.ts). */
@@ -461,6 +462,10 @@ async function runOf(flags, runtime) {
 }
 export async function set(args, runtime) {
     const id = taskIdOf(onePositional(args, 'id'));
+    // A note alone is progress, not a status: `update --note` keeps the answer a restated `set` would clear (#701).
+    if (!args.flags.has('status') && args.flags.has('note')) {
+        throw new UsageError(`--status is required; a note alone goes through ${KIT_NAME} update ${id} --note "..", which keeps the status and any answer given (a set restating the same waits asks again)`);
+    }
     const caller = callerOf(args.flags, runtime.env);
     const team = await openTeam(runtime, 'write');
     const typed = setInputOf(args.flags, typedTimes(runtime, team.zone));
@@ -506,7 +511,7 @@ export async function set(args, runtime) {
     if (verdict.ok && input.status === 'waiting') {
         await markKeepWorkingAsk(runtime, paths, verdict.value);
     }
-    noteRegisterOnly(runtime, team, by, input.note, verdict, told);
+    noteRegisterOnly(runtime, team, by, input.note, verdict, [...told, ...(await wakeWaitedOn(runtime, team, by, verdict, told))]);
     return exit;
 }
 /**
@@ -523,7 +528,8 @@ async function setAsking(runtime, team, by, id, ask, input) {
     const exit = report(runtime, verdict, 'SET', team);
     const assigned = verdict.ok && verdict.value.asked.owner !== by && (await tellAssigned(runtime, team, by, verdict.value.asked)) ? [verdict.value.asked.owner] : [];
     const told = await tellLeadersOfWaits(runtime, team, by, verdict);
-    noteRegisterOnly(runtime, team, by, input.note, verdict, [...assigned, ...told]);
+    const lined = [...assigned, ...told];
+    noteRegisterOnly(runtime, team, by, input.note, verdict, [...lined, ...(await wakeWaitedOn(runtime, team, by, verdict, lined))]);
     if (verdict.ok) {
         await markKeepWorkingAsk(runtime, team.paths, verdict.value);
     }
@@ -670,7 +676,8 @@ export async function update(args, runtime) {
     const sizeBase = typeof changes.size === 'number' ? await readSizeBase(runtime, team.paths, team.config.sessions, id, runtime.clock.now()) : undefined;
     const verdict = await team.register.update(by, id, changeIds(team.roster, changes), args.flags.get('note'), sizeBase);
     const code = report(runtime, verdict, 'UPDATED', team);
-    noteRegisterOnly(runtime, team, by, args.flags.get('note'), verdict, await tellNewOwner(runtime, team, by, verdict));
+    const told = await tellNewOwner(runtime, team, by, verdict);
+    noteRegisterOnly(runtime, team, by, args.flags.get('note'), verdict, [...told, ...(await wakeWaitedOn(runtime, team, by, verdict, told))]);
     return code;
 }
 /**
@@ -911,9 +918,10 @@ function weekFor(args, snapshot, now, zone) {
  * covers every team read). A wait on another register's task of the tree is judged against that task, and one on the
  * parent team's lead, `above`, is the lead's own approver's (T1140). `runFiles` is what each card's hand step file
  * hashes to now (RUN-CHANGED). `goals` are the register's own team's goal records, whose slices past their ship day
- * with no proof raise SLICE-LATE (T2203).
+ * with no proof raise SLICE-LATE (T2203); `goalTags` are the goal records of the team and the teams above it
+ * (UNKNOWN-GOAL).
  */
-function checkRegister({ snapshot, config, elsewhere, above, ranking }, goals, now, zone, week, leftPct, runFiles, team) {
+function checkRegister({ snapshot, config, elsewhere, above, ranking }, goals, now, zone, week, leftPct, runFiles, goalTags, team) {
     const tasks = [...snapshot.state.tasks.values()];
     const tree = new TaskTree(snapshot.state.tasks, now, zone, week, elsewhere, ranking);
     const dayStart = teamDayStartAt(config.wake.dayStartUtc, now.getTime());
@@ -928,6 +936,7 @@ function checkRegister({ snapshot, config, elsewhere, above, ranking }, goals, n
         ...leaderWaitFlags(tree.inPlanOrder(tasks), leads, config.focus, now.getTime()),
         ...untriagedFlags(tasks, leads),
         ...noIssueFlags(tasks, config.github.issueAtAdd),
+        ...unknownGoalFlags(tasks, goalTags),
         ...(progress === undefined ? [] : [progress]),
     ];
     return { team, flags: flags.sort(byFlagKind), tree };
@@ -978,8 +987,9 @@ function withOverLimit(sections, fit) {
  * each GitHub thread past its answer target (GH-LATE, src/cli/github-late-check.ts), each part of this machine that
  * starts the restore and starts a file gone or something install did not set up (RESTORE-DEAD, RESTORE-STRAY,
  * src/cli/launcher-record-check.ts), each of its tabs held on a permission prompt (PROMPT-HELD,
- * src/cli/prompt-hold-page.ts) and each file of its state or inbox near the task pane's read limit (LOG-SIZE,
- * src/cli/log-size-check.ts) are the unowned
+ * src/cli/prompt-hold-page.ts), each file of its state or inbox near the task pane's read limit (LOG-SIZE,
+ * src/cli/log-size-check.ts) and each session left ready with no restart coming (RESTART-STALLED,
+ * src/cli/restart-stalled-check.ts) are the unowned
  * warnings, which go to the lead (src/cli/unowned.ts, T951).
  */
 export async function checkReport(args, runtime) {
@@ -1007,8 +1017,9 @@ export async function checkReport(args, runtime) {
     const spent = overSizeMultiple > 0 ? await readTaskSpend(runtime, own.paths, own.config, now.getTime()) : undefined;
     const runFiles = await readRunFiles(runtime, teams.flatMap((rolled) => [...rolled.snapshot.state.tasks.values()]));
     const goals = await Promise.all(teams.map(async (rolled) => ownGoalsOf(runtime, rolled)));
+    const goalTags = await Promise.all(teams.map((rolled) => new KitTreeGoals(runtime, rolled.paths, rolled.config).recorded()));
     const checked = teams.map((rolled, index) => {
-        const section = checkRegister(rolled, goals[index] ?? new Map(), now, teamZone(rolled.config, runtime), week, leftPct, runFiles, tree ? rolled.team : undefined);
+        const section = checkRegister(rolled, goals[index] ?? new Map(), now, teamZone(rolled.config, runtime), week, leftPct, runFiles, goalTags[index] ?? new Set(), tree ? rolled.team : undefined);
         const ownFlags = rolled.team === own.team
             ? [...stopgapFlags(tags, rolled.snapshot.state.tasks, zone), ...(spent === undefined ? [] : overSizeFlags(rolled.snapshot.state.tasks.values(), spent, overSizeMultiple))]
             : [];
@@ -1036,12 +1047,13 @@ export async function checkReport(args, runtime) {
     const off = await secretGuardOffWarnings(runtime.files, own.config.secretGuard, settings);
     const fiveHour = await fiveHourWarnings(runtime.files, snapshotDirOf(own.config.budget, own.paths), own.config.budget, zone, now.getTime());
     const resets = resetExpiryWarnings(own.config.budget, zone, now.getTime());
-    const late = await githubLateWarnings(runtime.files, own.paths.githubClocks, zone, now.getTime());
+    const late = await githubLateWarnings(runtime.files, { clocks: own.paths.githubClocks, notices: own.paths.unownedNotices }, zone, now.getTime());
     const restore = await restoreLauncherWarnings(runtime.files, resolveKitHome(runtime.env, runtime.userHome));
     const holds = await promptHoldWarnings(runtime, own.paths, zone, new SecretScanner(own.config.register.secretPatterns), now.getTime());
     const logs = await logSizeWarnings(runtime.files, own.paths);
+    const stalled = await restartStalledWarnings(runtime.files, runtime.sessionProcesses, own.paths, own.config, zone, now.getTime());
     const lead = own.config.roles.lead;
-    return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: [...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late, ...holds, ...logs], lead, decisions };
+    return { sections, scope, skills, skillsDir: own.paths.skills, hires, unowned: [...unowned, ...idle, ...hooks, ...off, ...fiveHour, ...resets, ...restore, ...late, ...holds, ...logs, ...stalled], lead, decisions };
 }
 /**
  * The batch of the owner's decisions a root team's lead asks next, over its register and every register under it; none

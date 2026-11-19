@@ -9,7 +9,7 @@ npm run check         # that git runs the repo hooks, then CI's gates on your tr
 npm run docs:images   # redraws the pictures in docs/images
 npm run docs:config   # redraws docs/configuration.md from the config schema
 npm run docs:check    # checks relative links, anchors and Mermaid diagram types in the top-level and docs/ Markdown
-node tools/ci/local.ts # the local gate: every CI check on the committed tree, once per tree (the pre-push hook runs it)
+node tools/ci/local.ts # the local gate: every CI check on the committed tree, once per tree (--light: the pre-push hook's checks)
 ```
 
 The pictures in the docs are drawn in code (`tools/docs/`), the commands screen by running the real CLI for a made-up
@@ -91,6 +91,9 @@ Every change ships tests, so the next change cannot break it unnoticed:
 - Use the fakes in `src/testing/` and `tools/lib/fake-git.ts` instead of real time, disks or git
   where a unit test fits; spawn the real entry point (`process.execPath`) to test a CLI.
 - No skipped or todo tests: a test that does not run catches nothing.
+- A change to a threshold, limit or trigger (a count, a timeout, a restart or retry limit, a wake condition) gets a
+  spec of the trigger firing in the real flow, with whatever resets its count on the way (a compaction, a `/clear`,
+  a restart): a unit test of the comparison alone passes even when the real flow resets the count before it fires.
 
 `npm run check` runs every gate CI runs on the tree; the local gate also checks each pushed commit's sign-off and scrubs it,
 which the git hooks `npm ci` sets do before each commit. Its coverage gate (`npm run coverage`) fails when:
@@ -132,9 +135,9 @@ then the pane counts each line of the new format as one from a newer teamrig and
 CI (`.github/workflows/ci.yml`) runs on each pull request and each push to `main` (every job would skip if the
 repository were made private again, where GitHub Actions minutes bill). Its `every check passed` job passes only when
 every other job did: the one check `main` requires (see [Pull requests](#pull-requests)). Before that, the
-`pre-push` hook that `npm ci` sets runs every check CI runs on the commit being pushed (`tools/ci/local.ts`; the list
-is `tools/ci/local-checks.ts`), all but the dependency review, which reads GitHub's dependency graph
-([Security checks](#security-checks)):
+`pre-push` hook that `npm ci` sets proves the commit being pushed (`tools/ci/local.ts`; the lists are
+`tools/ci/local-checks.ts`). `node tools/ci/local.ts` and `npm run check` run every check CI runs, all but the
+dependency review, which reads GitHub's dependency graph ([Security checks](#security-checks)):
 - It refuses a push to `main`, before any check: every change lands through a pull request. On GitHub,
   the `main` ruleset refuses the same push from a clone without the hooks: it has no bypass actor, so no one can
   change main outside a pull request (see [Rules on `main`](#pull-requests)).
@@ -144,6 +147,14 @@ is `tools/ci/local-checks.ts`), all but the dependency review, which reads GitHu
   checked once; a new commit is checked again. Only the runner writes a record: the pass-record guard refuses a
   session's own write of one (`hook pass-record-guard`).
 - It cannot be skipped: never push with `--no-verify`.
+- **Light checks** (the pre-push default): when the repository's entry in `tools/ship/repos.json` has the `ci` gate,
+  a push to any branch but `main` runs the pre-push checks, about 45 s: the scrubs of the tree and the commits, the
+  DCO sign-off, the size rule, the commit subjects, the typecheck, a compile that emits nothing, the plugin's tests
+  and the docs checks. GitHub CI is the full gate: the whole suite with its coverage gate, the dist checks and the
+  fresh install run there, on every OS, before anything lands. The compile emits nothing as the release bot owns the
+  committed dist, so the plugin's tests load that dist. A light pass is recorded apart
+  (`local-ci/light/<tree>.json`), never taken for a full or a short one; a full pass counts as a light one. A push
+  to `main`, and a repository with the `local` gate, run every check as above.
 - **Short checks** (off by default): when the repository's entry in `tools/ship/repos.json` says
   `"mergeChecks": "changed"`, which needs the `ci` gate, a push to any branch but `main` runs only the short checks:
   the scrub, the DCO sign-off, the typecheck and the specs beside the changed files (`foo.ts` brings `foo.test.ts`,
@@ -252,7 +263,8 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
 - **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
-  new push dismisses an approval given before it. A change to the git hooks, CI, the scrub or teamrig's guards
+  new push dismisses an approval given before it. On a threshold, limit or trigger the reviewer asks "can this
+  still fire?" and wants the spec of it firing in the real flow ([Tests](#tests)). A change to the git hooks, CI, the scrub or teamrig's guards
   (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,
   `src/package-guard/`, `src/permissions/`) also gets a security review.
 - **Rules on `main`**: `.github/rulesets/` holds the repository's rulesets, the two for `main` and the three for

@@ -6,8 +6,9 @@ import type { CatchUp } from './catch-up.ts';
 import type { Gh, RequiredChecks } from './github.ts';
 import type { Credential } from './keychain.ts';
 import type { GateDeps } from './local-gate.ts';
-import { type MainBranch, type MergeArgs, type MergeDeps, type MergeRequest, type MergeResult, type Waiter, MERGE_ATTEMPTS, ciProof,mainBranchOf, mergeBranch, mergeCommand, mergeRun, mergeThroughPull, parseArgs, pullBody, runMerge, stepShareOf, waitForChecks } from './merge.ts';
+import { type MainBranch, type MergeArgs, type MergeDeps, type MergeRequest, type MergeResult, type Waiter, MERGE_ATTEMPTS, ciProof,mainBranchOf, mergeBranch, mergeCommand, mergeRun, mergeThroughPull, parseArgs, pullBody, realMergeDeps, runMerge, missingSections, stepShareOf, waitForChecks } from './merge.ts';
 import { parseProfiles } from './repos.ts';
+import { TempRepo } from '../lib/temp-repo.ts';
 
 const REPO = 'Owner/repo';
 const GH_SECRET = ['github', '_pat_', 'x'].join('');
@@ -122,6 +123,7 @@ const request = (overrides: Partial<MergeRequest> = {}): MergeRequest => ({
   sha: SHA,
   title: 'Merge dev into main: 2 commit(s)',
   body: '- a\n- b',
+  lacks: null,
   ...overrides,
 });
 
@@ -129,8 +131,8 @@ const POLLING = { timeoutMs: 10 * MINUTE, intervalMs: MINUTE };
 const CHECKS: RequiredChecks = { names: ['gates', 'test'], summary: null, flaky: [] };
 
 /** mergeThroughPull on the `ci` gate: checks gates and test on GitHub. */
-const mergeOnCi = (gh: Gh, main: MainBranch, log: (line: string) => void): Promise<MergeResult> =>
-  mergeThroughPull(request(), gh, main, ciProof(gh, REPO, HEAD, CHECKS, fakeWaiter(), POLLING), log);
+const mergeOnCi = (gh: Gh, main: MainBranch, log: (line: string) => void, lacks: string | null = null): Promise<MergeResult> =>
+  mergeThroughPull(request({ lacks }), gh, main, ciProof(gh, REPO, HEAD, CHECKS, fakeWaiter(), POLLING), log);
 
 const green: readonly JobState[] = [
   ['gates', 'completed', 'success'],
@@ -178,6 +180,26 @@ test('reuses an open pull request instead of opening a second one', async () => 
   assert.equal((await mergeOnCi(gh, fakeMain(), line => log.push(line))).kind, 'merged');
   assert.equal(writes.length, 1);
   assert.match(log[0] ?? '', /^found pull request #3/);
+});
+
+test('opens no pull request whose body lacks a section the repo asks for, but merges one already open with a warning', async () => {
+  const fresh = fakeGitHub({ rounds: [green] });
+  const refused = await mergeOnCi(fresh.gh, fakeMain(), () => undefined, '## Reach');
+  const reason = "the pull request would lack ## Reach, which this repo's template asks for: write it in a --note-file and ship again";
+  assert.deepEqual(refused.kind === 'refused' ? refused.reason : refused, reason);
+  assert.equal(fresh.writes.length, 0);
+  const open = fakeGitHub({ rounds: [green], openPullSha: SHA });
+  const log: string[] = [];
+  assert.equal((await mergeOnCi(open.gh, fakeMain(), line => log.push(line), '## Reach')).kind, 'merged');
+  assert.equal(log[1], "warning: pull request #3 lacks ## Reach, which this repo's template asks for: add it to its text");
+});
+
+test('names each ## section a note lacks of those the repo asks for', () => {
+  assert.equal(missingSections('## Reach\nall users\n', ['Reach']), null);
+  assert.equal(missingSections('##  Reach  \nall users', ['Reach']), null);
+  assert.equal(missingSections(null, []), null);
+  assert.equal(missingSections(null, ['Reach', 'Tests']), '## Reach, ## Tests');
+  assert.equal(missingSections('Reach: all users\n### Reach\n## Tests', ['Reach']), '## Reach');
 });
 
 test('refuses when the pull request head is not the sha that was pushed, before reading any check', async () => {
@@ -314,7 +336,7 @@ test('reads main before opening, again right before merging, and once more to co
   assert.equal(main.reads.length, 3);
 });
 
-test('reports a merge onto a main that moved after the last read, and one whose tree it could not compare', async () => {
+test('reports a merge onto a main that moved after the last read as drifted, and one whose tree it could not compare as unchecked', async () => {
   const drifted = await mergeOnCi(fakeGitHub({ rounds: [green] }).gh, fakeMain({ mergedTree: 'tree-other' }), () => undefined);
   assert.deepEqual(drifted.kind === 'drifted' ? [drifted.pull.number, drifted.sha, drifted.reason] : drifted, [
     3,
@@ -323,7 +345,7 @@ test('reports a merge onto a main that moved after the last read, and one whose 
   ]);
   for (const [treeError, detail] of [[new Error('fatal: bad object main999'), 'fatal: bad object main999'], ['git exited 128', 'git exited 128']] as const) {
     const unknown = await mergeOnCi(fakeGitHub({ rounds: [green] }).gh, fakeMain({ treeError }), () => undefined);
-    assert.deepEqual(unknown.kind === 'drifted' ? unknown.reason : unknown, `could not compare main999 with the checked abc1234: ${detail}`);
+    assert.deepEqual(unknown.kind === 'unchecked' ? [unknown.sha, unknown.reason] : unknown, ['main999', `could not compare main999 with the checked abc1234: ${detail}`]);
   }
 });
 
@@ -404,6 +426,34 @@ test("reads main through git in the repo dir: a fetch then origin's tip, contain
   assert.equal(main.treeOf(SHA), 'tree-checked');
 });
 
+test("fetches main once more when the fetch lost a ref-store race with another fetch, and only then (#1452)", () => {
+  const fetchesFailing = (errors: readonly string[]): { main: MainBranch; calls: string[] } => {
+    const calls: string[] = [];
+    let failed = 0;
+    const main = mainBranchOf((...args) => {
+      const key = args.join(' ');
+      calls.push(key);
+      if (key === 'fetch --quiet origin trunk') {
+        if (failed < errors.length) throw new Error(errors[failed++]);
+        return '';
+      }
+      return key === 'rev-parse refs/remotes/origin/trunk' ? BASE : assert.fail(`unexpected git ${key}`);
+    }, 'trunk');
+    return { main, calls };
+  };
+  const raced = fetchesFailing([REF_RACE]);
+  assert.equal(raced.main.tip(), BASE);
+  assert.deepEqual(raced.calls, ['fetch --quiet origin trunk', 'fetch --quiet origin trunk', 'rev-parse refs/remotes/origin/trunk']);
+
+  const twice = fetchesFailing([REF_RACE, REF_RACE]);
+  assert.throws(() => twice.main.tip(), /incorrect old value provided/);
+  assert.equal(twice.calls.length, 2, 'one retry, no more');
+
+  const offline = fetchesFailing(['Command failed: git fetch --quiet origin trunk\nfatal: unable to access the remote']);
+  assert.throws(() => offline.main.tip(), /unable to access/);
+  assert.equal(offline.calls.length, 1, 'any other fetch failure is not retried');
+});
+
 test('reads the repo dir and the polling flags', () => {
   assert.deepEqual(parseArgs(['C:/repo']), { dir: 'C:/repo', head: null, timeoutMin: 45, intervalS: 30, noteFile: null, approved: null });
   assert.deepEqual(parseArgs(['C:/repo', '--head', 'feature/x', '--timeout-min', '5', '--interval-s', '10']), { dir: 'C:/repo', head: 'feature/x', timeoutMin: 5, intervalS: 10, noteFile: null, approved: null });
@@ -444,6 +494,8 @@ interface RunFixture {
   movesDuringWait?: boolean;
   /** The work commits each head carries over main (approval.ts `workCommitsOf`); SHA and REBASED the same two unless given. */
   work?: Readonly<Record<string, readonly WorkCommit[]>>;
+  /** How many of main's fetches after the merge call fail on a ref-store race with another fetch (#1452); none unless given. */
+  racedFetches?: number;
 }
 
 /** The head a catch-up pushes: BRANCH rebased onto MOVED. */
@@ -504,6 +556,9 @@ function fakeGate(local: NonNullable<RunFixture['local']>, log: (line: string) =
 
 const BRANCH = 't9-change';
 
+/** How git fails a fetch while another worktree of the repo updates the same remote ref (#1452). */
+const REF_RACE = 'Command failed: git fetch --quiet origin main\nerror: fetching ref refs/remotes/origin/main failed: incorrect old value provided';
+
 function runFixture(fixture: RunFixture = {}): {
   deps: MergeDeps;
   gitCalls: string[];
@@ -550,6 +605,8 @@ function runFixture(fixture: RunFixture = {}): {
   const heads: readonly PushedHead[] | undefined = fixture.movesDuringWait === true ? [{ sha: SHA, branch: BRANCH }, { sha: REBASED, branch: NEXT }] : undefined;
   const { gh, writes } = fakeGitHub({ rounds: fixture.rounds ?? [green], openedSha: caughtUpHead ? REBASED : SHA, branch: caughtUpHead ? NEXT : BRANCH, ...(heads === undefined ? {} : { heads }) });
   let mainReads = 0;
+  let mainFetches = 0;
+  let raced = fixture.racedFetches ?? 0;
   const local = fakeGate(fixture.local ?? {}, line => out.push(line));
   const ghFor = mock.fn((_token: string): Gh => gh);
   const renamedCallers = mock.fn((_base: string, _tip: string, _repo: string): string | null => fixture.renamedCallers ?? null);
@@ -563,6 +620,10 @@ function runFixture(fixture: RunFixture = {}): {
       const key = args.join(' ');
       gitCalls.push(key);
       if (fixture.movesDuringWait === true && key === 'rev-parse refs/remotes/origin/main') return mainReads++ === 0 ? BASE : MOVED;
+      if (key === 'fetch --quiet origin main' && ++mainFetches >= 3 && raced > 0) {
+        raced -= 1;
+        throw new Error(REF_RACE);
+      }
       const answer = answers[key];
       if (answer === undefined) throw new Error(`unexpected git ${key}`);
       return answer;
@@ -736,6 +797,21 @@ test('a branch main moved past that cannot catch up is refused before any pull r
   assert.equal(await runMerge(ARGS, drifted.deps), 1);
   assert.equal(drifted.out.at(-1), 'MERGED #3 into main, now at main999');
   assert.match(drifted.err[0] ?? '', /^DRIFTED main moved just before the merge: main999 is not the tree the checks passed on abc1234/);
+});
+
+test('a drift check whose fetch lost a race keeps the merge a success: retried once it compares, else it says it could not run (#1452)', async () => {
+  const once = runFixture({ racedFetches: 1 });
+  assert.equal(await runMerge(ARGS, once.deps), 0);
+  assert.equal(once.out.at(-1), 'MERGED #3 into main, now at main999');
+  assert.deepEqual(once.err, []);
+
+  const twice = runFixture({ racedFetches: 2 });
+  assert.equal(await runMerge(ARGS, twice.deps), 0);
+  assert.equal(twice.out.at(-1), 'MERGED #3 into main, now at main999');
+  assert.deepEqual(twice.err, [
+    `UNCHECKED the drift check could not run: could not compare main999 with the checked abc1234: ${REF_RACE}; check by hand that main999 holds the tree the checks passed on`,
+  ]);
+  assert.equal(twice.sweep.mock.callCount(), 1, 'a landed merge sweeps its head as usual');
 });
 
 test('a head main moved past while the merge waited is caught up as a new branch and that branch merges (T2809)', async () => {
@@ -1087,4 +1163,22 @@ test('a check read GitHub gives no answer to is read once more at the next poll;
   const apart = failingReads(['HTTP 503', undefined, 'HTTP 503'], [[['gates', 'queued', null]], green]);
   assert.equal((await waitForChecks(apart.gh, REPO, SHA, HEAD, CHECKS, fakeWaiter(), POLLING)).verdict, 'passed');
   assert.equal(apart.reads(), 4);
+});
+
+test("realMergeDeps reads a head's work by the shipped repos.json, whose release manifest the ship sets again (T4298)", () => {
+  // A merge given the version files without the manifest threw on the profile's regenerated paths for every head.
+  const repo = new TempRepo('merge-deps').init();
+  try {
+    repo.write('a.txt', 'a\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'a');
+    repo.git('update-ref', 'refs/remotes/origin/main', repo.git('rev-parse', 'HEAD').trim());
+    repo.git('remote', 'add', 'origin', 'https://github.com/GeneralA6/teamrig.git');
+    repo.write('b.txt', 'b\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'core: b');
+    assert.deepEqual(realMergeDeps(repo.dir).workOf('HEAD').map(commit => [commit.subject, commit.merge]), [['core: b', false]]);
+  } finally {
+    repo.remove();
+  }
 });

@@ -760,14 +760,20 @@ lost; it is raised once a grant and again after each use, LOG-SIZE: a file of th
 has reached 3 MiB, near the 4 MiB the task pane reads of a file at once, past which the pane stops reading it; it is
 raised once a file, GH-LATE: a GitHub issue or pull request has waited past its answer target
 (security 4 h, bug, pull request or a comment on an issue a task tracks 24 h, else 72 h) for an answer of ours, by the clocks the
-last writing `teamrig issue sync` kept; it is raised once a wait, and from
+last writing `teamrig issue sync` kept; one GH-LATE names every late thread, with their count and the oldest three,
+and is raised once, and again only when a newer wait goes late, and from
 the restore's record (`<kit home>/bin/launchers.json`, written by [restore install](#teamrig-restore-install),
 `uninstall` and a newer version's first session start) RESTORE-DEAD: a logon entry or shortcut teamrig set up that
 starts a Node or launcher that is gone, such as one left on a Node an upgrade removed, and RESTORE-STRAY: a `Restore
 Claude Sessions` shortcut or logon entry that starts something else; `teamrig restore install --yes` repoints both,
-and PROMPT-HELD: a tab of the team has waited 10 minutes or more on a permission prompt nobody answered, so its
+PROMPT-HELD: a tab of the team has waited 10 minutes or more on a permission prompt nobody answered, so its
 session and every session waiting on it stand still; the [idle pass](hooks.md#the-idle-pass) pages the owner once a
-hold, and only a person at that tab can answer it.
+hold, and only a person at that tab can answer it, and RESTART-STALLED: a session the automatic restart covers
+(`refresh.autoRestart`) sits quiet with its handover ready and noticed, no restart pending or parked, for longer than
+`refresh.restartDelaySeconds` plus 10 minutes (a prompt cancelled its restart, or its runner died where no hook
+re-arms it), its Claude Code still running (with its tab gone, its next start takes the handover); the row names how
+long it sat and its last row in the restart log (`refresh/restarts.jsonl`), it is raised once a handover, and typing
+/clear in its tab gives it its fresh start.
 Each row names the check it came from; the
 lead fixes it, hands it on (`teamrig add --owner <session>`) or settles the check. The lead's `start` shows them
 too, and any session's `start` posts the lead one inbox line per warning it was not told of yet, at most 5 per
@@ -1371,7 +1377,7 @@ Flags:
   is told to the watcher and goes on from the cut next run; a failed one fails the repository and keeps its scan. A
   run without `--auto` reads no posts. It reads every
   repository, so it refuses `--repo`. With `github.statusPush` on it
-  then sends the status push (`--push --yes`) too, labels only: a close it plans is printed as a `HELD` line and
+  then sends the status push (`--push --yes`) too, labels, assignees, fields and types only: a close it plans is printed as a `HELD` line and
   sent only by a session's `--push --yes`. Its writes per run are lowered so an hour of runs sends at most 250
   (4 a run at the default `github.probeSeconds` of 60, 20 at 300); a failed write is told to the lead like a
   repository that fails.
@@ -1391,7 +1397,8 @@ Flags:
   assigned to no one; a done task closes it as completed, a
   dropped one as not planned. It plans against the issues as GitHub lists them now, so a label someone changed by
   hand is set back and a run that stopped half way is planned again whole. It never reopens an issue a person
-  closed: a `KEPT` line names it, and an `UNLISTED` line an active task's issue that is not open on GitHub. A run
+  closed: a `KEPT` line names it, an `UNLISTED` line an active task's issue that is not open on GitHub, and a `PULL`
+  line a task on an open pull request, which the push leaves as it is. A run
   sends at most 40 writes (half GitHub's limit of 80 a minute), shared by the repositories in order, and leaves the
   rest for the next. On its own it only
   plans: it reads the issues and writes nothing. With `--yes` a session on the team sends the plan, a `SET` line for
@@ -1402,6 +1409,13 @@ Flags:
   and an imported one hold the same issue, the team task speaks for it; when two or more active team tasks hold it,
   the push writes nothing to it and a `SHARED` line names them. One active team task speaks over finished ones; with
   none active, the newest finished one speaks.
+  After the labels it sets each held open issue's fields and type, one way from the task list, on a repository
+  that has them ([github.fields]): the priority as an option of the `Priority` field (`P<n>`, else Urgent, High,
+  Medium or Low by level, [github.fields.priorityOptions]), the day the task
+  first went in progress to `Start date`, its due day to `Target date`, its score, rounded, to `Score`, and the
+  issue type (a task `Task`, a bug `Bug`, a goal `Feature`, a design issue `Design`), each a `FIELD` or `TYPE`
+  line and only where it differs, in the same writes per run. A field or type the repository lacks is skipped with
+  a `NOTE`; a repository with none prints nothing; nothing is ever cleared, and the labels stay.
 
 Example:
 
@@ -1869,6 +1883,11 @@ Flags:
   to wake, so it is never counted in `WAKES`: its reopen starts at once through the idle pass's own reopen, judged and
   limited as the pass does, and `REOPENS <id>` says so, or `CLOSED: <id> was not woken: <why>` when the host has no room,
   an install is not settled or the idle pass is off; the next pass tries again each minute, or `teamrig open <id>`.
+  A line sent with neither `--wake now` nor `--wake-by` that names right-now work by id (an open, in-progress,
+  verifying or waiting task at p0 or more urgent, read as `teamrig show` reads the id) wakes as `--wake now`, since
+  such work never waits for a prompt, and a `NOTE` on stderr says so; where `--wake now` would be refused (a group
+  from a session that leads no one, another team from a member), the line posts with no wake and the `NOTE` says why.
+  A finished task wakes no one, so set a task's status before the line that says it is done.
 - `--wake-by <time>`: wakes each receiver at that time instead (`HH:MM` on the team's clock, or `YYYY-MM-DD HH:MM`),
   and only if it has not seen the line by then: a receiver that read it, or was shown it at a prompt or a tool
   call's end, before the time is not woken. One idle at its prompt then is woken at its tab's next wake check, one busy in a
@@ -5059,7 +5078,9 @@ Then it runs the command in the shell at below-normal CPU priority (nice 10 on P
 inherits, so the owner's terminal and apps win the CPU and the step takes what they leave; a step started at a lower
 priority keeps it. A merge's or deploy's commands and checks run at that priority too. Its output streams as it
 comes, and it kills the command with every process it started
-after `delivery.queue.maxRunMinutes` (45), a `--small` step after `delivery.queue.smallMaxRunMinutes` (10): a
+after `delivery.queue.maxRunMinutes` (45), a `--small` step after `delivery.queue.smallMaxRunMinutes` (10). The
+time its share is set aside (`teamrig step-away` until `teamrig step-back` takes it back, a merge waiting on its
+pull request's checks) does not count, as the step holds nothing on the host meanwhile. A
 step that shares the host holds back every step waiting for the lock, so a hung one is cut short. The step ends, and frees the lock, only once that kill is done; on
 Windows the kill lists the host's processes again after each round and ends any process the step started while it was
 being killed. The step's start and end go to the delivery ledger,
@@ -5067,7 +5088,7 @@ being killed. The step's start and end go to the delivery ledger,
 it (`kit`), the kind of work it is (`kind`), the task it works for (`task`, when it names one) and that task's
 register priority as it queued (`priority`, 1 for `p1`; left out when the register lacks the task), when it began to
 wait (`queuedAt`), the host's free memory then (`queueFreeMb`), the ms its wait took by cause (`waits`: `lock`,
-`line`, `draining`, `memory`, `commit`, `freeze`, `check`, `session`, `heavyCap`, `cpu`, each one that took time) and, sampled every
+`line`, `draining`, `memory`, `commit`, `freeze`, `check`, `session`, `heavyCap`, `cpu`, `shipSlot`, each one that took time) and, sampled every
 `delivery.queue.memorySampleSeconds` (15; 0 samples nothing), the host's free memory as it started (`startFreeMb`),
 the most memory its process tree held at once (`peakTreeMb`) and the least free memory the host had (`lowFreeMb`),
 and `shared: true` for a small step. A step killed at its limit or as its shell ended also records the host's free
@@ -5195,10 +5216,12 @@ Flags:
   whole number from 1 to `lockTtlMinutes` less 10, so the step never outlives its lock; with `--small`, from 1 to
   `smallMaxRunMinutes` (a longer step runs without `--small`).
 - `--kind <kind>`: the kind of work the step is, recorded on its ledger records: `build`, `test`, `lint`, `push`,
-  `merge`, `deploy` or `other`. Default: read from the command. A `git push` pushes; `node --test`, a test runner or a
-  package's `test` script tests; a linter or a `lint` script lints; `tsc`, a bundler or a `build` or `typecheck`
-  script builds; anything else (`npm run check`, a script of the team's own) is `other`. Any other value is refused
-  (exit 64).
+  `merge`, `deploy`, `ship` or `other`. Default: read from the command. A `git push` pushes; `node --test`, a test
+  runner or a package's `test` script tests; a linter or a `lint` script lints; `tsc`, a bundler or a `build` or
+  `typecheck` script builds; anything else (`npm run check`, a script of the team's own) is `other`. Any other value
+  is refused (exit 64). A `ship`, `merge` or `deploy` step holds the host's one ship slot (T2727): while one does, a
+  second waits in its place as `shipSlot`, and other steps pass it. A ship or merge script is read as `other`, so
+  queue it with `--kind ship` or `--kind merge`, or it takes no slot and two ships still race to main.
 - `--task <T id>`: the register task the step works for, recorded on its ledger records with that task's register
   priority; default the first task id `--what` names (`--what "T12 specs"`), else, for a step that runs a configured
   ship tool (`delivery.repos.<name>.shipTool`), the task its worktree's branch names (`feat/t12-parser` is T12), so a
@@ -5271,7 +5294,8 @@ WITHDRAWN heavy: build api, waiting since 2030-01-08 11:58 IST: it stops at its 
 Run inside a queued step (`teamrig queue`) while the step only waits on a remote service, such as a merge waiting
 on its pull request's checks: it sets the step's host share aside, so the ship slot, its heavy place and the MB it
 held go to the next step in line, and the step goes on running. `teamrig step-back` takes the share back before the
-step does local work again. A share set aside is dropped when the step ends, or at the next step's look once the
+step does local work again. The time from stepping away until the share is taken back, its wait in line included, does
+not count against the step's `delivery.queue.maxRunMinutes`. A share set aside is dropped when the step ends, or at the next step's look once the
 step's process is gone. `KEPT` when the step holds the whole host (an exclusive step), or when a teamrig older than
 0.448.0 runs the queue (it would not drop the share), which it keeps; `NONE` when it holds nothing. Refused outside a queued step, which
 `$TEAMRIG_HOST_LOCK` names. Exit 0 set aside, 1 `KEPT` or `NONE`.
@@ -6078,7 +6102,12 @@ or near what it ends (`..., it ends near 18%.`). A plan with no such window, or 
 When the account lists reset grants in [budget.resets] (Claude Code tells a session nothing of them, so the team
 writes each down as it is granted and used), the day's view ends with what is left of each and when it expires
 (`Resets in stock:` then `  fable: 2 of 3 left, expire 2027-03-09 09:59 IST (in 116 days)`); a recount of a past
-day leaves them out.
+day leaves them out. A person with several Claude accounts lists the others there too, as
+`{ "kind": "account", "count": 2, "usedUtc": [...] }` with no `expiresUtc`: teamrig never switches accounts, the user
+signs in to the next one, and the meter reads that as a full reset. `usedUtc` holds the last switch to each; one is
+free again a week after its switch, so the line says how many are free now and when the next comes back
+(`  account: 1 of 2 left, the next back 2030-01-06 11:00 IST (in 4 days)`), and the lead plans the week on them as on
+a grant.
 The period, the meter log (below) and the extra-usage log ([teamrig budget extra](#teamrig-budget-extra)) are the
 account's: a team under a parent on its Claude
 account reads and writes them in the folder of the highest team above it reached through teams all on that account,
@@ -7769,7 +7798,7 @@ teamrig help
 Output: the usage, starting:
 
 ```text
-teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
+teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION; every command takes --session <id|name> and --team <team>)
 ```
 
 ### teamrig version

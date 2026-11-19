@@ -1536,6 +1536,11 @@ and records the meeting in `<team>/state/meeting-spotlit.json`. It lifts at `mee
 another scheduled meeting starts, or 15 minutes past its booked length. Ending or dropping a meeting the file no longer names
 lifts nothing.
 
+One spotlight dims the host at a time, whichever team or meeting started it. Each start names itself in
+`~/.teamrig/meeting-spotlight.json` (the meeting file it watches and that meeting's start), and a spotlight on already
+lifts at its next 2 s check once that file names another: a scheduled meeting started during the daily one, or two
+teams' meetings, never stack two dimming layers. A missing or unreadable file lifts nothing.
+
 A message that breaks through the meeting hold (one starting CRITICAL, sent to the lead by another session) also
 lifts the dimming, so the owner sees it at once. The cold-send hook records the last such break-through in
 `<team>/state/meeting-breakthrough.json` (the meeting's start, when it went through and who sent it); at its next
@@ -1552,8 +1557,11 @@ at most every 6 hours across the machine, and the first tab to look claims that 
 once: for a cloned marketplace, `git ls-remote` of its `origin` names the newest commit, and only a commit not seen
 before is fetched, one commit deep and without file contents, into a bare repository teamrig keeps under
 `~/.teamrig/updates/` (never Claude Code's own clone), which `git gc` keeps from growing; a directory marketplace is
-read in place. The answer is kept in `~/.teamrig/updates/check.json`, and every other look reads that file only. A
-marketplace that cannot be asked (offline, no access) keeps what was known, and nothing shows.
+read in place. The version is the `.claude-plugin/plugin.json` one in the folder the marketplace's entry names: a
+relative `./` source, or the `path` of a `git-subdir` source, read in the marketplace's own commit, since a release
+branch is its main's commit with the build on top. The answer is kept in `~/.teamrig/updates/check.json`, and every
+other look reads that file only. A marketplace that cannot be asked (offline, no access) keeps what was known, and
+nothing shows.
 
 While a newer version than the installed one is published, the band above the prompt reads, in green,
 `teamrig: teamrig 0.334.0 is out (you run 0.333.0)`, with two buttons, plain and without digits, so a key typed at

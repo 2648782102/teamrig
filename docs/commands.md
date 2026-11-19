@@ -15,7 +15,7 @@ a channel or `claude -p` sends them. `/teamrig` alone prints this.
 This is what `teamrig help` prints:
 
 ```text
-teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
+teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION; every command takes --session <id|name> and --team <team>)
   team create <team> --sessions <id,id> [--lead <id>] [--project <dir>] [--parent <team>] [--dry-run]
       writes the team config, ties the project folder to the team (the lead defaults to lead) and
       starts a root team's lead on its first task, setting the team up; --parent hangs it under
@@ -304,7 +304,9 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       --wake now: also wakes each receiver idle at its prompt within about 3 minutes and says what
       that costs; a group only from a leader, another team only from a team lead: a team below its
       own, any team's lead, or a session its config names in roles; a receiver teamrig closed has
-      its reopen started at once when the host has room (REOPENS), else CLOSED says why
+      its reopen started at once when the host has room (REOPENS), else CLOSED says why; a line
+      with neither flag that names unfinished p0 (or more urgent) work by id wakes as --wake now,
+      or posts with no wake where that gate refuses it, and a NOTE says which
       --wake-by <time>: wakes each receiver at that time instead, only if it has not seen the line by
       then and its tab is idle; the same gate
       --from host:<job>: a line from a host scheduled job, which runs as no session: no --session,
@@ -381,7 +383,7 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       changes, writes nothing; --auto, which issue watch runs when GitHub changed, writes and
       tells each owner its new tasks, and the lead when repositories start or stop failing and when
       it leaves out an outsider's issue not left out before; with github.statusPush on, --auto then
-      sends the status push's labels and assignees too (a close it plans is held for --push --yes,
+      sends the status push's labels, assignees, fields and types too (a close it plans is held for --push --yes,
       printed HELD), and assigns an outside person who claims an open issue by a /take comment,
       taking the assignee off after 7 days with no linked pull request,
       its writes lowered so an hour of runs sends at most 250
@@ -409,7 +411,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       with a due date), not a design issue, no one is assigned to is assigned to the login
       github.owners maps to its task's session, else the repository's owner; at most 40 writes a run; without --yes it writes nothing;
       --yes sends them, a repository stopping at its first failed write; a status label the repository
-      lacks is made first (MADE)
+      lacks is made first (MADE); after the labels, each held open issue's github.fields (priority,
+      start and target day, score) and type are set where they differ, on a repository that has them
   issue migrate <file> [--out <preview.md>] [--yes]   moves the team's tasks to issues of github.repos
       from a JSON-lines file: per task {id, decision "issue", repo, type bug|task, priority p1-p3,
       title, body} with its public wording, or {id, decision "local", reason}; without --yes writes
@@ -569,7 +572,8 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION)
       (a build, a test run, a database script) in its turn under the host lock, so the host runs only what its memory allows, and at
       below-normal CPU priority (nice 10 on POSIX), which every process it starts inherits, so your
       terminal and apps win the CPU: waits in line for the lock, kills the step and every process it started after
-      delivery.queue.maxRunMinutes (--max-minutes) and records its start and end in the delivery
+      delivery.queue.maxRunMinutes (--max-minutes; the time its share is set aside by teamrig step-away does
+      not count) and records its start and end in the delivery
       ledger, with its --kind (build, test, lint, push, merge, deploy, other or ship; default read from the
       command; a ship, merge or deploy holds the host's one ship slot: a second one waits as shipSlot while other steps
       pass it) and --task (default the first task id in --what, else for a ship tool's step the task its worktree's branch

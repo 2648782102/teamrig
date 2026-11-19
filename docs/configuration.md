@@ -399,7 +399,7 @@ The host lock and the limits of one queued step.
 | --- | --- | --- | --- |
 | `lockPath` | string (at least 1 character) |  | The host lock file every queued step takes; a relative path is in the team's folder. Unset: host.lock in the kit home, one lock for every team on the host. |
 | `lockTtlMinutes` | integer (11 to 1440) | `150` | A taken host lock lasts this many minutes; past it, or once its process is gone, another step takes it over. |
-| `maxRunMinutes` | integer (1 to 1430) | `45` | A queued step still running after this many minutes is killed with every process it started. At most lockTtlMinutes less 10. |
+| `maxRunMinutes` | integer (1 to 1430) | `45` | A queued step still running after this many minutes is killed with every process it started; the time its share is set aside by teamrig step-away, until teamrig step-back takes it back, does not count. At most lockTtlMinutes less 10. |
 | `smallMaxRunMinutes` | integer (1 to 1430) | `10` | A small step (queue --small) still running after this many minutes is killed the same way, so a hung one does not hold back the steps waiting for the lock; a longer step runs without --small. At most maxRunMinutes. |
 | `waitMinutes` | integer (0 to 1440) | `60` | A queued step is refused once its line for the host lock has not moved for this many minutes: no step ahead of it, holding the lock or sharing the host ended meanwhile. |
 | `memorySampleSeconds` | integer (0 to 600) | `15` | While a queued step runs, its process tree's memory and the host's free memory are sampled this often, for its ledger record's peakTreeMb and lowFreeMb; 0 samples nothing. |
@@ -486,7 +486,7 @@ The weekly token budget: the pace line the team is measured against and each ses
 | `modelWeights` | array (at most 10 items) of [object](#budgetmodelweights) | `[]` | What one W of each model's calls moves the weekly meter, against 1 for a model unlisted: the account's limit counts models at their own rates, so the meter multiplies each call's W by its model's weight, on top of subagentWeight. The rollup keeps raw W. Unset in a team under another on its account: the team above's; else none, every model alike. |
 | `extraWPerUsd` | integer (1000 to 1000000000) |  | W per US dollar of extra usage, standing in until two spent readings past 100% of the week teach the rate. Unset: the team above's, in a team under another on its account; else the extra-usage pool shows in dollars only until then, with no allowance. |
 | `reset` | [object](#budgetreset) |  | When the weekly limit resets, for a team without a status line. Unset: the team above's, in a team under another on its account; else the reset time the status line reports. |
-| `resets` | array (at most 20 items) of [object](#budgetresets) | `[]` | The resets the account holds beside its weekly one, each grant with its expiry and the uses taken from it; Claude Code does not tell a session about them, so the team writes them down as they are granted and used. teamrig budget shows what is left of each. Unset: the team above's, in a team under another on its account; else none. |
+| `resets` | array (at most 20 items) of [object](#budgetresets) | `[]` | The resets the account holds beside its weekly one, each grant with its expiry and the uses taken from it, and the person's other Claude accounts; Claude Code does not tell a session about them, so the team writes them down as they are granted and used. teamrig budget shows what is left of each. Unset: the team above's, in a team under another on its account; else none. |
 | `targetPct` | number (1 to 100) | `99.5` | Use the week up to this share of the weekly limit. |
 | `reservePct` | number (0 to 50) | `0.5` | Kept back for incidents until shortly before the reset; targetPct plus reservePct is at most 100. |
 | `shareFloorPct` | integer (0 to 50) | `10` | The least share of each weekly split a team with planned work gets, in % of the part being split; when the floors do not fit, each team gets an equal part. 0: no floor. The team's own, never taken from the team above. The lead's rules print it while the budget is enabled. |
@@ -523,14 +523,14 @@ When the weekly limit resets, for a team without a status line. Unset: the team 
 
 ## `budget.resets[]`
 
-The resets the account holds beside its weekly one, each grant with its expiry and the uses taken from it; Claude Code does not tell a session about them, so the team writes them down as they are granted and used. teamrig budget shows what is left of each. Unset: the team above's, in a team under another on its account; else none.
+The resets the account holds beside its weekly one, each grant with its expiry and the uses taken from it, and the person's other Claude accounts; Claude Code does not tell a session about them, so the team writes them down as they are granted and used. teamrig budget shows what is left of each. Unset: the team above's, in a team under another on its account; else none.
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `kind` (required) | one of `"fable"`, `"full"` |  | fable refills the Fable bar and gives back what Fable used of the weekly limit; full clears all of the week's usage. |
-| `count` (required) | integer (1 to 20) |  | How many resets the grant holds. |
-| `expiresUtc` (required) | string (matching `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`) |  | When the grant's unused resets expire, YYYY-MM-DD HH:MM UTC. |
-| `usedUtc` | array (at most 20 items) of string (matching `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`) |  | When each use was taken, YYYY-MM-DD HH:MM UTC; at most count. Unset: none used. |
+| `kind` (required) | one of `"fable"`, `"full"`, `"account"` |  | fable refills the Fable bar and gives back what Fable used of the weekly limit; full clears all of the week's usage; account is another Claude account the user can sign in to, which the meter reads as a full reset and which is free again a week after its use. |
+| `count` (required) | integer (1 to 20) |  | How many resets the grant holds, or how many other accounts. |
+| `expiresUtc` | string (matching `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`) |  | When the grant's unused resets expire, YYYY-MM-DD HH:MM UTC. Required for fable and full; refused for account, which never expires. |
+| `usedUtc` | array (at most 20 items) of string (matching `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`) |  | When each use was taken, YYYY-MM-DD HH:MM UTC; at most count. For account, the last switch to each account. Unset: none used. |
 | `note` | string (1 to 100 characters, matching `^[^\r\n]+$`) |  | One short line about the grant, such as where it came from. |
 
 ## `budget.sessions.*`
@@ -613,12 +613,38 @@ The team's GitHub repositories. teamrig issue sync reads their issues into the r
 | `probeSeconds` | integer (0 to 3600) | `60` | How often teamrig issue watch asks GitHub whether a listed repository changed, in seconds: a conditional read that costs no rate limit when nothing changed, the sync running only when something did. One watch runs for the whole team, started by the hooks. 0 runs no watch and leaves the sync to teamrig issue sync --yes; otherwise at least 30. It replaced everyMinutes, which is reported until deleted. |
 | `statusPush` | boolean | `false` | Whether the automatic sync also sends the status push (teamrig issue sync --push --yes), so each issue a task holds shows the task's status without a session running it, and assigns an outside person who claims an open issue by a /take comment, for 7 days unless a pull request links it. It sends labels, assignees and the claim replies only: a close waits for a session's teamrig issue sync --push --yes. Off by default: read the push's dry run (teamrig issue sync --push) first. |
 | `stamp` | boolean | `true` | Whether each text teamrig posts to GitHub (a comment, a close comment, a claim reply, a migrated issue, a replaced body) ends with a one-line footer naming teamrig, its version and a link to the project, then a hidden marker that keeps a rerun or an edit to one footer. On by default; false posts the text as given. |
+| `fields` | [object](#githubfields) |  | What the status push writes to the issue fields and the type of each open issue a task holds, one way from the task list, on a repository that has issue fields or types: the priority, the day the task first went in progress, its due day and its score, each only when it differs from what the issue holds. Labels stay as they are. A field the repository lacks, or of another kind, is skipped and said so. |
 | `similarThreshold` | number (0 to 1) | `0.35` | The score, from 0 to 1, at which a mirrored issue counts as a duplicate candidate of a new one: the cosine of their TF-IDF word vectors. Higher lists fewer, closer candidates. |
 | `activity` | boolean | `true` | Whether the automatic sync tells a task's owner each new comment, review, CI result, label, close and merge on the issue or pull request the task holds, and each session the same on the issues and pull requests it follows (teamrig follow). What asks the session to act (changes requested, a failed check, a question, a mention) wakes it; the rest are quiet inbox lines. It reads nothing more from GitHub than the sync already does. Off, a session hears only mentions and the pull request news of its own branches. |
 | `followMax` | integer (0 to 100) | `20` | The most issues and pull requests one session follows at once with teamrig follow. 0 turns following off. |
-| `watcher` | [session name](#shared-types) |  | The session that hears the pull request news no task owner takes: a pull request from a fork or by an author outside the repository, or from a branch that names no task, and a mention no one else takes. Unset, the first holder of a service role holding issue comment, the session that answers on GitHub, else the lead. |
+| `watcher` | [session name](#shared-types) |  | The session that hears the pull request news no task owner takes: a pull request from a fork or by an author outside the repository, or from a branch that names no task, and a mention no one else takes. Unset, the first holder of a service role holding issue comment, the session that answers on GitHub, else the lead. Who watches is staffing, so the lead may set it with teamrig config set, to one of the sessions. |
 | `issueAtAdd` | string (at least 1 character) |  | The repository, one of repos, a new task's issue opens in. While set, teamrig add opens the task's issue there with the public wording given (--issue and --issue-body), or records why the task stays local (--local), and adds no task with neither, so every task has its issue from the start. Unset, the default: an add opens an issue only when asked. |
 | `acceptLabel` | string (1 to 50 characters, matching `^[^\r\n]+$`) | `"teamrig"` | The label that lets an issue by an author outside the repository (not its owner, an organization member or a collaborator) become a task: it counts when someone other than the author added it last and the title and body were not edited after that. Matched without case. |
+
+## `github.fields`
+
+What the status push writes to the issue fields and the type of each open issue a task holds, one way from the task list, on a repository that has issue fields or types: the priority, the day the task first went in progress, its due day and its score, each only when it differs from what the issue holds. Labels stay as they are. A field the repository lacks, or of another kind, is skipped and said so.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `push` | boolean | `true` | Whether the push writes fields and types at all. |
+| `priority` | string (at most 100 characters) | `"Priority"` | The single-select field the task's priority goes to, as the option priorityOptions names for its level. Empty writes none. |
+| `priorityOptions` | map from string (matching `^p[0-9]{1,2}$`) to array (at most 5 items) of string (1 to 100 characters) | `{"p0":["P0","Urgent"],"p1":["P1","Urgent"],"p2":["P2","High"],"p3":["P3","Medium"],"p4":["P4","Low"],"p5":["P5","Low"]}` | The options each priority level (p0, p1 and so on) is written as: the first one the field has wins, case aside, or an option that starts with it, such as P1 - high. A level listed here replaces its default list; a level not listed by default is written as its P\<n> option, and an empty list writes no priority for it. By default P\<n>, else GitHub's own Priority options: p0 and p1 Urgent, p2 High, p3 Medium, p4 and p5 Low. |
+| `startDate` | string (at most 100 characters) | `"Start date"` | The date field the day the task first went in progress goes to, on the team's clock. Empty writes none. |
+| `targetDate` | string (at most 100 characters) | `"Target date"` | The date field the task's due day goes to. Empty writes none. |
+| `score` | string (at most 100 characters) | `"Score"` | The number field the task's score goes to, rounded to a whole number, so it is written only when that changed. Empty writes none. |
+| `types` | [object](#githubfieldstypes) |  | The issue types each kind of task is set as, the first one the repository has winning: a design issue (it carries the design label), a goal (a task planned after its parts), a bug, else a task. An empty list sets no type for that kind. |
+
+## `github.fields.types`
+
+The issue types each kind of task is set as, the first one the repository has winning: a design issue (it carries the design label), a goal (a task planned after its parts), a bug, else a task. An empty list sets no type for that kind.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `task` | array (at most 5 items) of string (1 to 100 characters) | `["Task"]` | The types a task is set as. |
+| `bug` | array (at most 5 items) of string (1 to 100 characters) | `["Bug"]` | The types a bug is set as. |
+| `goal` | array (at most 5 items) of string (1 to 100 characters) | `["Feature","Goal"]` | The types a goal is set as: a Feature, as an issue opened for one is typed, else a Goal where the organization made that type. |
+| `design` | array (at most 5 items) of string (1 to 100 characters) | `["Design"]` | The types a design issue is set as. |
 
 ## `serviceRoles.*`
 

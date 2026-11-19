@@ -88,6 +88,8 @@ export const COMMIT_GATES = ['off', 'warn', 'refuse'];
 export function isCommitGate(value) {
     return COMMIT_GATES.some((gate) => gate === value);
 }
+/** The kinds of issue a task's issue is typed as (T3406): a design issue, a goal (a task planned after its parts), a bug, else a task. */
+export const ISSUE_KINDS = ['task', 'bug', 'goal', 'design'];
 export const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 export function isWeekday(value) {
     return WEEKDAYS.some((day) => day === value);
@@ -102,11 +104,20 @@ export function isEscalation(value) {
 }
 /**
  * The resets the account holds beside its weekly one: `fable` refills the Fable bar and gives back what Fable used of the
- * weekly limit, `full` clears all of the week's usage.
+ * weekly limit, `full` clears all of the week's usage. Both come as grants that expire.
  */
-export const RESET_KINDS = ['fable', 'full'];
+export const EXPIRING_RESET_KINDS = ['fable', 'full'];
+/**
+ * `account`: the person's other Claude accounts (T939). teamrig never switches accounts; the user signs
+ * in to the next one, and to the meter that looks like a full reset. Each comes back a week after its use, as that
+ * account's own week runs from about then, so a stock of them never expires.
+ */
+export const RESET_KINDS = [...EXPIRING_RESET_KINDS, 'account'];
 export function isResetKind(value) {
     return RESET_KINDS.some((kind) => kind === value);
+}
+export function isExpiringResetKind(value) {
+    return EXPIRING_RESET_KINDS.some((kind) => kind === value);
 }
 /**
  * The budget keys of the account's week, and whether the budget is on: a team under another (`team.parent`) that
