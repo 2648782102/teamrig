@@ -3,6 +3,8 @@ import { privateShapeIn } from "../core/private-shapes.js";
 import { SecretScanner } from "../core/secrets.js";
 import { taskIdIn } from "../issues/posted.js";
 import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from "../register/model.js";
+import { fieldsText, wantedFields } from "../issues/issue-fields.js";
+import { offGitHubReason } from "./off-github.js";
 /**
  * Moving a team's tasks to GitHub issues (`teamrig issue migrate`): a file of rows, one per task, says for each task
  * whether it becomes an issue, with the public wording the team wrote for it, or stays on the team's own list
@@ -12,12 +14,12 @@ import { ACTIVE_STATUSES, ISSUE_REF_PREFIX } from "../register/model.js";
  * update's note names it, so it is never lost and never posted.
  */
 /** The priorities a row gives, as the sync reads them back from an issue's labels (map.ts). */
-const PRIORITY_LABELS = ['p1', 'p2', 'p3'];
+const PRIORITY_LABELS = ['p0', 'p1', 'p2', 'p3'];
 /** A row's kind of work, and the GitHub label each one gets: a bug stays `bug`, a task is an `enhancement`. */
 const TYPE_LABELS = { bug: 'bug', task: 'enhancement' };
-/** The priority label of a task's priority: p0 and p1 are `p1`, the sync's highest, p2 is `p2`, any lower `p3`. */
+/** The priority label of a task's priority: p0, p1 and p2 as they are, any lower `p3`. */
 export function priorityLabelOf(priority) {
-    return priority <= 1 ? 'p1' : priority === 2 ? 'p2' : 'p3';
+    return priority <= 0 ? 'p0' : priority === 1 ? 'p1' : priority === 2 ? 'p2' : 'p3';
 }
 /** The labels an issue gets: its kind of work, then its priority. */
 export function issueLabels(type, priority) {
@@ -120,6 +122,17 @@ function issueRow(raw, id, scanner) {
     return { ok: true, value: { decision: 'issue', id, repo: repo.trim().toLowerCase(), type, priority: label, ...text.value } };
 }
 /**
+ * The issue row of one task named on the command line (`issue migrate --task`), so a single issue needs no row file:
+ * its kind of work and priority are the task's own, its wording passes the checks a row's does.
+ */
+export function taskIssueRow(task, repo, title, body, scanner) {
+    const text = publicIssueText(task.id, title, body, scanner);
+    if (!text.ok) {
+        return text;
+    }
+    return { ok: true, value: { decision: 'issue', id: task.id, repo, type: task.type === 'bug' ? 'bug' : 'task', priority: priorityLabelOf(task.priority), ...text.value } };
+}
+/**
  * The checks every issue teamrig opens passes, named after `who` (a task id, or the new task): a one-line title of
  * 1 to {@link MAX_TITLE} characters, a body, no secret shape and no task id, since a task id is the team's own.
  */
@@ -156,28 +169,30 @@ export function rowLabels(row) {
  * after a stop skips each task already holding its issue. A ref that is no issue is replaced, and its create names
  * it. A live task no row names is listed, so none is left behind unseen.
  */
-export function planMigration(rows, tasks, repos, judge) {
+export function planMigration(rows, tasks, repos, judge, rules, securityReviewer) {
     const creates = [];
     const local = [];
     const skipped = [];
     for (const row of rows) {
         const task = tasks.get(row.id);
-        const reason = skipReason(row, task, repos, judge);
+        const reason = skipReason(row, task, repos, judge, securityReviewer);
         if (reason !== undefined) {
             skipped.push({ id: row.id, reason });
         }
         else if (row.decision === 'local') {
             local.push(row);
         }
-        else {
-            creates.push({ id: row.id, draft: { repo: row.repo, title: row.title, body: row.body, labels: rowLabels(row) }, replaces: task?.ref ?? null });
+        else if (task !== undefined) {
+            const draft = { repo: row.repo, title: row.title, body: row.body, labels: rowLabels(row), type: null, assignees: [] };
+            // The row's kind of work is the public one the team chose, so the issue's type follows it as its label does.
+            creates.push({ id: row.id, draft, wanted: wantedFields({ ...task, type: row.type }, draft, rules), replaces: task.ref });
         }
     }
     const named = new Set(rows.map((row) => row.id));
     const unrowed = [...tasks.values()].filter((task) => ACTIVE_STATUSES.includes(task.status) && !named.has(task.id)).map((task) => task.id);
     return { creates, local, skipped, unrowed };
 }
-function skipReason(row, task, repos, judge) {
+function skipReason(row, task, repos, judge, securityReviewer) {
     if (task === undefined) {
         return 'no such task in the working set';
     }
@@ -186,6 +201,10 @@ function skipReason(row, task, repos, judge) {
     }
     if (row.decision === 'local') {
         return undefined;
+    }
+    const off = offGitHubReason(task, securityReviewer);
+    if (off !== undefined) {
+        return `it gets no public issue: ${off}; give it a local row`;
     }
     if (task.ref?.startsWith(ISSUE_REF_PREFIX) === true) {
         return `the task has its issue already: ${task.ref}`;
@@ -214,6 +233,8 @@ export function createdNumber(stdout) {
 export function previewMarkdown(plan) {
     const issues = plan.creates.flatMap((create) => [
         `### ${create.id} → ${create.draft.repo} [${create.draft.labels.join(', ')}]`,
+        '',
+        `Opens with ${fieldsText(create.wanted)}, each one the repository has.`,
         '',
         ...(create.replaces === null ? [] : [`Replaces the task's ref ${create.replaces} (kept in the task's history, not posted).`, '']),
         `**${create.draft.title}**`,

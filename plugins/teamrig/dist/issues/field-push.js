@@ -124,12 +124,19 @@ function typeFor(kind, config, types, repo, notes) {
         notes.add(`${repo} has no issue types turned on, so its issues keep their type`);
         return undefined;
     }
+    const found = firstTypeIn(names, types);
+    if (found === undefined) {
+        notes.add(`${repo} has none of the issue types ${names.join(', ')} for a ${kind}, so its issues keep their type`);
+    }
+    return found;
+}
+/** The first of `names` that `types` holds (case aside), spelled as `types` spells it; undefined when it holds none of them. */
+export function firstTypeIn(names, types) {
     for (const name of names) {
         const found = types.find((type) => type.toLowerCase() === name.toLowerCase());
         if (found !== undefined) {
             return found;
         }
     }
-    notes.add(`${repo} has none of the issue types ${names.join(', ')} for a ${kind}, so its issues keep their type`);
     return undefined;
 }

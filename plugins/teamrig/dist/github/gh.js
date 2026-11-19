@@ -52,14 +52,33 @@ const LOGIN = /^[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}$/u;
 export function isLogin(login) {
     return LOGIN.test(login);
 }
-/** The command line that opens one issue: the REST create, every field raw, so no value is read as a file or a number. */
+/** The field gh sends as the issue's type, by its name (REST create and update). */
+const TYPE_FIELD = 'type';
+/**
+ * The command line that opens one issue: the REST create, every field raw, so no value is read as a file or a number:
+ * its title, body, type when it has one, labels and assignees.
+ */
 export function issueCreateArgs(draft) {
-    return ['api', `repos/${draft.repo}/issues`, '-X', 'POST', RAW_FIELD, `title=${draft.title}`, RAW_FIELD, `body=${draft.body}`, ...draft.labels.flatMap((label) => [RAW_FIELD, `${LABEL_FIELD}=${label}`])];
+    return [
+        'api',
+        `repos/${draft.repo}/issues`,
+        '-X',
+        'POST',
+        RAW_FIELD,
+        `title=${draft.title}`,
+        RAW_FIELD,
+        `body=${draft.body}`,
+        ...(draft.type === null ? [] : [RAW_FIELD, `${TYPE_FIELD}=${draft.type}`]),
+        ...draft.labels.flatMap((label) => [RAW_FIELD, `${LABEL_FIELD}=${label}`]),
+        ...draft.assignees.flatMap((login) => [RAW_FIELD, `${ASSIGNEE_FIELD}=${login}`]),
+    ];
 }
 /**
- * True for `gh api repos/<owner>/<name>/issues -X POST -f title=<t> -f body=<b> [-f labels[]=<l>]...`: one
- * issue created, its title and body given once each and any labels after them. A path past `issues` (an issue
- * number, comments, labels), another method, or any other flag or field is refused, so the run can create one
+ * True for `gh api repos/<owner>/<name>/issues -X POST -f title=<t> -f body=<b> [-f type=<name>] [-f labels[]=<l>]...
+ * [-f assignees[]=<login>]...`: one issue created, its title and body given once each, then at most one type, one
+ * bounded line as the type set takes it (a raw field, so no `@file` is read), its labels, and its assignees, each a
+ * login's shape, in that order. A path past `issues` (an
+ * issue number, comments, labels), another method, or any other flag or field is refused, so the run can create one
  * issue and change nothing else.
  */
 export function isIssueCreate(args) {
@@ -71,8 +90,18 @@ export function isIssueCreate(args) {
     if (!REPO_NAME.test(path.slice('repos/'.length, -'/issues'.length)) || pairs === null || pairs.length < 2) {
         return false;
     }
-    const [title, body, ...labels] = pairs;
-    return title?.[0] === 'title' && body?.[0] === 'body' && labels.every(([key]) => key === LABEL_FIELD);
+    const [title, body, ...rest] = pairs;
+    if (title?.[0] !== 'title' || body?.[0] !== 'body') {
+        return false;
+    }
+    const [first] = rest;
+    const typed = first?.[0] === TYPE_FIELD ? rest.slice(1) : rest;
+    if (first?.[0] === TYPE_FIELD && !FIELD_TEXT.test(first[1])) {
+        return false;
+    }
+    const firstAssignee = typed.findIndex(([key]) => key !== LABEL_FIELD);
+    const assignees = firstAssignee === -1 ? [] : typed.slice(firstAssignee);
+    return assignees.every(([key, login]) => key === ASSIGNEE_FIELD && isLogin(login));
 }
 /** The command line that posts one comment on an issue or pull request, its body a raw field so it stays text. */
 export function issueCommentArgs(target, body) {

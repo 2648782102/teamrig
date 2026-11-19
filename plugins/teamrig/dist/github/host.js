@@ -13,7 +13,8 @@ import { createdNumber } from "./migrate.js";
 import { latestIssues } from "./plan.js";
 import { readPosts } from "./posts.js";
 import { listPulls, PULL_LIMIT } from "./pulls.js";
-import { PULL_PAGE_SIZE } from "./queries.js";
+import { issueTypesArgs, PULL_PAGE_SIZE } from "./queries.js";
+import { typeNamesIn } from "./issue-types.js";
 import { NoAccessError } from "./tokens.js";
 /** A failed job's log read, as a failure line words it: the Actions permission lets a token read it. */
 const JOB_LOG_READ = { noun: 'failed job logs', permission: 'Actions', command: 'gh run view' };
@@ -258,6 +259,18 @@ export class GitHubIssueHost {
         const read = await this.read(repo, assigneeReadArgs(repo, spelled), `whether ${spelled} may be assigned in ${repo}`);
         return read.kind === 'found' ? { kind: 'found', login: spelled } : read;
     }
+    /** Reads the repository's enabled issue types (queries.ts ISSUE_TYPES_QUERY); a repository a person owns has none. */
+    async readTypes(repo) {
+        const read = await this.read(repo, issueTypesArgs(repo), `the issue types of ${repo}`);
+        if (read.kind === 'missing') {
+            return { kind: 'failed', reason: `GitHub found no repository ${repo} to read its issue types` };
+        }
+        if (read.kind === 'failed') {
+            return read;
+        }
+        const types = typeNamesIn(read.stdout);
+        return types === undefined ? { kind: 'failed', reason: `gh printed no issue types for ${repo}` } : { kind: 'read', types };
+    }
     /** One read of `what` in `repo`: found with what gh printed when it ends well, missing on Not Found, else failed with gh's own line. */
     async read(repo, args, what) {
         const access = await this.tokens.accessFor(repo);
@@ -344,6 +357,7 @@ export class GitHubIssueHost {
             const access = await this.tokens.accessFor(repo);
             return access instanceof NoAccessError ? { kind: 'failed', reason: access.message } : readFields(this.gh, access, repo);
         },
+        types: (repo) => this.readTypes(repo),
         setField: (target, field, value) => this.write(target, fieldValueSetArgs(target, field.id, value), `set the field ${JSON.stringify(field.name)} of`),
         setType: (target, type) => this.write(target, issueTypeSetArgs(target, type), 'set the type of'),
     };

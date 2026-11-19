@@ -61,6 +61,7 @@ import { rollUp } from "../roll-up.js";
 import { splitUnowned } from "../unowned.js";
 import { EXIT, RefusedError } from "../runtime.js";
 import { addIssuePlan } from "../../github/issue-at-add.js";
+import { issueRulesOf } from "../../issues/issue-fields.js";
 import { ADD_ISSUE_FLAGS, addIssueAskOf, addIssueHost, addWithIssue } from "./add-issue.js";
 import { loadTree, skillOwnersElsewhere } from "../tree.js";
 import { readBursts } from "../burst-reading.js";
@@ -195,14 +196,14 @@ async function addHere(args, runtime, caller) {
     const team = await openTeam(runtime, 'write');
     const input = { ...addInputOf(args.flags, caller, typedTimes(runtime, team.zone)), ...criticalOf(args.switches) };
     const scanner = new SecretScanner(team.config.register.secretPatterns);
-    const issue = addIssuePlan(addIssueAskOf(args.flags, input), team.config.github, scanner);
+    const issue = addIssuePlan(addIssueAskOf(args.flags, addInputIds(team, input)), team.config.github, scanner, team.config.roles.securityReviewer);
     if (!issue.ok) {
         throw new RefusedError(issue.error);
     }
     const by = sessionIdOf(team.roster, caller);
     const ids = addInputIds(team, issue.value.kind === 'local' ? { ...input, ref: issue.value.ref } : input);
     const end = issue.value.kind === 'open'
-        ? await addWithIssue((line) => runtime.out.stdout(line), team.register, addIssueHost(runtime, scanner, team.config.github.stamp), by, ids, issue.value.draft)
+        ? await addWithIssue((line) => runtime.out.stdout(line), team.register, addIssueHost(runtime, scanner, team.config.github.stamp), by, ids, issue.value.draft, issueRulesOf(team.config.github))
         : { kind: 'written', verdict: await team.register.add(by, ids), ref: undefined };
     if (end.kind === 'stopped') {
         return end.code;

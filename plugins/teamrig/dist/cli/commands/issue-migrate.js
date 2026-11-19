@@ -2,9 +2,12 @@ import { resolve } from 'node:path';
 import { ENV, KIT_NAME } from "../../core/home.js";
 import { SecretScanner } from "../../core/secrets.js";
 import { issueRef } from "../../github/map.js";
-import { countsLine, parseMigrateRows, planMigration, previewMarkdown, replacedRefNote } from "../../github/migrate.js";
+import { issueRepoOf } from "../../github/issue-at-add.js";
+import { countsLine, parseMigrateRows, planMigration, previewMarkdown, replacedRefNote, taskIssueRow } from "../../github/migrate.js";
+import { offGitHubReason } from "../../github/off-github.js";
+import { fitIssueFields, issueRulesOf, RepoTypes } from "../../issues/issue-fields.js";
 import { RegisterPolicy } from "../../register/policy.js";
-import { onePositional } from "../args.js";
+import { noPositionals, onePositional, UsageError } from "../args.js";
 import { callerOf } from "../inputs.js";
 import { hostOf } from "../issue-hosts.js";
 import { sessionIdOf } from "../kit.js";
@@ -16,7 +19,9 @@ import { openTeam } from "./register-team.js";
 export const SHOWN_UNROWED = 20;
 /**
  * `issue migrate <file> [--out <preview.md>] [--yes]` (T2550): moves the caller's team's tasks to GitHub issues from a
- * file of JSON-lines rows (github/migrate.ts), each a task's public wording or the reason it stays local. Without
+ * file of JSON-lines rows (github/migrate.ts), each a task's public wording or the reason it stays local;
+ * `issue migrate --task <id> --issue <title> --issue-body <text> [--issue-repo <owner/name>]` (T3349) opens one task's
+ * issue with no file, its kind of work and priority the task's own, in the repository `add --issue` would pick. Without
  * `--yes` it writes nothing but the `--out` preview, a page with every issue in full for a reviewer. `--yes` opens
  * each planned issue through the issue host port (issues/host.ts; on GitHub with the token saved for the repository's
  * owner, never the gh login; no saved token, or one the store could not read, stops the run), then points
@@ -25,7 +30,7 @@ export const SHOWN_UNROWED = 20;
  * gh failed, 2 when the register refused a ref, else 0.
  */
 export async function issueMigrate(args, runtime) {
-    const path = resolve(runtime.cwd, onePositional(args, 'file'));
+    const one = args.flags.get('task');
     const write = args.switches.has('yes');
     const caller = callerOf(args.flags, runtime.env);
     const team = await openTeam(runtime, write ? 'write' : 'read');
@@ -41,13 +46,15 @@ export async function issueMigrate(args, runtime) {
         return EXIT.ok;
     }
     const scanner = new SecretScanner(team.config.register.secretPatterns);
-    const rows = await rowsAt(runtime, path, scanner);
     const { snapshot, elsewhere } = await team.register.snapshotWithElsewhere();
+    const rows = one === undefined ? await rowsAt(runtime, resolve(runtime.cwd, fileOf(args)), scanner) : [taskRow(args, snapshot.state.tasks.get(one), one, team.config, scanner)];
     const judge = (task, ref) => {
         const verdict = policy.update(task, by, { ref }, refNote(task.ref), snapshot.state, elsewhere);
         return verdict.ok ? undefined : verdict.error;
     };
-    const plan = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge);
+    const planned = planMigration(rows, snapshot.state.tasks, team.config.github.repos, judge, issueRulesOf(team.config.github), team.config.roles.securityReviewer);
+    // One task's run says nothing of the tasks it was never asked about.
+    const plan = one === undefined ? planned : { ...planned, unrowed: [] };
     const out = args.flags.get('out');
     if (out !== undefined) {
         const at = resolve(runtime.cwd, out);
@@ -56,10 +63,47 @@ export async function issueMigrate(args, runtime) {
     }
     planLines(plan).forEach(say);
     if (!write) {
-        say(`PREVIEW nothing was written; ${KIT_NAME} issue migrate <file> --yes opens the issues and sets each task's ref`);
+        say(one === undefined ? `PREVIEW nothing was written; ${KIT_NAME} issue migrate <file> --yes opens the issues and sets each task's ref` : `PREVIEW nothing was written; the same command with --yes opens the issue and sets ${one}'s ref`);
         return EXIT.ok;
     }
     return openIssues(runtime, team, by, plan.creates, scanner);
+}
+/** The row file a run without `--task` names; the issue flags belong to `--task`, a file's rows holding their own. */
+function fileOf(args) {
+    if (ISSUE_FLAGS.some((flag) => args.flags.has(flag))) {
+        throw new UsageError('--issue, --issue-body and --issue-repo go with --task <id>: a row file holds each issue\'s own');
+    }
+    return onePositional(args, 'file');
+}
+/** The flags that give one task's issue. */
+const ISSUE_FLAGS = ['issue', 'issue-body', 'issue-repo'];
+/**
+ * The one row of `--task <id>`: the task's issue, in the repository `add --issue` would open it in; refused when there
+ * is no such task, the task must stay off GitHub (off-github.ts), or the wording is not public.
+ */
+function taskRow(args, task, id, config, scanner) {
+    noPositionals(args);
+    const title = args.flags.get('issue');
+    const body = args.flags.get('issue-body');
+    if (title === undefined || body === undefined) {
+        throw new UsageError('--task takes --issue <title> and --issue-body <text>: the issue\'s public wording');
+    }
+    if (task === undefined) {
+        throw new RefusedError(`no task ${id} in the working set`);
+    }
+    const off = offGitHubReason(task, config.roles.securityReviewer);
+    if (off !== undefined) {
+        throw new RefusedError(`${id} gets no public issue: ${off}`);
+    }
+    const repo = issueRepoOf(args.flags.get('issue-repo'), config.github);
+    if (!repo.ok) {
+        throw new RefusedError(repo.error);
+    }
+    const row = taskIssueRow(task, repo.value, title, body, scanner);
+    if (!row.ok) {
+        throw new RefusedError(row.error);
+    }
+    return row.value;
 }
 /** The rows of the file at `path`; refused when it is missing or a row is bad. */
 async function rowsAt(runtime, path, scanner) {
@@ -94,6 +138,7 @@ async function openIssues(runtime, team, by, creates, scanner) {
     // planMigration plans issues only for github.repos, GitHub's list, so every one is GitHub's.
     const host = hostOf('github', runtime, scanner, team.config.github.stamp);
     const told = new Set();
+    const types = new RepoTypes(host);
     let opened = 0;
     const stopped = (id) => `STOPPED at ${id} after opening ${opened} issue(s); fix the cause and rerun: tasks holding their issue are skipped`;
     for (const create of creates) {
@@ -107,7 +152,9 @@ async function openIssues(runtime, team, by, creates, scanner) {
             told.add(reach.scope);
             say(`ACCESS ${reach.access}`);
         }
-        const end = await host.open(create.draft);
+        const fitted = await fitIssueFields(host, create.draft, create.wanted, types);
+        fitted.skipped.forEach(say);
+        const end = await host.open(fitted.draft);
         if (end.kind === 'failed') {
             say(`FAILED ${create.id}: ${end.reason}`);
             say(stopped(create.id));

@@ -6,8 +6,8 @@ import { plainLine } from "./issues.js";
 export const ISSUE_PRIORITY = 2;
 /** The description of an issue whose body looks like it holds a secret: the body stays on GitHub only. */
 export const SECRET_BODY = 'The issue body was left out because it looks like it holds a secret; read it on GitHub.';
-/** A priority label: `p1`, `P2`. */
-const PRIORITY_LABEL = /^p([1-9]\d?)$/i;
+/** A priority label: `p0`, `p1`, `P2`. */
+const PRIORITY_LABEL = /^p(0|[1-9]\d?)$/i;
 /** How GitHub closed an issue that was not done: the task is dropped. Any other close, `COMPLETED` among them, is done. */
 const DROPPED_REASONS = new Set(['NOT_PLANNED', 'DUPLICATE']);
 export function importRules(config) {

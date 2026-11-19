@@ -1,15 +1,19 @@
 import { ISSUE_REF_PREFIX, LOCAL_REF_PREFIX } from "../register/model.js";
 import { issueLabels, priorityLabelOf, publicIssueText } from "./migrate.js";
+import { offGitHubReason } from "./off-github.js";
 /** The name a refusal gives the task, which has no id before it is written. */
 const NEW_TASK = 'the new task';
-/** The plan for an add's issue under the team's GitHub settings, or why the add is refused. */
-export function addIssuePlan(ask, github, scanner) {
+/**
+ * The plan for an add's issue under the team's GitHub settings, or why the add is refused: a task that must stay off
+ * GitHub (off-github.ts; `securityReviewer` is `roles.securityReviewer`) takes `--local`, never `--issue`.
+ */
+export function addIssuePlan(ask, github, scanner, securityReviewer) {
     const asksIssue = ask.title !== undefined || ask.body !== undefined || ask.repo !== undefined;
     if (ask.local !== undefined) {
         return localPlan(ask.local, asksIssue, ask.ref);
     }
     if (asksIssue) {
-        return openPlan(ask, github, scanner);
+        return openPlan(ask, github, scanner, securityReviewer);
     }
     if (github.issueAtAdd !== undefined && !(ask.ref?.startsWith(ISSUE_REF_PREFIX) ?? false)) {
         return {
@@ -32,14 +36,18 @@ function localPlan(reason, asksIssue, ref) {
     }
     return { ok: true, value: { kind: 'local', ref: `${LOCAL_REF_PREFIX}${shown}` } };
 }
-function openPlan(ask, github, scanner) {
+function openPlan(ask, github, scanner, securityReviewer) {
     if (ask.title === undefined || ask.body === undefined) {
         return { ok: false, error: '--issue and --issue-body come together: the issue\'s public title and body' };
     }
     if (ask.ref !== undefined) {
         return { ok: false, error: '--issue points the task\'s ref at its new issue; give --issue or --ref, not both' };
     }
-    const repo = repoOf(ask.repo, github);
+    const off = offGitHubReason({ owner: ask.owner, type: ask.type ?? null, critical: ask.critical, ref: null }, securityReviewer);
+    if (off !== undefined) {
+        return { ok: false, error: `${NEW_TASK} gets no public issue: ${off}; add it with --local "<why>"` };
+    }
+    const repo = issueRepoOf(ask.repo, github);
     if (!repo.ok) {
         return repo;
     }
@@ -48,10 +56,10 @@ function openPlan(ask, github, scanner) {
         return text;
     }
     const labels = issueLabels(ask.type ?? 'task', priorityLabelOf(ask.priority));
-    return { ok: true, value: { kind: 'open', draft: { repo: repo.value, ...text.value, labels } } };
+    return { ok: true, value: { kind: 'open', draft: { repo: repo.value, ...text.value, labels, type: null, assignees: [] } } };
 }
-/** `--issue-repo`, else `github.issueAtAdd`, else the one repository of `github.repos`. */
-function repoOf(asked, { repos, issueAtAdd }) {
+/** The repository a task's issue opens in: `--issue-repo`, else `github.issueAtAdd`, else the one repository of `github.repos`. */
+export function issueRepoOf(asked, { repos, issueAtAdd }) {
     if (repos.length === 0) {
         return { ok: false, error: 'github.repos names no repository to open the issue in' };
     }
