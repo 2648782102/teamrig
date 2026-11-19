@@ -730,7 +730,7 @@
     "dist/secret-guard/commands.js": "011fd917f25dd63b6ad8294529c6e2ce289fd78f135beabe86e19ba9c2823940",
     "dist/secret-guard/commit-scan.js": "097d2a6e88812904b1d2edaa5491dd1038bedd4f21d8e1c323cfc28f1b780081",
     "dist/secret-guard/credential-reads.js": "56e719afbbdf8c1dc3fc446519ed919b22d644c1f6ec051cb748c218cc804643",
-    "dist/secret-guard/env-assignments.js": "d37c60e7cc1f8a298775698a89112edc07216b9bd033e4916681f8889891afba",
+    "dist/secret-guard/env-assignments.js": "1d666122efb3dbfcfea3c42a5fe225f876efc2a731b897b42080b6859af9fa2d",
     "dist/secret-guard/env.js": "8604fc6541a6e1c84acad2c1957f1ebdf59b614dc7e881479952e4f5cd466780",
     "dist/secret-guard/files.js": "d5e50384cace79089a9f619b11179e65ce4b39fe1087619d78a779df1d00e5e6",
     "dist/secret-guard/findings.js": "3e48c1937a1508086010dbfd73fdb0b806dace96ee95853391062ca8b98d788f",
