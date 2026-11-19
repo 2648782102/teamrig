@@ -1,3 +1,4 @@
+import { assignableOf, readAssignable } from "./assignable.js";
 import { targetText } from "./host.js";
 import { changeLine, changeWrites, STATUS_LABEL_SPECS } from "./status-push.js";
 /**
@@ -30,20 +31,10 @@ export async function applyPush(host, plan, say) {
             missing.add(label);
         }
     }
-    const unassignable = new Set();
-    const spelled = new Map();
-    for (const login of new Set(plan.changes.flatMap((change) => (change.assign === undefined ? [] : [change.assign])))) {
-        const found = await host.assigneeExists(plan.repo, login);
-        if (found.kind === 'failed') {
-            say(`FAILED ${plan.repo}: ${found.reason}; nothing was written`);
-            return { sent: 0, writes: 0, held: 0, failed: found.reason };
-        }
-        if (found.kind === 'missing') {
-            unassignable.add(login);
-        }
-        else {
-            spelled.set(login, found.login);
-        }
+    const assignable = await readAssignable(host, plan.repo, plan.changes.flatMap((change) => change.assign ?? []));
+    if (assignable.kind === 'failed') {
+        say(`FAILED ${plan.repo}: ${assignable.reason}; nothing was written`);
+        return { sent: 0, writes: 0, held: 0, failed: assignable.reason };
     }
     let writes = 0;
     for (const label of toMake) {
@@ -55,11 +46,11 @@ export async function applyPush(host, plan, say) {
         say(`MADE ${plan.repo}: the label ${JSON.stringify(label.name)}, which the push sets`);
         writes += 1;
     }
-    for (const login of unassignable) {
-        const left = plan.changes.filter((change) => change.assign === login).length;
-        say(`UNASSIGNED ${plan.repo}: ${login} may not be assigned there (not a person with access to it); its ${left} issue(s) stay unassigned: map the owning session to a login that may under github.owners`);
+    for (const login of assignable.unassignable) {
+        const left = plan.changes.filter((change) => change.assign?.includes(login) === true).length;
+        say(`UNASSIGNED ${plan.repo}: ${login} may not be assigned there (not a person with access to it); its ${left} issue(s) go without it: name a login that may under github.owners or github.designAssignees`);
     }
-    const sendable = plan.changes.map((change) => assignedAs(change, unassignable, spelled)).filter((change) => changeWrites(change) > 0);
+    const sendable = plan.changes.map((change) => assignedAs(change, assignable)).filter((change) => changeWrites(change) > 0);
     const held = sendable.filter((change) => change.add.some((label) => missing.has(label)));
     for (const label of missing) {
         const waiting = held.filter((change) => change.add.includes(label)).length;
@@ -78,14 +69,15 @@ export async function applyPush(host, plan, say) {
     }
     return { sent, writes, held: held.length, failed: undefined };
 }
-/** `change` with its assign as the host spells the login, or with none for a login the repository may not assign. */
-function assignedAs(change, unassignable, spelled) {
+/** `change` assigning only the logins the repository may assign, as the host spells them; with no assign when none may. */
+function assignedAs(change, assignable) {
     if (change.assign === undefined) {
         return change;
     }
-    return unassignable.has(change.assign) ? withoutAssign(change) : { ...change, assign: spelled.get(change.assign) ?? change.assign };
+    const logins = assignableOf(change.assign, assignable);
+    return logins.length === 0 ? withoutAssign(change) : { ...change, assign: logins };
 }
-/** `change` with no assign, for a login the repository may not assign. */
+/** `change` with no assign, for logins the repository may not assign. */
 function withoutAssign(change) {
     return { target: change.target, task: change.task, status: change.status, add: change.add, remove: change.remove, close: change.close };
 }
@@ -104,7 +96,7 @@ async function sendChange(host, change) {
         }
     }
     if (change.assign !== undefined) {
-        const assigned = await host.assign(change.target, [change.assign]);
+        const assigned = await host.assign(change.target, change.assign);
         if (assigned.kind === 'failed') {
             return assigned.reason;
         }

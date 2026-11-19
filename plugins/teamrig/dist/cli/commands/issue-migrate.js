@@ -3,6 +3,8 @@ import { ENV, KIT_NAME } from "../../core/home.js";
 import { SecretScanner } from "../../core/secrets.js";
 import { issueRef } from "../../github/map.js";
 import { countsLine, parseMigrateRows, planMigration, previewMarkdown, replacedRefNote } from "../../github/migrate.js";
+import { assignableOf, readAssignable } from "../../issues/assignable.js";
+import { DESIGN_LABEL } from "../../issues/design-label.js";
 import { RegisterPolicy } from "../../register/policy.js";
 import { onePositional } from "../args.js";
 import { callerOf } from "../inputs.js";
@@ -21,7 +23,9 @@ export const SHOWN_UNROWED = 20;
  * each planned issue through the issue host port (issues/host.ts; on GitHub with the token saved for the repository's
  * owner, never the gh login; no saved token, or one the store could not read, stops the run), then points
  * the task's ref at it as `update <id> --ref` by the caller would, so the sync adds no second
- * task for it; a ref that is no issue gives way, named in the update's note. It stops at the first failure, and a rerun skips each task already holding its issue. Exit 1 when
+ * task for it; a ref that is no issue gives way, named in the update's note. A design issue it opens is assigned to
+ * `github.designAssignees`; an assign that fails is reported and stops nothing, as the status push assigns it later.
+ * It stops at the first failure, and a rerun skips each task already holding its issue. Exit 1 when
  * gh failed, 2 when the register refused a ref, else 0.
  */
 export async function issueMigrate(args, runtime) {
@@ -123,7 +127,31 @@ async function openIssues(runtime, team, by, creates, scanner) {
         reportRotation(runtime, verdict.value.rotation, team.paths);
         opened += 1;
         say(`OPENED ${create.id} ${ref}`);
+        if (create.draft.labels.includes(DESIGN_LABEL)) {
+            (await assignDesign(host, end.target, team.config.github.designAssignees, `${create.id} ${ref}`)).forEach(say);
+        }
     }
     say(`DONE opened ${opened} issue(s) and set each task's ref`);
     return EXIT.ok;
+}
+/**
+ * Assigns a design issue just opened to each design assignee that may be assigned there, as the host spells it, in
+ * one write. The lines say how it went, each naming `which` (the task and its issue); none when no one is named. A
+ * failure stops nothing: the issue is open and its ref set, and the status push assigns it later.
+ */
+async function assignDesign(host, target, designAssignees, which) {
+    if (designAssignees.length === 0) {
+        return [];
+    }
+    const read = await readAssignable(host, target.repo, designAssignees);
+    if (read.kind === 'failed') {
+        return [`UNASSIGNED ${which}: ${read.reason}; the status push assigns it later`];
+    }
+    const lines = read.unassignable.map((login) => `UNASSIGNED ${which}: ${login} may not be assigned there (not a person with access to it); name a login that may under github.designAssignees`);
+    const logins = assignableOf(designAssignees, read);
+    if (logins.length === 0) {
+        return lines;
+    }
+    const assigned = await host.assign(target, logins);
+    return [...lines, assigned.kind === 'failed' ? `UNASSIGNED ${which}: ${assigned.reason}; the status push assigns it later` : `ASSIGNED ${which} to ${logins.join(', ')}`];
 }

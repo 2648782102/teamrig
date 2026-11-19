@@ -53,7 +53,7 @@ export async function issuePush(args, runtime) {
         tasks: async () => (await team.register.snapshot()).state.tasks.values(),
         send,
         limits: SESSION_PUSH,
-        logins: sessionLogins(config.github.owners),
+        assignees: { sessions: sessionLogins(config.github.owners), design: config.github.designAssignees },
         told: new Set(),
     }, say);
     say(pushEndLine(send, totals, SESSION_PUSH.writesPerRun));
@@ -87,7 +87,7 @@ export async function pushRepos(run, say) {
             continue;
         }
         read.notes.forEach((note) => say(`NOTE ${repo}: ${note}`));
-        const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.logins);
+        const plan = planPush(repo, read.issues, await run.tasks(), { writesPerRun: left, closes: run.limits.closes }, run.assignees);
         planLines(plan).forEach(say);
         const planned = plan.changes.reduce((sum, change) => sum + changeWrites(change), 0);
         left -= planned;
