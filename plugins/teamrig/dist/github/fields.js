@@ -1,6 +1,7 @@
 import { isRecord, recordField, stringField } from "../core/guards.js";
 import { HOST_ID } from "./gh.js";
-import { ISSUE_READ, nodesOf, plainLine, runRead } from "./issues.js";
+import { plainLine } from "../core/printable.js";
+import { ISSUE_READ, nodesOf, runRead } from "./issues.js";
 import { fieldsPageArgs } from "./queries.js";
 /** The most open issues a fields read takes before it stops asking for pages, as the open list does. */
 export const FIELDED_ISSUE_LIMIT = 5000;
