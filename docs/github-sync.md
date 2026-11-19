@@ -358,9 +358,12 @@ The same switch stamps a team session's own commits. When a Bash line starts wit
 `git -C <folder>`), `hook route-allow` runs it with `--trailer 'Made-with: teamrig <version>'` put right after the
 `commit` word, so the commit ends with that trailer beside the message's own `Co-Authored-By` line, which stays as
 written. It leaves alone a tab with no `$TEAMRIG_SESSION` (a person's own Claude Code), a line that already names a
-`Made-with:` trailer, a git older than 2.32, the PowerShell tool, and a line whose first command is something else
-(`git add x && git commit`, `cd x && git commit`). A permission rule narrower than the rewritten line, such as
-`Bash(git commit -s:*)`, no longer matches it.
+`Made-with:` trailer, an `--amend` (the commit may be another author's, or stamped already), a git older than 2.32,
+the PowerShell tool, and a line whose first command is something else (`git add x && git commit`, `cd x && git
+commit`). It also leaves alone a line that a Bash `ask` or `deny` rule in the session's Claude Code settings (managed,
+user, project shared and local) could match, and every line while one of those files is not valid JSON, so such a
+rule, like `Bash(git commit -s:*)`, keeps asking or refusing. An `allow` rule narrower than the rewritten line no
+longer matches it, so that commit asks.
 
 ```sh
 teamrig issue comment acme/web#7 --body "Fixed in #9, thank you."

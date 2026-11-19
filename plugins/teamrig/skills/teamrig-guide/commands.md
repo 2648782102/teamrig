@@ -7119,8 +7119,10 @@ db-write, exec, pass-record and service-role guards all passed the same call; wh
 Under `github.stamp` (on by default), a team session's line that starts with `git commit` (after any `git -C
 <folder>`) also runs with `--trailer 'Made-with: teamrig <version>'` right after its `commit` word: inside the route's
 allow when there is one, else as a rewrite alone with no decision, so the guards and the permission check still judge
-the call. A tab with no `$TEAMRIG_SESSION`, a line that already names a `Made-with:` trailer, a git older than 2.32,
-another tool and a line whose first command is not the commit stay as sent.
+the call. A tab with no `$TEAMRIG_SESSION`, a line that already names a `Made-with:` trailer, an `--amend`, a git older
+than 2.32, another tool and a line whose first command is not the commit stay as sent, and so does a line a Bash `ask`
+or `deny` rule in the session's Claude Code settings could match (every line while one of those files is not valid
+JSON), so that rule still asks or refuses.
 
 Flags: none.
 
