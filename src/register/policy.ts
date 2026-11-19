@@ -15,7 +15,7 @@ import { verdictIsCurrent, verdictReadOf, type SecurityVerdictPin } from './secu
 import { ITEM_TYPES, sizeProblem, type ApprovalVerdict, type ItemType, type TaskFieldName, type TaskFields, type TaskPrep } from './events.ts';
 import { droppedApproval, isRepark, taskNumber, type RegisterState, type Task } from './fold.ts';
 import { commitsNamed } from './head-sha.ts';
-import { ACTIVE_STATUSES, FOLLOWUP_STATUSES, GITHUB_SOURCE, ISSUE_REF_PREFIX, isTopPriority, priorityText, SESSION_NAME, WAIT_STATUSES, type TaskStatus } from './model.ts';
+import { ACTIVE_STATUSES, FOLLOWUP_STATUSES, GITHUB_SOURCE, isIssueRef, isTopPriority, priorityText, SESSION_NAME, WAIT_STATUSES, type TaskStatus } from './model.ts';
 import { ITEM_TYPE_TRAITS, traitsOf } from './item-types.ts';
 import { waitsOnOwner } from './owner-waits.ts';
 import { asksReview, missedTaskIds, reviewGap, reviewGapText, reviewProblem, reviewTexts, type ProblemReview } from './review.ts';
@@ -1242,7 +1242,7 @@ export class RegisterPolicy {
     if (!isLead && !this.tree.leads(caller, task.owner)) {
       return `only the owner (${task.owner}) or ${this.approversText(task.owner)} changes ${task.id}`;
     }
-    const linksIssue = task.ref?.startsWith(ISSUE_REF_PREFIX) !== true && changes.ref !== undefined && changes.ref !== null && changes.ref.startsWith(ISSUE_REF_PREFIX);
+    const linksIssue = !isIssueRef(task.ref) && isIssueRef(changes.ref);
     const allowed = isLead && (linksIssue || !this.config.sessions.includes(task.owner)) ? LEFT_OWNER_LEAD_FIELDS : LEAD_FIELDS;
     const notLead = names.filter((name) => !allowed.includes(name));
     if (notLead.length > 0) {
