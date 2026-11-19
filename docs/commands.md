@@ -440,6 +440,10 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION;
   issue similar <owner/name#n>   the issues the task list mirrors that may be duplicates of this one,
       best first: at most 3 at or above github.similarThreshold by TF-IDF over their titles and bodies,
       with no model and no GitHub call; reads the task list only, so issue sync must have added the issue
+  issue assign <owner/name#n> [--add <login,...>] [--remove <login,...>]   gives one issue or pull
+      request of the team's repositories to its takers, with the same access: each login to add is
+      read as one the host may assign to that item (access to the repository, or a part in the item,
+      such as a comment asking to take it), at most 3 logins in all; refused on a design issue
   pr conflicts <owner/name#n> [--base <branch>]   in a clone of that repository, fetches the pull
       request's head and prints the files it conflicts on against origin's newest base (its default
       branch unless --base) and the rebase it needs; changes no local branch or file of the clone and
@@ -589,9 +593,10 @@ teamrig <command> ...   (the caller: --session <id|name>, else $TEAMRIG_SESSION;
       delivery.queue.memoryFloorMb plus the MB held for it, for the small steps running and for the tabs
       still loading (at most half the host's RAM), and the commit charge under open.headroom.commitMaxPct
       with its MB and those tabs' counted. A step
-      holds the need its latest 20 runs under its session and --what show (their most held and a
-      quarter, or their median host drop, whichever is more; with no such run, its session's runs of
-      the same --kind and size, never other), or its --memory-mb when more; at least
+      holds the need its latest 20 runs under its session and --what (commit ids, re-run aside) show
+      (their most held, one outlier aside, and a quarter, or their median host drop, whichever is
+      more; with no such run, its session's runs of the same --kind and size, never other), or
+      its --memory-mb when more; at least
       delivery.queue.heavyReserveMb without --small, else with neither delivery.queue.smallReserveMb.
       The wait line says where a learned or declared need came from. --small (a spec run, a lint):
       shares the host with other small steps, waiting in a line of its own, never behind a heavy step,

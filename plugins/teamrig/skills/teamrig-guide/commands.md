@@ -1679,6 +1679,38 @@ SIMILAR acme/web#31 (T412): 2 of 18 mirrored issues at or above 0.35 (github.sim
 0.41 acme/web#27 T405 Reset email never arrives
 ```
 
+### teamrig issue assign
+
+Gives one issue or pull request of the team's repositories to its takers, with the same access as `teamrig issue
+comment`: use it once someone says they take the item, such as a commenter asking for it. `--add` and `--remove` are
+comma-separated lists of GitHub logins (a leading `@` is dropped); give at least one, no login in both, and at most 3
+logins in all. Before any change it reads the item's labels and each login to add: an add to a design issue (one
+labelled `design`, talk not yet agreed) is refused, as no one takes design talk until it is agreed and the label
+comes off; and a login GitHub would drop is refused, as GitHub assigns only someone with access to the repository or
+someone who took part in the item (a comment counts). The logins to add go in one call, as GitHub spells them, then
+each login to remove comes off in turn; the first failure stops it, and a `FAILED` line after a change says what it
+already did. It prints `ASSIGNED <target>: <logins>` and `UNASSIGNED <target>: <login>`. Exit 1 when it failed, 2
+when refused, else 0.
+
+Flags:
+
+- `--session <id|name>`: the caller, a session of the team.
+- `--add <login,...>`: the logins to assign, each one GitHub may assign to the item.
+- `--remove <login,...>`: the logins to take off.
+
+Example:
+
+```sh
+teamrig issue assign acme/web#12 --add octocat
+```
+
+Output:
+
+```text
+ACCESS acme: writes with the token saved as teamrig-gh-acme
+ASSIGNED acme/web#12: octocat
+```
+
 ### teamrig pr conflicts
 
 Run in a clone of the pull request's repository, it fetches the pull request's head (a fork's too) and the newest
@@ -5040,17 +5072,19 @@ holds the MB it was counted at for `open.headroom.loadMinutes` (5), as free memo
 loads; the wait line names them (`..., 1500 MB held for 1 tab still loading, ...`). Free memory is read 3 times 1 s apart and the least read counts, since a step
 that just ended or started gives back or takes its memory in a burst. On a host with less than twice that RAM, half
 the host's RAM is enough. Until then it waits first in line (`...; host memory: 7000 MB free, 4096 MB held for them,
-6144 MB needed (4096 floor + 2048 for this step)`), and when its wait runs out it is refused with `host memory still
+6144 MB needed (4096 kept free for the host + 2048 for this step)`), and when its wait runs out it is refused with `host memory still
 short: ...`.
 
 The MB held for a step is its need, learned from its latest 20 ended runs under the same session and `--what` in the
-ledger: the most their process tree held, plus a quarter, or the median of what the host's free memory fell by while
+ledger, a commit id and a `re-run` word in the label set aside (7 to 40 hex characters with a digit and a letter, so a re-run at a new
+commit matches its earlier runs): the most their process tree held, plus a quarter (from 3 runs on, one run that held
+more than twice the next highest is set aside, so a single heavier run does not pin the need), or the median of what the host's free memory fell by while
 they ran (`startFreeMb` less `lowFreeMb`), whichever is more. With no such run, it learns from its session's runs of
 the same `--kind` and size (`--small` or not), never for kind `other`, which spans ships, checks and installs. A run
 that measured nothing teaches nothing. `--memory-mb <MB>` declares a need, held when it is at least the learned one. A
 step without `--small` holds at least `delivery.queue.heavyReserveMb` (2048); a small step with neither a learned nor
 a declared need holds `delivery.queue.smallReserveMb` (2048). The wait line says where a need came from:
-`(4096 floor + 7500 for this step, learned from 2 runs)`, `learned from 1 build run` when its kind's runs taught it,
+`(4096 kept free for the host + 7500 for this step, learned from 2 runs)`, `learned from 1 build run` when its kind's runs taught it,
 `declared with --memory-mb`.
 
 With `--small` (a spec run, a lint) the step shares the host with other small steps instead of taking the lock.

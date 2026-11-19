@@ -51,6 +51,11 @@ describe('localChecks', () => {
     assert.ok(at > checks.findIndex((check) => check.name === 'build: compile'), 'the mod loads the built dist');
   });
 
+  it('builds the plugin before the coverage gate, whose specs load the built dist (T4355)', () => {
+    const at = (name: string): number => checks.findIndex((check) => check.name === name);
+    assert.ok(at('build: integrity') >= 0 && at('build: integrity') < at('coverage gate'));
+  });
+
   it('checks the commits since the base, names each check once and reads no CI event', () => {
     assert.deepEqual(localChecks('upstream/main').find((check) => check.name === 'DCO')?.argv, ['node', 'tools/dco/cli.ts', '--range', 'upstream/main..HEAD']);
     assert.equal(new Set(checks.map((check) => check.name)).size, checks.length);
@@ -74,11 +79,11 @@ describe('prePushChecks (T4344)', () => {
     assert.deepEqual(checks.find((check) => check.name === 'compile')?.argv, [...(full.get('build: compile')?.argv ?? []), '--noEmit']);
   });
 
-  it('leaves the suite, the build steps that write the dist, the dist checks and the fresh install to CI, which runs them all', () => {
+  it('leaves the suite, the build steps that write the dist, the dist smoke and the fresh install to CI, which runs them all', () => {
     const left = [...full.keys()].filter((name) => !checks.some((check) => check.name === name));
-    assert.deepEqual(left, ['coverage gate', 'build: clean', 'build: compile', 'build: integrity', 'dist matches the source', 'dist smoke', 'fresh install']);
+    assert.deepEqual(left, ['build: clean', 'build: compile', 'build: integrity', 'coverage gate', 'dist smoke', 'fresh install']);
     const ci = ciCommands();
-    for (const script of ['tools/ci/coverage-cli.ts', 'tools/ci/dist-fresh-cli.ts', 'tools/ci/dist-smoke-cli.ts', 'tools/ci/fresh-install-cli.ts']) {
+    for (const script of ['tools/ci/coverage-cli.ts', 'tools/ci/dist-smoke-cli.ts', 'tools/ci/fresh-install-cli.ts']) {
       assert.ok(ci.some((command) => command.startsWith(`node ${script}`)), `CI no longer runs ${script}`);
     }
   });
