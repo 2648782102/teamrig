@@ -5,7 +5,7 @@ labels: [feature]
 body:
   - type: markdown
     attributes:
-      value: Each section becomes part of the task teamrig tracks for this issue.
+      value: "A feature request waits for triage: it becomes a task teamrig tracks only once a maintainer takes it on and labels it `teamrig`. Each section then becomes part of that task."
   - type: textarea
     id: problem
     attributes:

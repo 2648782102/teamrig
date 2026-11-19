@@ -214,16 +214,21 @@ matrix.
   which Claude Code ignores. How users update: [Updating the plugin](docs/how-it-works.md#updating-the-plugin).
 
 ## Issues
-Each issue becomes a task teamrig tracks, so an issue carries the task's fields. Open one through a form: a blank issue
+An issue a maintainer opens or takes on becomes a task teamrig tracks, so an issue carries the task's fields. Open one through a form: a blank issue
 is turned off.
 
 | Form | Its type label | Sections (all required unless marked) |
 | --- | --- | --- |
 | Bug report | `bug` | What happened, What was expected, Steps, Version (`teamrig --version`), OS |
-| Task | `task` | What, Why, Done when |
-| Feature request | `feature` | Problem, Proposal, Alternatives (optional) |
-| Design | `design` | Question, Context, Options, Proposal (optional); talk, not work, until agreed ([Design issues](#design-issues)) |
+| Task | `task` | What, Why, Done when; maintainers only |
+| Feature request | `feature` | Problem, Proposal, Alternatives (optional); waits for triage |
+| Design | `design` | Question, Context, Options, Proposal (optional); maintainers only; talk, not work, until agreed ([Design issues](#design-issues)) |
 
+- **Who opens which**: anyone opens a bug report or a feature request. Task and Design are the maintainers' own
+  forms: on an issue from anyone else, teamrig's GitHub sync takes the `task` or `design` label off, labels it
+  `feature` and `status:waiting`, and says so in one comment. A feature request from anyone else waits for triage
+  and becomes a task only once a maintainer takes it on and labels it `teamrig`. The team config sets who counts
+  as a maintainer here and who may take a feature on ([GitHub sync](docs/github-sync.md)).
 - **Title**: `<area>: <a plain sentence>`, such as `budget: the week line counts a retired session`.
 - **Labels** are listed in `.github/labels.json`. The form sets the type. Maintainers and the GitHub watcher set
   the priority (`p1` to `p3`), the area (`area:cli`, `area:hooks`, ...) and the state (`needs-format`,
@@ -236,8 +241,8 @@ is turned off.
 ## Design issues
 
 A design issue, labelled `design`, is where we talk about how something should work before anyone builds it, in
-place of a discussion forum. Open one with the Design form. Every contributor, and the agent working for them, may
-join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.md).
+place of a discussion forum. A maintainer opens one with the Design form; to start one, open a feature request
+and ask for it. Every contributor, and the agent working for them, may join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.md).
 
 - **Give your side with reasons**: a comment saying what you would do and why, what it costs and what it gives up,
   answering the earlier comments you disagree with. One comment per point, not a running log.

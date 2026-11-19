@@ -1,11 +1,11 @@
 name: Task
-description: Work to do on teamrig - a change, a cleanup, a doc - that is not a bug or a new capability.
+description: Maintainers only. Work to do on teamrig - a change, a cleanup, a doc - that is not a bug or a new capability.
 title: "<area>: <the work, as a plain sentence>"
 labels: [task]
 body:
   - type: markdown
     attributes:
-      value: Each section becomes part of the task teamrig tracks for this issue.
+      value: "Maintainers only: a task from anyone else becomes a `feature` that waits for triage. For something you need, open a Feature request or a Bug report. Each section becomes part of the task teamrig tracks for this issue."
   - type: textarea
     id: what
     attributes:

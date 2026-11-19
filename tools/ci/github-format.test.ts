@@ -74,6 +74,15 @@ describe('.github issue forms, labels and pull request template', () => {
     assert.deepEqual(labels.find((label) => label.name === DESIGN_LABEL_SPEC.name), DESIGN_LABEL_SPEC);
   });
 
+  it('tells an outsider the restricted forms are the maintainers\' and a feature waits for the accept label (T4326)', () => {
+    for (const form of DEFAULT_GITHUB.restrictedLabels) {
+      assert.match(read(`ISSUE_TEMPLATE/${form}.yml`), /^description: Maintainers only\. /m, `${form}.yml`);
+    }
+    const feature = read(`ISSUE_TEMPLATE/${DEFAULT_GITHUB.featureLabel}.yml`);
+    assert.match(feature, /waits for triage/);
+    assert.ok(feature.includes(`labels it \`${DEFAULT_GITHUB.acceptLabel}\``), 'feature.yml names the accept label');
+  });
+
   it('gives the pull request template its sections, in order', () => {
     assert.deepEqual(sectionsOf(read('pull_request_template.md')), PULL_SECTIONS);
   });

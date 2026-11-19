@@ -1,5 +1,5 @@
 name: Design
-description: Talk about how something should work, before anyone builds it. Not work to take until it is agreed.
+description: Maintainers only. Talk about how something should work, before anyone builds it. Not work to take until it is agreed.
 title: "<area>: <the question>"
 labels: [design]
 body:
