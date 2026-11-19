@@ -160,6 +160,20 @@ describe('hook route-allow', () => {
     assert.deepEqual(outputOf(await other.run(HOOK, { stdin: call('git -C /w commit -s -m fix'), env: SESSION }))?.['updatedInput'], { command: STAMPED_COMMIT });
   });
 
+  it('reads the rules of the project the session started in, past a blank one, and leaves a call with no command alone (T3270)', async () => {
+    const started = join(USER_HOME, 'started');
+    const commit = call('git -C /w commit -s -m fix');
+    const kit = new CliHarness(ASKS_OFF);
+    await kit.files.write(join(started, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: ['Bash(git -C /w commit:*)'] } }));
+    const held = await kit.run(HOOK, { stdin: commit, env: { ...SESSION, CLAUDE_PROJECT_DIR: started } });
+    assert.equal(decisionOf(held), 'allow');
+    assert.equal(outputOf(held)?.['updatedInput'], undefined);
+    assert.deepEqual(outputOf(await kit.run(HOOK, { stdin: commit, env: { ...SESSION, CLAUDE_PROJECT_DIR: ' ' } }))?.['updatedInput'], { command: STAMPED_COMMIT });
+    for (const toolInput of [{}, 'git commit -m y']) {
+      assert.equal(outputOf(await kit.run(HOOK, { stdin: call('', { tool_input: toolInput }), env: SESSION }))?.['updatedInput'], undefined);
+    }
+  });
+
   it('still allows when the log cannot be written', async () => {
     const kit = new CliHarness(ASKS_OFF);
     const files = new FaultyFiles(kit.files).fail('append', ANSWERS_LOG, systemError('ENOSPC'));
