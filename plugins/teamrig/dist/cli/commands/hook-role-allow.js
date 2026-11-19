@@ -20,7 +20,7 @@ async function holderOf(runtime, kit, config, claudeSession, caller) {
 }
 /**
  * What the route-allow hook prints for a service role's call: an allow when the tab's holder holds a role giving the
- * call's command, every guard passed it (`guardsPass`), a close or comment is under the role's daily cap and a ship or
+ * call's command, every guard passed it (`guardsPass`), a close is under the role's daily cap and a ship or
  * merge runs the team's landed ship tool on the holder's own task branch (ship-role-check.ts); an ask of the owner past
  * the cap; else '', so the permission check decides. It answers only with the switch on and a config that loaded with
  * no issue from this release (a newer one's or a broken key's config gives no role), and only once the allow is
@@ -44,7 +44,7 @@ export async function roleAllowOutputOf(runtime, kit, payload, cli, guardsPass) 
     if (call === undefined || holder === undefined || role === undefined) {
         return '';
     }
-    // A ship is held to the holder's own task branch (C4) and logged by it; a close or comment counts toward the cap (C6).
+    // A ship is held to the holder's own task branch (C4) and logged by it; a close counts toward the cap (C6).
     const target = 'ship' in call ? await shipBranchOf(runtime, kit, config, holder, call.ship) : call.target;
     if (target === undefined || !(await guardsPass())) {
         return '';
