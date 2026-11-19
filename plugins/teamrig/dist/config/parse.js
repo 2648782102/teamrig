@@ -319,6 +319,7 @@ export function parseConfig(raw, above) {
             protectedBranches: read.stringList(pushGuard, 'protectedBranches', 'pushGuard', DEFAULT_PUSH_GUARD.protectedBranches, shortLine(CONFIG_LIMITS.protectedBranches.maxLength, BRANCH_NAME), CONFIG_LIMITS.protectedBranches.maxItems),
             pushToProtected: parsePushToProtected(read, pushGuard),
             reviewPaths: read.list(pushGuard, 'reviewPaths', 'pushGuard', DEFAULT_PUSH_GUARD.reviewPaths, (value, itemPath) => parseReviewPath(read, value, itemPath), CONFIG_LIMITS.reviewPaths.maxItems),
+            trustedScripts: read.stringList(pushGuard, 'trustedScripts', 'pushGuard', DEFAULT_PUSH_GUARD.trustedScripts, shortLine(CONFIG_LIMITS.trustedScripts.maxLength), CONFIG_LIMITS.trustedScripts.maxItems),
         },
         packageGuard: parsePackageGuard(read, read.section(raw, 'packageGuard', '')),
         commitGuard: { skipHooks: parseSkipHooks(read, read.section(raw, 'commitGuard', '')) },

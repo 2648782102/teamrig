@@ -224,7 +224,7 @@ class LaunchReader {
      */
     dynamicHead(words, head) {
         if (this.dialect !== 'powershell' || this.called) {
-            return { kind: 'opaque', reason: 'the program it runs is only known when it runs', gated: true, command: { program: head, args: words.slice(1) } };
+            return { kind: 'opaque', reason: 'the program it runs is only known when it runs', gated: true, shellCode: true, command: { program: head, args: words.slice(1) } };
         }
         const right = assignedWords(words);
         if (right === undefined) {
@@ -345,11 +345,11 @@ class LaunchReader {
             }
             if (option !== undefined && value !== undefined && has(spec.split, option)) {
                 if (value.dynamic) {
-                    return { kind: 'opaque', reason: 'env -S splits a command line only known when it runs', gated: true };
+                    return { kind: 'opaque', reason: 'env -S splits a command line only known when it runs', gated: true, shellCode: true };
                 }
                 const split = splitEnvString(value.text);
                 if (split.kind === 'refused') {
-                    return { kind: 'opaque', reason: split.reason, gated: true };
+                    return { kind: 'opaque', reason: split.reason, gated: true, shellCode: true };
                 }
                 // GNU env puts the split words in place of -S and reads its options on from there, so they may hold more.
                 return this.wrapper(spec, [...split.words, ...args.slice(index + 1)]);

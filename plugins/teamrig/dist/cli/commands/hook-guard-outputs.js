@@ -6,7 +6,7 @@ import { ClientInstalls, ShellPathSearch } from "../../exec/client-launch.js";
 import { dbWriteGuardOf, dbWriteGuardOutput } from "../../hooks/db-write-guard.js";
 import { execGuardOutput } from "../../hooks/exec-guard.js";
 import { packageGuardOf, packageGuardOutput } from "../../hooks/package-guard.js";
-import { commitsOf, protectedBranchesOf, pushGuardOutput, pushToProtectedOf, skipHooksOf } from "../../hooks/push-guard.js";
+import { commitsOf, protectedBranchesOf, pushGuardOutput, pushToProtectedOf, skipHooksOf, trustedScriptsOf } from "../../hooks/push-guard.js";
 import { secretGuardOf, secretGuardOutput, secretPatternsOf } from "../../hooks/secret-guard.js";
 import { serviceRoleGuardOutput } from "../../hooks/service-role-guard.js";
 import { sessionIdOf } from "../../inbox/inbox.js";
@@ -86,6 +86,7 @@ export function pushGuardOutputOf(runtime, guard, payload) {
         repo: runtime.git,
         protectedBranches: protectedBranchesOf(load),
         pushToProtected: pushToProtectedOf(load),
+        trustedScripts: trustedScriptsOf(load),
         commits: commitsOf(load),
         commitLog: runtime.commitLog,
         skipHooks: skipHooksOf(load),
