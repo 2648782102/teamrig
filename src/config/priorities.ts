@@ -13,6 +13,14 @@ export const BLOCKER_PRIORITY: PriorityConfig = { id: BLOCKER_PRIORITY_ID, name:
  */
 export const NOW_PRIORITY: PriorityConfig = { id: 0, name: 'urgent, right now' };
 
+/**
+ * True for right-now work: p0 or the blocker above it. Every gate that lets p0 through (a budget hold, quiet hours, the
+ * expedite band, URGENT) lets a blocker through too, so it tests this, never `=== NOW_PRIORITY.id` (T4329).
+ */
+export function isRightNow(priority: number): boolean {
+  return priority <= NOW_PRIORITY.id;
+}
+
 /** Every level a task may take, most urgent first: teamrig's blocker and p0, then the config's `register.priorities`. */
 export function priorityLevels(priorities: readonly PriorityConfig[]): readonly PriorityConfig[] {
   return [BLOCKER_PRIORITY, NOW_PRIORITY, ...priorities];

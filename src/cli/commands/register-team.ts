@@ -7,6 +7,7 @@ import type { TimeZone } from '../../core/zone.ts';
 import { SecretScanner } from '../../core/secrets.ts';
 import { postLine } from '../../inbox/inbox.ts';
 import type { Task } from '../../register/fold.ts';
+import { priorityText } from '../../register/model.ts';
 import type { Register } from '../../register/register.ts';
 import { assignedNotice, dueTime } from '../../register/views.ts';
 import { WakeAsks } from '../../wake/asks.ts';
@@ -42,8 +43,8 @@ export async function openTeam(runtime: CliRuntime, access: Access): Promise<Tea
 
 /**
  * One inbox line telling a task's owner the task is its own, true when posted; `shown` names the owner in the NOTE
- * (another team's by address). A p0 task also says the owner is woken: its team's wake check wakes an idle owner for
- * it (src/wake/decide.ts: a p0 wakes even past the budget and in blocking quiet hours), so the asker needs no
+ * (another team's by address). A p0 or blocker task also says the owner is woken: its team's wake check wakes an idle owner for
+ * it (src/wake/decide.ts: p0 and blocker wake even past the budget and in blocking quiet hours), so the asker needs no
  * `inbox add --wake now` (T2686). `mayWake`: whether `by` may wake the owner as `inbox add --wake now` gates it
  * (wakeRefusal); a session of the owner's own team always may, so only an ask from another team passes it.
  */
@@ -53,8 +54,8 @@ export async function tellAssigned(runtime: CliRuntime, team: Team, by: string, 
   if (posted) {
     await reopenForDueToday(runtime, team, { by, mayWake }, task, text, shown);
   }
-  if (posted && task.priority === HELD_PRIORITY && team.config.wake.enabled) {
-    runtime.out.stderr(`NOTE ${shown} is woken at its idle prompt for ${task.id}, a p0, so no --wake now is needed`);
+  if (posted && task.priority <= HELD_PRIORITY && team.config.wake.enabled) {
+    runtime.out.stderr(`NOTE ${shown} is woken at its idle prompt for ${task.id}, a ${priorityText(task.priority)}, so no --wake now is needed`);
   }
   return posted;
 }
