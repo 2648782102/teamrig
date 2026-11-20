@@ -1,7 +1,7 @@
 /**
  * The issue host port: where a team's issues and pull requests live, behind names that hold for any host. teamrig
  * writes to a host only through this port, split by kind (Tracker, CodeHost) into small capabilities, and each host
- * (GitHub is the only one so far, src/github/host.ts, and it is both kinds) is an adapter that keeps its own access
+ * (GitHub is the only one so far, src/adapters/connectors/github/host.ts, and it is both kinds) is an adapter that keeps its own access
  * rules. A repository reaches a host only when the team config lists it there.
  */
 
