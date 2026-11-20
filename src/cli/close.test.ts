@@ -217,13 +217,20 @@ describe('teamrig close', () => {
     assert.deepEqual(alpha.processes.ends, []);
   });
 
+  it('closes a session quiet 30 minutes when the team sets no open.headroom.closeIdleMinutes (T4588)', async () => {
+    const alpha = await runningAlpha(30);
+    const closed = await close(alpha, ['alpha', '--yes', '--session', 'lead']);
+    assert.equal(closed.code, 0, closed.stderr.join('\n'));
+    assert.deepEqual(closed.stdout, ['CLOSED app-alpha (session alpha): quiet 30 min, its Claude Code holds 1300 MB, now free; teamrig open app-alpha resumes it']);
+  });
+
   it('keeps open a session with work it can start, one quiet too briefly, and one running background work', async () => {
     const busy = await runningAlpha();
     const added = await busy.kit.run(['add', '--title', 'Ship the release', '--description', 'what and why', '--priority', 'p2', '--owner', 'alpha', '--session', 'lead']);
     assert.equal(added.code, 0, added.stderr.join('\n'));
     assertRefused(await close(busy, ['alpha', '--yes', '--session', 'lead']), /alpha \(session alpha\) has work it can start \(T\d+\)/);
 
-    assertRefused(await close(await runningAlpha(30), ['alpha', '--yes', '--session', 'lead']), /quiet 30 min; it closes after 60 \(open\.headroom\.closeIdleMinutes\)/);
+    assertRefused(await close(await runningAlpha(29), ['alpha', '--yes', '--session', 'lead']), /quiet 29 min; it closes after 30 \(open\.headroom\.closeIdleMinutes\)/);
 
     const helping = await runningAlpha(75, `${reply(40_000)}${backgroundAgent(80)}${reply(40_000)}`);
     assertRefused(await close(helping, ['alpha', '--yes', '--session', 'lead']), /still runs background work its transcript shows/);
@@ -239,7 +246,7 @@ describe('teamrig close', () => {
     const preview = await close(touched, ['alpha', '--session', 'lead']);
     assert.equal(preview.code, 0, [...preview.stdout, ...preview.stderr].join('\n'));
     assert.match(preview.stdout[0] ?? '', /^CLOSE app-alpha \(session alpha\): quiet 75 min, /);
-    assertRefused(await close(await runningAlpha(2, `${reply(40_000, 30)}${away}`), ['alpha', '--yes', '--session', 'lead']), /quiet 30 min; it closes after 60/);
+    assertRefused(await close(await runningAlpha(2, `${reply(40_000, 20)}${away}`), ['alpha', '--yes', '--session', 'lead']), /quiet 20 min; it closes after 30/);
   });
 
   it('weighs work as its budget lets it start it: one the budget holds closes with p1 work, and stays open for p0 (T1159)', async () => {
