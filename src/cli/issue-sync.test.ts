@@ -2,7 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { JsonRecord } from '../core/guards.ts';
+import { driftKey, parseDrift } from '../github/drift.ts';
 import { isIssueQuery } from '../github/gh.ts';
+import { STATUS_LABELS } from '../issues/status-push.ts';
 import { foldEvents, type Task } from '../register/fold.ts';
 import { readEvents } from '../register/snapshot.ts';
 import { CliHarness, EVENTS_PATH, TEAM, TEAM_HOME } from '../testing/cli-harness.ts';
@@ -312,6 +314,25 @@ describe('teamrig issue sync', () => {
     assert.equal(lines[0], 'REPO acme/web: 2 added, 0 changed, 0 unchanged');
     assert.match(lines.find((line) => line.startsWith('FAILED')) ?? '', /^FAILED acme\/web pull requests: .*HTTP 502.*; what was last read of them stays$/);
     assert.equal(register(kit).tasks.size, 2);
+  });
+
+  it("keeps a repository's GH-DRIFT pull request rows when its pull requests cannot be read, while its issue rows move on (T3205)", async () => {
+    const kit = new CliHarness(GITHUB_TEAM);
+    const driftFile = join(TEAM_HOME, 'state', 'github-drift.json');
+    const keys = (): string[] => parseDrift(kit.files.get(driftFile) ?? '').map(driftKey);
+    const outside = ghPull('acme/web', 12, { authorAssociation: 'NONE', author: 'stranger' });
+    const drifting = new FakeGh()
+      .holds('acme/web', [ghIssue('acme/web', 7, { title: 'Fix login', linkedPulls: 1 })])
+      .holds('acme/api', [])
+      .holdsPulls('acme/web', [outside]);
+    await expectRun(kit, ['issue', 'sync', '--yes'], drifting, EXIT.ok);
+    assert.deepEqual(keys(), ['gh-drift gh:acme/web#7 linked-pull', 'gh-drift gh:acme/web#12 pull-unlabelled']);
+    const pullsDown = new FakeGh()
+      .holds('acme/web', [ghIssue('acme/web', 7, { title: 'Fix login', linkedPulls: 1, labels: [STATUS_LABELS.verifying] })])
+      .holds('acme/api', [])
+      .failsPulls('acme/web', { end: { kind: 'exited', code: 1 }, stdout: '', stderr: 'HTTP 502: Bad gateway\n' });
+    await expectRun(kit, ['issue', 'sync', '--yes'], pullsDown, EXIT.failed);
+    assert.deepEqual(keys(), ['gh-drift gh:acme/web#12 pull-unlabelled']);
   });
 
   it("gives an issue no listed login is assigned to its repository's session", async () => {
