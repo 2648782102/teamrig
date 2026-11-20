@@ -5,7 +5,7 @@ import { TempRepo } from '../lib/temp-repo.ts';
 import { profileFor, readProfiles } from './repos.ts';
 import { realShipDeps } from './ship-deps.ts';
 
-const ORIGIN = 'https://github.com/GeneralA6/teamrig.git';
+const ORIGIN = 'https://github.com/teamrig/teamrig.git';
 
 /** Runs only the deps that stay inside a temp repo; sync, mainMove, proveTree, push and merge reach origin or run the checks. */
 describe('realShipDeps', () => {
@@ -24,7 +24,7 @@ describe('realShipDeps', () => {
   afterEach(() => repo.remove());
 
   it("takes the repo's profile by its origin: its merge checks", () => {
-    assert.equal(realShipDeps(repo.dir, null).mergeChecks, profileFor(readProfiles(), 'GeneralA6/teamrig').mergeChecks);
+    assert.equal(realShipDeps(repo.dir, null).mergeChecks, profileFor(readProfiles(), 'teamrig/teamrig').mergeChecks);
   });
 
   it('refuses a repo whose origin repos.json does not list', () => {
