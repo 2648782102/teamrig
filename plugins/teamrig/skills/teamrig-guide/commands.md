@@ -773,7 +773,10 @@ hold, and only a person at that tab can answer it, and RESTART-STALLED: a sessio
 `refresh.restartDelaySeconds` plus 10 minutes (a prompt cancelled its restart, or its runner died where no hook
 re-arms it), its Claude Code still running (with its tab gone, its next start takes the handover); the row names how
 long it sat and its last row in the restart log (`refresh/restarts.jsonl`), it is raised once a handover, and typing
-/clear in its tab gives it its fresh start.
+/clear in its tab gives it its fresh start, and OFF-HELPS: a feature off by default would help the team now, read from
+its own config and tasks (`github.repos` unset while 3 or more active tasks hold issues of one repository;
+`github.statusPush` off while 3 or more hold issues of the listed ones); the row says why and names the command that
+turns it on, and a key listed in [featureHints.dismiss] is never raised.
 Each row names the check it came from; the
 lead fixes it, hands it on (`teamrig add --owner <session>`) or settles the check. The lead's `start` shows them
 too, and any session's `start` posts the lead one inbox line per warning it was not told of yet, at most 5 per
