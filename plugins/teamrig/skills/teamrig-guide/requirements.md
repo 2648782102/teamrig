@@ -25,12 +25,12 @@ can say so; below 2.1.120 the version is unknown and nothing is said. Outside a 
 
 No Claude Code setting has to be turned on for teamrig in auto mode. In default mode, the allow rule
 `Bash(teamrig:*)` saves a question before each command: [hooks.md](hooks.md#permissions). The GitHub CLI (`gh`) is needed only for `teamrig issue sync`, which reads GitHub
-issues: [GitHub sync](https://github.com/GeneralA6/teamrig/blob/main/docs/github-sync.md).
+issues: [GitHub sync](https://github.com/teamrig/teamrig/blob/main/docs/github-sync.md).
 
 ## Install and update
 
 ```sh
-claude plugin marketplace add GeneralA6/teamrig
+claude plugin marketplace add teamrig/teamrig
 claude plugin install teamrig@teamrig
 ```
 
@@ -39,7 +39,7 @@ While the plugin is enabled, its `bin/` folder is on the PATH of Claude Code's B
 multi-line `--description`, reaches teamrig whole from all three, although cmd.exe alone would cut it at the break
 ([the refusal when it cannot](errors.md#usage-errors-exit-64)). In your own terminal, outside Claude Code, `teamrig`
 is not on the PATH unless you add that folder. Each change to the plugin raises its version; to take the newest one, follow
-[Updating the plugin](https://github.com/GeneralA6/teamrig/blob/main/docs/how-it-works.md#updating-the-plugin).
+[Updating the plugin](https://github.com/teamrig/teamrig/blob/main/docs/how-it-works.md#updating-the-plugin).
 
 ## Terminals for `teamrig open`
 
@@ -84,4 +84,4 @@ uninstall` takes it back out. You can instead have your own status line write th
 ## The task pane (optional)
 
 The teamrig-pane plugin shows a session's tasks beside the conversation. It has its own requirements:
-[teamrig-pane guide](https://github.com/GeneralA6/teamrig-pane/blob/main/plugins/teamrig-pane/skills/teamrig-pane-guide/SKILL.md).
+[teamrig-pane guide](https://github.com/teamrig/teamrig-pane/blob/main/plugins/teamrig-pane/skills/teamrig-pane-guide/SKILL.md).
