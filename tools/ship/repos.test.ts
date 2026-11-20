@@ -116,18 +116,18 @@ test('the shipped repos.json keeps every repo\'s merge on the whole local suite 
   const profiles = readProfiles();
   // This repository's main requires CI (.github/rulesets/main.json), so a second full local run at merge only repeats it.
   assert.ok(rulesetRequiredChecks().length > 0, 'teamrig\'s main requires CI');
-  for (const slug of repoSlugs(profiles)) assert.equal(profileFor(profiles, slug).mergeChecks, slug === 'GeneralA6/teamrig' ? 'changed' : 'full', slug);
+  for (const slug of repoSlugs(profiles)) assert.equal(profileFor(profiles, slug).mergeChecks, slug === 'teamrig/teamrig' ? 'changed' : 'full', slug);
 });
 
 test('the shipped repos.json names each repo\'s every-check-passed job its summary', () => {
   const profiles = readProfiles();
-  for (const slug of ['GeneralA6/teamrig', 'GeneralA6/teamrig-pane']) assert.equal(profileFor(profiles, slug).summary, 'every check passed', slug);
+  for (const slug of ['teamrig/teamrig', 'teamrig/teamrig-pane']) assert.equal(profileFor(profiles, slug).summary, 'every check passed', slug);
 });
 
 test('the shipped repos.json calls regenerated exactly the dist, the version files and the release manifest a ship writes again', () => {
   const profiles = readProfiles();
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig').regenerated, [`${DIST}/`, ...[...TEAMRIG_VERSION_FILES, TEAMRIG_RELEASE_MANIFEST].map(file => file.path)]);
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig-pane').regenerated, ['plugins/teamrig-pane/.claude-plugin/plugin.json']);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig').regenerated, [`${DIST}/`, ...[...TEAMRIG_VERSION_FILES, TEAMRIG_RELEASE_MANIFEST].map(file => file.path)]);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig-pane').regenerated, ['plugins/teamrig-pane/.claude-plugin/plugin.json']);
 });
 
 /** The status checks main's ruleset requires before GitHub accepts a merge. */
@@ -149,7 +149,7 @@ function rulesetRequiredChecks(): string[] {
 test('the shipped repos.json waits on GitHub for every check main\'s ruleset requires, so a merge is never refused while CI runs', () => {
   const required = rulesetRequiredChecks();
   assert.ok(required.length > 0, 'the ruleset requires a status check');
-  for (const slug of ['GeneralA6/teamrig', 'GeneralA6/teamrig-pane']) {
+  for (const slug of ['teamrig/teamrig', 'teamrig/teamrig-pane']) {
     const profile = profileFor(readProfiles(), slug);
     assert.equal(profile.gate, 'ci', slug);
     for (const check of required) assert.ok(profile.checks.includes(check), `${slug} waits for ${check}`);
@@ -157,14 +157,14 @@ test('the shipped repos.json waits on GitHub for every check main\'s ruleset req
 });
 
 test('finds the GitHub slug in an SSH or HTTPS remote', () => {
-  assert.equal(slugOf('git@github.com:GeneralA6/teamrig.git'), 'GeneralA6/teamrig');
-  assert.equal(slugOf('https://github.com/GeneralA6/teamrig-pane'), 'GeneralA6/teamrig-pane');
+  assert.equal(slugOf('git@github.com:teamrig/teamrig.git'), 'teamrig/teamrig');
+  assert.equal(slugOf('https://github.com/teamrig/teamrig-pane'), 'teamrig/teamrig-pane');
   assert.equal(slugOf('https://github.com/Owner/repo.js.git/\n'), 'Owner/repo.js');
   assert.throws(() => slugOf('git@example.com:Owner/repo.git'), /is not a GitHub remote/);
 });
 
 test('the shipped repos.json still lists every job a teamrig pull request runs, for when its CI is back', () => {
-  const teamrig = profileFor(readProfiles(), 'GeneralA6/teamrig');
+  const teamrig = profileFor(readProfiles(), 'teamrig/teamrig');
   assert.equal(teamrig.main, 'main');
   const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const jobs = [...workflow.matchAll(/^ {4}name: (.+)$/gm)].map(match => match[1] ?? '').filter(name => !name.includes('${{'));
@@ -183,15 +183,15 @@ test('the shipped repos.json still lists every job a teamrig pull request runs, 
 
 test('neither repo waits for a plugin version gate, as each release pull request raises the version; the pane waits for its commit subject gate (T4678)', () => {
   const profiles = readProfiles();
-  for (const slug of ['GeneralA6/teamrig', 'GeneralA6/teamrig-pane']) {
+  for (const slug of ['teamrig/teamrig', 'teamrig/teamrig-pane']) {
     assert.ok(!profileFor(profiles, slug).checks.includes('plugin version gate'), slug);
   }
-  assert.ok(profileFor(profiles, 'GeneralA6/teamrig-pane').checks.includes('commit subject gate'));
+  assert.ok(profileFor(profiles, 'teamrig/teamrig-pane').checks.includes('commit subject gate'));
 });
 
 test('both repos keep their own local CI runner, which a ship runs before it pushes', () => {
   const profiles = readProfiles();
-  for (const slug of ['GeneralA6/teamrig', 'GeneralA6/teamrig-pane']) {
+  for (const slug of ['teamrig/teamrig', 'teamrig/teamrig-pane']) {
     assert.deepEqual(profileFor(profiles, slug).local, { runner: 'tools/ci/local.ts' }, slug);
   }
 });
@@ -208,8 +208,8 @@ test('reads the flaky checks, and refuses one not among the checks, the summary,
 
 test('the shipped repos.json re-runs only teamrig\'s test legs once as flaky (T2532, T2988)', () => {
   const profiles = readProfiles();
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig').flaky, ['test (ubuntu-latest, node 22)', 'test (windows-latest, node 22)', 'test (macos-latest, node 22)']);
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig-pane').flaky, []);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig').flaky, ['test (ubuntu-latest, node 22)', 'test (windows-latest, node 22)', 'test (macos-latest, node 22)']);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig-pane').flaky, []);
 });
 
 test('reads the conditional checks, and refuses them without a summary, or one not among the checks, the summary, a blank or a repeat (T4617)', () => {
@@ -225,8 +225,8 @@ test('reads the conditional checks, and refuses them without a summary, or one n
 
 test('the shipped repos.json leaves teamrig\'s windows and macOS test legs conditional, which a docs-only run does not make (T4617)', () => {
   const profiles = readProfiles();
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig').conditional, ['test (windows-latest, node 22)', 'test (macos-latest, node 22)']);
-  assert.deepEqual(profileFor(profiles, 'GeneralA6/teamrig-pane').conditional, []);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig').conditional, ['test (windows-latest, node 22)', 'test (macos-latest, node 22)']);
+  assert.deepEqual(profileFor(profiles, 'teamrig/teamrig-pane').conditional, []);
 });
 
 test('finds a repo under each of its aliases, any case, as the same profile, and lists it once by its own name (T3275)', () => {
@@ -247,9 +247,9 @@ test('refuses an alias that is no <owner>/<repo> name, or a name that would find
   );
 });
 
-test('the shipped repos.json finds each repo under the organization it moves to as well', () => {
+test('the shipped repos.json finds each repo under the name it had before the move as well', () => {
   const profiles = readProfiles();
   assert.equal(profileFor(profiles, 'teamrig/teamrig'), profileFor(profiles, 'GeneralA6/teamrig'));
   assert.equal(profileFor(profiles, 'teamrig/teamrig-pane'), profileFor(profiles, 'GeneralA6/teamrig-pane'));
-  assert.deepEqual(repoSlugs(profiles), ['GeneralA6/teamrig', 'GeneralA6/teamrig-pane']);
+  assert.deepEqual(repoSlugs(profiles), ['teamrig/teamrig', 'teamrig/teamrig-pane']);
 });
