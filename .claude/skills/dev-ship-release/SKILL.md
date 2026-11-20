@@ -9,6 +9,11 @@ The `release` workflow (`.github/workflows/release.yml`) keeps one release pull 
 it raises the version in `plugins/teamrig/.claude-plugin/plugin.json` and `src/core/version.ts` and adds the notes to
 `CHANGELOG.md`. `tools/ship/repos.json` names its branch and changelog under the repository's `release` key.
 
+Once the `teamrig-release` App is set up (variable `RELEASE_APP_ID`, its key in environment `release-merge`), the
+`release merge` workflow (`.github/workflows/release-merge.yml`) merges the pull request itself when ci passed on its
+head, and comments the head, paths and checks it passed. The steps below are for a head its gate refused (its run's
+summary says why) or a repository without the App: read that summary first, and fix the cause before approving.
+
 1. Add a release task for the session that ships releases, saying which version it ships, and read the pull
    request's head: `git fetch origin` and `git rev-parse origin/<release head>`, the head `repos.json` names.
 2. Wait until every required check passed on that head, then set the task waiting on the lead's approval, naming the
