@@ -12,7 +12,7 @@ import { securityIssues } from "../../github/security-alert.js";
 import { eventsByRecipient, pullEvents, pullListeners, pullNewsText, pullRecipient } from "../../github/pull-news.js";
 import { ourLogins } from "../../github/trust.js";
 import { applySteps, closedSince } from "../../github/sync.js";
-import { autoPushWrites, sessionLogins } from "../../issues/status-push.js";
+import { sessionLogins } from "../../issues/status-push.js";
 import { priorityText } from "../../register/model.js";
 import { GITHUB_ACTOR } from "../../register/policy.js";
 import { noPositionals } from "../args.js";
@@ -23,6 +23,7 @@ import { teamRegister } from "../team-register.js";
 import { claimBudget, recordClaims } from "./issue-claim.js";
 import { pullThreads, recordClocks, repoThreads } from "./issue-clock.js";
 import { fieldRunOf } from "./issue-field-push.js";
+import { reserveHour, settleHour } from "./issue-push-hour.js";
 import { issuePush, pushEndLine, pushRepos } from "./issue-push.js";
 import { GITHUB_OFF, githubOff, readSyncState, reportAutoSync } from "./issue-sync-auto.js";
 import { githubWatcher } from "../../github/watcher.js";
@@ -223,7 +224,9 @@ export async function issueSync(args, runtime) {
         (await recordClocks(runtime, kit, config, clocked, threads)).forEach(say);
     }
     if (pushing) {
-        const writesPerRun = autoPushWrites(config.github.probeSeconds);
+        const hour = await reserveHour(runtime, kit, config);
+        hour.lines.forEach(say);
+        const writesPerRun = hour.writesPerRun;
         // Before the push, so it plans against the assignees the claims set; the claims' writes share the run's budget.
         const claimed = await recordClaims(runtime, kit, config, { host, read: claimRead, started, writes: claimBudget(writesPerRun) });
         claimed.lines.forEach(say);
@@ -242,6 +245,7 @@ export async function issueSync(args, runtime) {
             fields: await fieldRunOf(runtime, config, kit.paths, register),
         }, say);
         say(pushEndLine(true, pushed, writesPerRun));
+        (await settleHour(runtime, kit, config, hour, claimed.writes + pushed.writes)).forEach(say);
         for (const failure of pushed.failures) {
             ends.push('failed');
             // One failure per repository, so the lead is told a repository fails once; the first reason stands.

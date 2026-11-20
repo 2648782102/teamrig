@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { endOf } from "../test-run/shell.js";
 import { LABEL_FILE, parseLabelFile } from "../issues/label-file.js";
-import { MANAGED_LABEL_SPECS } from "../issues/managed-labels.js";
+import { areaLabelSpec, MANAGED_LABEL_SPECS } from "../issues/managed-labels.js";
+import { labelRefusal } from "../issues/write.js";
 import { QUERY_VARIABLES, RAW_FIELD } from "./queries.js";
 /**
  * The kinds of `gh` command line teamrig runs: a page of a shipped query (the issue import, the links read and the
@@ -361,11 +362,22 @@ const LABELS_PATH = /^repos\/([^/]+\/[^/]+)\/labels$/u;
 /**
  * True for the command line labelCreateArgs builds for one of the labels teamrig makes (MANAGED_LABEL_SPECS: the
  * status push's own and the design label) and nothing more: its name, colour and description word for word, in that
- * order. So the runner makes no other label (beside one isFileLabelCreate takes), and edits or deletes none, whatever
- * a caller passes.
+ * order. So the runner makes no other label (beside one isAreaLabelCreate or isFileLabelCreate takes), and edits or
+ * deletes none, whatever a caller passes.
  */
 export function isLabelCreate(args) {
     return labelCreateIn(args, () => MANAGED_LABEL_SPECS);
+}
+/**
+ * True for the command line labelCreateArgs builds for an area label (areaLabelSpec): a name a host takes, in the one
+ * area colour and description, word for word. Which names are areas is the team's github.areaOwners, which issue label
+ * checks before the create (issues/write.ts); the runner holds the create to that one look, so it makes no label in a
+ * look of the caller's choosing.
+ */
+export function isAreaLabelCreate(args) {
+    const field = args[5] ?? '';
+    const name = field.startsWith('name=') ? field.slice('name='.length) : '';
+    return labelRefusal(name) === undefined && labelCreateIn(args, () => [areaLabelSpec(name)]);
 }
 /**
  * True for the command line labelCreateArgs builds for a label the repository's own label file names, as the runner
@@ -625,7 +637,7 @@ export class GhRefusedError extends Error {
         super(`teamrig only runs gh for its shipped issue queries, its two watch probes, to open, read, comment on, edit the body of, label, assign, close, link, type or set a field of an issue, to read a failed job's log, and to read the posts that may mention a user: it refuses gh ${args.slice(0, 2).join(' ')} with these arguments`);
     }
 }
-/** True for each fixed command line the runner starts; it also makes a label a read label file named (isFileLabelCreate). */
+/** True for each fixed command line the runner starts, an area label's create among them; it also makes a label a read label file named (isFileLabelCreate). */
 export function isAllowedGh(args) {
     return (isIssueQuery(args) ||
         isIssueCreate(args) ||
@@ -645,6 +657,7 @@ export function isAllowedGh(args) {
         isUserRead(args) ||
         isViewerRead(args) ||
         isLabelCreate(args) ||
+        isAreaLabelCreate(args) ||
         isLinkAdd(args) ||
         isFieldValueSet(args) ||
         isIssueTypeSet(args) ||

@@ -28,6 +28,7 @@ the rules that apply on every turn, and the project skills in `.claude/skills/` 
 | [`dev-add-config-key`](.claude/skills/dev-add-config-key/SKILL.md) | a new key in the team config |
 | [`dev-update-docs`](.claude/skills/dev-update-docs/SKILL.md) | the docs a change must update, and the checks that hold them to the code |
 | [`dev-ship-change`](.claude/skills/dev-ship-change/SKILL.md) | from the last commit to the merge: checks, push, pull request |
+| [`dev-ship-release`](.claude/skills/dev-ship-release/SKILL.md) | merging the release pull request: the lead's approval of its head, then `ship.ts merge --release` |
 | [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.md) | joining a design issue: a reasoned comment, nothing taken until it is agreed, no sensitive data |
 | [`dev-github-intake`](.claude/skills/dev-github-intake/SKILL.md) | a maintainer taking in issues and pull requests: labels, best fix first, landing with credit, design issues |
 
@@ -43,12 +44,32 @@ the rules that apply on every turn, and the project skills in `.claude/skills/` 
   <why>`); `src/core/hidden-children.test.ts` holds both.
 - **Typed code with no casts**: no `any`, no `as unknown as`; narrow `unknown` with a type guard.
 - **The why in plain words, where the reader finds it**: a comment says why the code is as it is, with a task or issue
-  id only as a trace and never a path outside the repo; a pull request that settles a design question fills in the
-  template's `## Alternatives` (the options weighed and why this one won). There is no decisions folder: the reasons
+  id only as a trace and never a path outside the repo; a pull request that settles a design question says in its
+  `## Why` the options weighed and why this one won. There is no decisions folder: the reasons
   live in the code, its issues and its pull requests, and [how it works](docs/how-it-works.md) shows how the parts fit.
 - When a step in a skill turns out wrong, fix the skill in the same pull request.
 - **Generic first**: every change has a reach, decided before it is built and stated in its task and its pull request
   (see [Where a change lives](#where-a-change-lives)).
+
+### What a change is held to
+
+The author builds to these and the reviewer checks each one:
+
+- **SOLID**: one reason to change per module; new behaviour added beside the old, not by editing what callers rely
+  on; small interfaces; code that depends on a port, not on the outside tool behind it.
+- **Reuse before writing**: search for the module, helper or fake that already does the job, and extend it. A second
+  copy of a rule drifts from the first.
+- **The architecture and the decisions already taken**: the change fits [how it works](docs/how-it-works.md), the
+  design issues marked `Agreed:` and the design docs, or it says which one it changes and why.
+- **Extensibility weighed early**: ask what a later, more mature architecture would need (another AI CLI, another
+  issue tracker, another UI over the [public interface](docs/design/public-interface.md)). Do now what is cheap now and
+  costly later, such as a port, a config key in place of a constant, or data in place of a branch in code. Build
+  no hook for a need no one has named. A design lists these early steps.
+- **Risks named**: every design, issue and pull request says what could go wrong (a break for a caller, a security
+  or data risk, a cost, a migration) and how each is softened, or says `none foreseen` and why.
+- **A critical, unbiased review**: the reviewer reads to find what is wrong, not to agree, and holds the change to
+  this list whoever wrote it. A wrong direction is declined or pushed back on, with the reason and the better way,
+  because a bad direction accepted costs far more than a round trip. Each finding says why.
 
 ## Where a change lives
 teamrig is its own main user: its own sessions build it with it, so a fix they need is most often one every team
@@ -134,7 +155,15 @@ then the pane counts each line of the new format as one from a newer teamrig and
 ## The local gate
 CI (`.github/workflows/ci.yml`) runs on each pull request and each push to `main` (every job would skip if the
 repository were made private again, where GitHub Actions minutes bill). Its `every check passed` job passes only when
-every other job did: the one check `main` requires (see [Pull requests](#pull-requests)). Before that, the
+every other job did: the one check `main` requires (see [Pull requests](#pull-requests)). Its first job, `change
+kind` (`tools/ci/change-kind.ts`), names what the change touches: `docs` when every changed file is a top-level
+Markdown file or under `docs/`, `design` when every one is in the design notes folder, docs/design, else `code` (and `code` when there
+is no base to compare with). It runs the base commit's copy of that tool, never the change's own, so a pull request
+that edits `tools/ci` cannot name itself docs; a base from before the tool is `code`. A `docs` change runs the commit checks (scrub, DCO, size rule, subjects, dependency
+review) and, on ubuntu alone, the build, the docs' specs, the pictures, the config reference and the doc links; a
+`design` change runs the commit checks and the doc links; a `code` change runs everything on every OS (the test
+matrix's systems come from `change kind`, `TEST_SYSTEMS` in that file). Each job still runs and skips only its steps,
+so `every check passed` reads a pass from each. Before that, the
 `pre-push` hook that `npm ci` sets proves the commit being pushed (`tools/ci/local.ts`; the lists are
 `tools/ci/local-checks.ts`). `node tools/ci/local.ts` and `npm run check` run every check CI runs, all but the
 dependency review, which reads GitHub's dependency graph ([Security checks](#security-checks)):
@@ -171,8 +200,9 @@ matrix.
 - **Dependency review**: CI's `dependency review` job fails a pull request that adds or changes a dependency (an
   npm package or a GitHub Action) with a known advisory, of any severity, dev dependencies included. It is one of
   the jobs `every check passed` needs, so such a pull request cannot merge.
-- **CodeQL** (`.github/workflows/codeql.yml`) scans the TypeScript on each pull request, each push to `main` and
-  weekly. Its findings show in the Security tab and on the pull request; it is not a required check, so read them.
+- **CodeQL** (`.github/workflows/codeql.yml`) scans the TypeScript on each pull request that changes more than
+  Markdown and `docs/`, each push to `main` and weekly. Its findings show in the Security tab and on the pull
+  request; it is not a required check, so read them.
 - **Dependabot** (`.github/dependabot.yml`) proposes npm and GitHub Actions updates weekly, one grouped pull
   request per ecosystem, and never a release younger than 14 days. A proposal is never merged as it comes: check
   the exact version against the advisories and its publish date, land it as your own signed-off commit (its
@@ -202,7 +232,11 @@ matrix.
 - Nothing is pushed to `main` directly, and release tags are set only by the release workflow.
 - The `release` workflow (`.github/workflows/release.yml`, run on each push to `main`) keeps one release pull request open
   through release-please (`release-please-config.json`): it raises the version in the plugin's `plugin.json` and
-  `src/core/version.ts` and writes the notes, and a person reviews and merges it. Once it merged, the next run tags
+  `src/core/version.ts` and writes the notes. It merges like any pull request, through `tools/ship`: the lead approves
+  a release task at the release pull request's head, and `node tools/ship/ship.ts merge <repo dir> --release T<id>
+  --approved <sha>` merges it (skill `dev-ship-release`). That merge refuses a head holding anything but the version
+  raises and the changelog's new notes, never opens the pull request, and asks for a new head's approval when main
+  moved, since release-please rewrites the head on each push to main. Once it merged, the next run tags
   main `teamrig-v<version>` with the notes, builds the dist with a read-only token, and pushes main's commit with
   the dist on top to the `release` branch, tagged `v<version>` (`tools/release/publish.ts`). The marketplace entry
   installs from that branch (a `git-subdir` source on ref `release`), so main ignores `plugins/teamrig/dist` and no
@@ -223,9 +257,9 @@ is turned off.
 | Form | Its type label | Sections (all required unless marked) |
 | --- | --- | --- |
 | Bug report | `bug` | What happened, What was expected, Steps, Version (`teamrig --version`), OS |
-| Task | `task` | What, Why, Done when |
-| Feature request | `feature` | Problem, Proposal, Alternatives (optional) |
-| Design | `design` | Question, Context, Options, Proposal (optional); talk, not work, until agreed ([Design issues](#design-issues)) |
+| Task | `task` | What, Why, Done when, Risks |
+| Feature request | `feature` | Problem, Proposal, Alternatives (optional), Risks |
+| Design | `design` | Question, Context, Options, Proposal (optional), Risks; talk, not work, until agreed ([Design issues](#design-issues)) |
 
 - **Title**: `<area>: <a plain sentence>`, such as `budget: the week line counts a retired session`.
 - **Labels** are listed in `.github/labels.json`. The form sets the type. Maintainers and the GitHub watcher set
@@ -254,9 +288,22 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
   goes through a private report, as [SECURITY.md](SECURITY.md) says; a log goes in cut to the lines that matter, with
   every private value taken out.
 
+### Design docs
+
+Every design doc and study lives in [`docs/design/`](docs/design), never beside the user docs, so a design is not read
+as how teamrig works today.
+
+- **When**: write one after a design issue's `Agreed:`, or as a study an issue asks for before anything is agreed.
+- **Its header**: the page opens with a status line, `Status: proposed`, `Status: accepted` or `Status: replaced by
+  <link>`, with the date it was written and a link to its issue.
+- **A record, not a living page**: a design doc is not kept current the way user docs are. When the design changes,
+  its status line changes (to `accepted`, or to `replaced by` a newer doc), and what ships is described in the user
+  docs.
+
 ## Pull requests
-- **The description**: the template asks for What, Why, Reach (see [Where a change lives](#where-a-change-lives)), Changes, Old-code proof (for a fix, the regression test that
-  fails on the old code), Tests and Issue (`Fixes #<n>` or `Refs #<n>`), then the checklist.
+- **The description**: the template asks for What, Why, Reach (see [Where a change lives](#where-a-change-lives)), Changes, Risks (see
+  [What a change is held to](#what-a-change-is-held-to)), Old-code proof (for a fix, the regression test that fails
+  on the old code), Tests and Issue (`Fixes #<n>` or `Refs #<n>`), then the checklist.
 - **From a fork**: fork the repository, branch off its `main`, and open the pull request against this repository's
   `main`. CI runs it with no secrets and a read-only token, and an outside contributor's run waits for the
   maintainer to approve it.
@@ -265,8 +312,18 @@ join; agents follow [`dev-design-issue`](.claude/skills/dev-design-issue/SKILL.m
   no-reply address GitHub shows under Settings, Emails: `git config user.email <id>+<user>@users.noreply.github.com`.
 - **A flaky test leg**: the merge re-runs a test leg listed `flaky` in `tools/ship/repos.json` once when only it
   failed, and reads the checks once more after a GitHub server error or timeout; a second failure stops the merge.
+- **A leg a docs run leaves out**: a check listed `conditional` in `tools/ship/repos.json` (teamrig's windows and
+  macOS test legs) is one the run makes only for some changes; once `every check passed` passed without it, the
+  merge stops waiting for it, and one that does show must pass.
+- **The merge queue** (off by default): when the repository's entry in `tools/ship/repos.json` says `"queue": true`,
+  which needs the `ci` gate, the merge puts the pull request in GitHub's merge queue at the checked head once its
+  checks pass, in place of its own merge call, and waits for the queue to land it. The queue orders the landings,
+  so the merge takes no landing turn. A pull request already queued is waited on, not queued again. One the queue
+  lets go unmerged stops the merge with GitHub's reason and the failed merge group run's jobs; one still queued at
+  the timeout stays queued, and a merge run again waits on it.
 - **Review**: a code owner (`.github/CODEOWNERS`: the maintainer) reviews the code and approves the last push, and a
-  new push dismisses an approval given before it. On a threshold, limit or trigger the reviewer asks "can this
+  new push dismisses an approval given before it. The reviewer holds it to
+  [What a change is held to](#what-a-change-is-held-to) and declines a wrong direction. On a threshold, limit or trigger the reviewer asks "can this
   still fire?" and wants the spec of it firing in the real flow ([Tests](#tests)). A change to the git hooks, CI, the scrub or teamrig's guards
   (`.githooks/`, `.github/`, `tools/scrub/`, `tools/ci/`, `src/hooks/`, `src/push-guard/`, `src/secret-guard/`,
   `src/package-guard/`, `src/permissions/`) also gets a security review.

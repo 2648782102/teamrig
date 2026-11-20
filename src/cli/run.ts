@@ -719,9 +719,9 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
   demote <id|name> [--yes]     (its own leader) takes a sub-lead's members back; without --yes it shows it
   roles grant <role> --holder <id|name|team> [--commands <a,b>] [--yes]
       (the owner) lets the holder run a service role's teamrig commands past every permission check, from its
-      own tab only: names from teamrig's table (issue close, issue comment, queue ship, queue merge); team for
-      every session only where each command checks its caller; teamrig's guard asks before a session's call;
-      without --yes it writes nothing
+      own tab only: names from teamrig's table (issue close, issue comment, issue migrate, queue ship, queue
+      merge); team for every session only where each command checks its caller; teamrig's guard asks before a
+      session's call; without --yes it writes nothing
   roles revoke <role> [--holder <id|name>] [--yes]   (the owner) takes the role off one holder, or off the
       team when no --holder; the next call reads it; without --yes it shows the change and writes nothing
   roles list                   each service role, who holds it and what it runs
@@ -797,8 +797,8 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
   issue label <owner/name#n> [--add <label,...>] [--remove <label,...>]   adds labels to and takes
       labels off one issue or pull request of the team's repositories, with the same access; each
       label to add must already be one of the repository's, but design (talk only, not work to take
-      until agreed) and a label the repository's .github/labels.json defines, which it makes first
-      (MADE); the first failure stops it
+      until agreed), a label the repository's .github/labels.json defines and one the team's
+      github.areaOwners names, which it makes first (MADE); the first failure stops it
   issue similar <owner/name#n>   the issues the task list mirrors that may be duplicates of this one,
       best first: at most 3 at or above github.similarThreshold by TF-IDF over their titles and bodies,
       with no model and no GitHub call; reads the task list only, so issue sync must have added the issue
@@ -941,7 +941,7 @@ export const USAGE = `${KIT_NAME} <command> ...   (the caller: --session <id|nam
       delivery.queue.maxRunMinutes (--max-minutes; the time its share is set aside by teamrig step-away does
       not count) and records its start and end in the delivery
       ledger, with its --kind (build, test, lint, push, merge, deploy, other or ship; default read from the
-      command; a ship, merge or deploy holds the host's one ship slot: a second one waits as shipSlot while other steps
+      command; a ship, merge or deploy holds its repository's ship slot: a second one there waits as shipSlot while other steps
       pass it) and --task (default the first task id in --what, else for a ship tool's step the task its worktree's branch
       names); once the shell that started it ends, it kills a running step (exit 129); a
       waiting one goes on as a detached run that keeps its place in line while the tab's Claude Code runs (not a git hook's

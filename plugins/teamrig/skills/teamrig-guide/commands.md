@@ -757,8 +757,9 @@ window has reached 80% [budget.fiveHourWarnPct] or rises fast enough to fill bef
 session stalls until that reset; it is raised once a window, and a plan with no such window never shows it,
 RESET-EXPIRING: a reset grant in [budget.resets] with uses left expires within 14 days, and one not spent by then is
 lost; it is raised once a grant and again after each use, LOG-SIZE: a file of the team's `state` or `inbox` folder
-has reached 3 MiB, near the 4 MiB the task pane reads of a file at once, past which the pane stops reading it; it is
-raised once a file, GH-LATE: a GitHub issue or pull request has waited past its answer target
+has reached 3 MiB, near the 4 MiB the task pane reads of a file at once, past which the pane stops reading it, with
+that file's remedy (compact for the register and the hooks' aged logs, none yet for an inbox); it is raised once a
+file, GH-LATE: a GitHub issue or pull request has waited past its answer target
 (security 4 h, bug, pull request or a comment on an issue a task tracks 24 h, else 72 h) for an answer of ours, by the clocks the
 last writing `teamrig issue sync` kept; one GH-LATE names every late thread, with their count and the oldest three,
 and is raised once, and again only when a newer wait goes late, and from
@@ -1378,8 +1379,10 @@ Flags:
   run without `--auto` reads no posts. It reads every
   repository, so it refuses `--repo`. With `github.statusPush` on it
   then sends the status push (`--push --yes`) too, labels, assignees, fields and types only: a close it plans is printed as a `HELD` line and
-  sent only by a session's `--push --yes`. Its writes per run are lowered so an hour of runs sends at most 250
-  (4 a run at the default `github.probeSeconds` of 60, 20 at 300); a failed write is told to the lead like a
+  sent only by a session's `--push --yes`. It counts its writes over the rolling hour in
+  `state/github-push-hour.json`: 40 a run until the hour has sent 250, then only what the hour has left; a count it
+  cannot read or write gives the even share (4 a run at the default `github.probeSeconds` of 60, 20 at 300) and a
+  `NOTE`; a failed write is told to the lead like a
   repository that fails.
   With the push on it also handles claims: an outside person's comment starting `/take`, "I'll take", "I'm working
   on" or "I can take", on an open issue with no assignee that is not `design` or `security` and is the repository's
@@ -1625,18 +1628,20 @@ CLOSED acme/web#12
 Adds labels to and takes labels off one issue or pull request of the team's repositories, with the same access as
 `teamrig issue comment`. `--add` and `--remove` are comma-separated lists; give at least one, and no label in both.
 Each label to add must already be one of the repository's, read before any change, so a typo never makes a new
-label: make it on the host first. Two kinds are made where the repository lacks them, each with a `MADE` line:
-`design`, the label of a design issue (talk about how something should work, not work to take until agreed), and a
+label: make it on the host first. Three kinds are made where the repository lacks them, each with a `MADE` line:
+`design`, the label of a design issue (talk about how something should work, not work to take until agreed); a
 label the repository's own `.github/labels.json` defines, made with that file's colour and description (the file is
-read from the default branch, once, only when such a label is missing). Labels to add go in one call, then each label to remove comes off in turn; the
+read from the default branch, once, only when such a label is missing); and an area label `[github.areaOwners]`
+names, made in teamrig's one area colour and description unless that file defines it. Labels to add go in one call,
+then each label to remove comes off in turn; the
 first failure stops it, and a `FAILED` line after a change says what it already did. Exit 1 when it failed, 2 when
 refused, else 0.
 
 Flags:
 
 - `--session <id|name>`: the caller, a session of the team.
-- `--add <label,...>`: the labels to add, each already one of the repository's, `design`, or one its
-  `.github/labels.json` defines.
+- `--add <label,...>`: the labels to add, each already one of the repository's, `design`, one its
+  `.github/labels.json` defines, or one `[github.areaOwners]` names.
 - `--remove <label,...>`: the labels to take off.
 
 Example:
@@ -2748,10 +2753,11 @@ NOTE backend has an inbox line: lead took back the sessions you led (importer, s
 Service roles (`teamrig roles grant`, `revoke` and `list`) let a named session run a few teamrig commands for an outside
 service past every permission check, from its own tab only: the team's `serviceRoles` config [serviceRoles] maps
 each role to its holders and its commands. The commands come from teamrig's table, each a reviewed shape
-(`issue close`, `issue comment`, `queue ship`, `queue merge`); a name outside it fails the config load. `team` holds
-a role for every session only where each command checks its caller itself, as a ship or merge does (it runs only on
-the session's own task branch); the others name their sessions. `hook route-allow` lets the holder's own tab run them
-with no permission check, up to `prompts.serviceRoleDailyCap` closes and comments a role in 24 hours
+(`issue close`, `issue comment`, `issue migrate`, `queue ship`, `queue merge`); a name outside it fails the config
+load. `team` holds a role for every session only where each command checks its caller itself, as a ship or merge
+does (it runs only on the session's own task branch); the others name their sessions. `hook route-allow` lets the
+holder's own tab run them with no permission check, up to `prompts.serviceRoleDailyCap` closes, comments and migrate
+runs a role in 24 hours
 ([the service-role allow](hooks.md#before-a-shell-command-the-service-role-allow)). See also
 [the service-role guard](hooks.md#before-a-write-or-a-shell-command-the-service-role-guard).
 
@@ -4343,7 +4349,7 @@ Output:
 
 ```text
 ARCHIVE events.jsonl (3 event(s), 548 B) as archive/events-000001.jsonl
-SNAPSHOT snapshot.jsonl: 3 event(s), 733 B, covering segments 1-1; folded from the history (3 event(s))
+SNAPSHOT snapshot.jsonl: 0 task line(s), 3 event(s), 791 B, covering segments 1-1; folded from the history (3 event(s))
 TASKS 2 kept (2 unchanged, 0 changed), 0 retired now, 0 before
 HISTORY 2 task(s) from 3 event(s): the working set holds every active one as the history does
 TAIL events.jsonl starts again with the rotation marker (67 B)
@@ -5146,7 +5152,10 @@ wait the checkout must still be at that commit or at the newest main, or at a co
 no file the tool runs at either commit changed: the tool; the files its roots file beside it names as data
 (`<tool>.roots.json`, such as `tools/ship/ship.roots.json` holding `{"roots": ["src/cli/main.ts", "package.json"]}`:
 a CLI it spawns by a joined path, the package files that set how its modules load), and that file itself; every file
-those reach through their relative imports, read from the code and never from a comment or a string; and the data
+those reach through their relative imports, read from the code and never from a comment or a string, except the
+`import('…')` calls of a module its roots file names under `"staticOnly"` (a CLI's command table, which loads a
+command's module only when that command runs: `{"roots": ["src/cli/main.ts", "src/cli/commands/step-aside.ts"],
+"staticOnly": ["src/cli/run.ts"]}` counts only the commands the ship runs); and the data
 files they open beside themselves (`new URL('./repos.json', import.meta.url)`). So a ship that waited while main moved
 on still runs when the tool's own code is the same. A closure that cannot be read whole (a file missing, an import
 outside the checkout, a roots file that is not that JSON or names a path outside the checkout, more than 2000 files) runs only at the queued commit or the newest main (`REFUSED the ship tool ... is not
@@ -5164,7 +5173,13 @@ git rev-parse ... did not answer: ...`), never as a changed tool. Such a step is
 kind does not fit it: a run without `--merge` moves no main branch, so it is `--kind test` and runs beside other
 steps while a merge holds the ship slot (`REFUSED a ship tool run without --merge moves no main branch, so it takes
 no ship slot: queue it with --kind test, not --kind ship`), and a run that merges (`--merge`, or the `merge` form)
-is `--kind ship` or `merge`, never a kind that takes no slot.
+is `--kind ship` or `merge`, never a kind that takes no slot. The slot is held per repository, by its shared git
+folder, so every worktree of one repository shares it: for a ship tool run, the repository of the worktree it ships;
+for any other step, that of the folder it queued in. A ship of another repository runs beside it. A step whose
+repository is in doubt holds the slot of every repository: one queued outside any repository or by an older teamrig,
+and one whose words may move another (`-C <dir>`, `-R`/`--repo`, `--git-dir`, `--work-tree`, `cd`, `pushd`, a
+`NAME=value` word, a shell script in one word, or a path in another repository or none), or whose program is a path
+in another repository (`/repo/other/deploy.sh`; a program in no repository, such as `/usr/bin/git`, keeps the folder's), or that is one quoted shell line (`'git -C /repo/other push'`), whose words are not read.
 
 The lock is `host.lock` in the kit home, one for every team on the host, unless `delivery.queue.lockPath` names
 another. It lasts `delivery.queue.lockTtlMinutes` (150); a lock past that, or one whose process is gone, is

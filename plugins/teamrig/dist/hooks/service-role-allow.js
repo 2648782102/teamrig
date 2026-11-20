@@ -1,30 +1,23 @@
 import { parseJsonl } from "../core/jsonl.js";
-import { isIssueCommand, TEAM_HELD_COMMANDS } from "../permissions/service-commands.js";
+import { isCappedCommand } from "../permissions/service-commands.js";
 import { holdBackOutput } from "./permission.js";
 /** The rolling window the daily cap counts over. */
 export const ROLE_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** True when the role gives `command` to `holder`: a holder it names, or every session for a command that checks its own caller. */
-function holds(role, command, holder) {
-    if (!role.commands.includes(command)) {
-        return false;
-    }
-    return role.holders === 'team' ? TEAM_HELD_COMMANDS.has(command) : role.holders.includes(holder);
-}
-/** The role, by name, that gives `holder` the command; the first by name when two do, so the cap counts one; else undefined. */
-export function roleHolding(roles, command, holder) {
-    return Object.keys(roles)
-        .sort()
-        .find((name) => {
-        const role = roles[name];
-        return role !== undefined && holds(role, command, holder);
-    });
-}
-/** How many closes and comments the role's allow let run at or after `sinceMs`, by the prompt-answers log's text; a ship counts toward no cap. */
+/**
+ * How many calls the role's allow let run at or after `sinceMs` toward its cap, by the prompt-answers log's text: one
+ * for each close and comment, and for a migrate its `count`, the issue rows its file held (T4606), so a run opening
+ * fifty issues weighs fifty; a ship counts toward no cap. A line with no positive whole `count` weighs one.
+ */
 export function roleAllowsSince(log, role, sinceMs) {
-    return parseJsonl(log).records.filter(({ record }) => {
+    return parseJsonl(log)
+        .records.filter(({ record }) => {
         const at = record['at'];
-        return record['answer'] === 'role' && record['role'] === role && isIssueCommand(record['command']) && typeof at === 'string' && Date.parse(at) >= sinceMs;
-    }).length;
+        return record['answer'] === 'role' && record['role'] === role && isCappedCommand(record['command']) && typeof at === 'string' && Date.parse(at) >= sinceMs;
+    })
+        .reduce((sum, { record }) => sum + weightOf(record['count']), 0);
+}
+function weightOf(count) {
+    return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? count : 1;
 }
 /**
  * One line of the team's prompt-answers log for a role's allow, beside the route allows: the role, the table command and
@@ -42,6 +35,7 @@ export function roleAllowRecord(facts) {
         role: facts.role,
         command: facts.call.command,
         target: facts.call.target,
+        ...(facts.count === undefined ? {} : { count: facts.count }),
     };
 }
 /** The hook's stdout for a role's call: an allow naming the role, the command and the issue or branch. */
@@ -54,8 +48,13 @@ export function roleAllowOutput(role, call) {
         },
     });
 }
-/** The hook's stdout once the role ran its cap in 24 hours: a refusal, saying when the role runs again. */
-export function roleCapOutput(role, cap) {
-    return holdBackOutput('ask', `teamrig: the service role ${role} ran its ${cap} calls of the last 24 hours (prompts.serviceRoleDailyCap), so this ` +
-        'one is refused. The role runs again once its oldest call of the window is 24 hours old; only the owner raises the cap.');
+/**
+ * The hook's stdout once the role has no room left in 24 hours for a call weighing `weight` (a migrate's issue rows): a
+ * refusal, saying when the role runs again, and for a migrate that a file past the whole cap must be split.
+ */
+export function roleCapOutput(role, cap, weight = 1) {
+    const ran = weight > 1 ? `has less room than this run's ${weight} issue rows left of its ${cap} calls` : `ran its ${cap} calls`;
+    const split = weight > cap ? ' A rows file holding more issue rows than the cap never runs under the role: split it.' : '';
+    return holdBackOutput('ask', `teamrig: the service role ${role} ${ran} of the last 24 hours (prompts.serviceRoleDailyCap), so this one is refused. ` +
+        `The role runs again once its oldest call of the window is 24 hours old; only the owner raises the cap.${split}`);
 }

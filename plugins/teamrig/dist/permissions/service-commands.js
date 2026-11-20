@@ -3,23 +3,33 @@
  * adds none: each name stands for one call shape teamrig's own code reads, with typed slots instead of wildcards, so a
  * config never widens what a role lets run. A new name needs its shape and a security review in the same change.
  */
-/** The commands that act on an outside service as whoever runs them; a role's daily cap counts these (C6). */
+/** The commands that act on one issue or pull request, named by its `owner/name#n`, as whoever runs them. */
 export const ISSUE_COMMANDS = ['issue close', 'issue comment'];
+/**
+ * `issue migrate`, run with `--yes` on a rows file in the team's task files (T4606): it opens an issue for each row's
+ * task, as whoever runs it, and points that task's ref at it, which the register lets a holder do on any team task.
+ */
+export const MIGRATE_COMMAND = 'issue migrate';
 /** The queued runs of the team's ship tool (ship-role-call.ts): a ship, and a ship that merges. */
 export const SHIP_COMMANDS = ['queue ship', 'queue merge'];
-export const SERVICE_COMMANDS = [...ISSUE_COMMANDS, ...SHIP_COMMANDS];
+export const SERVICE_COMMANDS = [...ISSUE_COMMANDS, MIGRATE_COMMAND, ...SHIP_COMMANDS];
+/** The commands that write to an outside service as whoever runs them; a role's daily cap counts these calls (C6). */
+export const CAPPED_COMMANDS = [...ISSUE_COMMANDS, MIGRATE_COMMAND];
 export function isServiceCommand(text) {
     return SERVICE_COMMANDS.some((name) => name === text);
 }
 export function isIssueCommand(text) {
     return ISSUE_COMMANDS.some((name) => name === text);
 }
+export function isCappedCommand(text) {
+    return CAPPED_COMMANDS.some((name) => name === text);
+}
 /**
  * The commands whose own checks hold every caller to its own work, so a role may give them to every session of the team
  * (`holders: "team"`). A ship or merge runs only on a worktree whose task branch the tab's bound session owns, with the
  * team's ship tool from a clean checkout on main (ship-role-check.ts), and the tool clears a merge for that same
- * session alone (tools/ship/approval.ts). `issue close` and `issue comment` act as whoever runs them, so each needs
- * named holders.
+ * session alone (tools/ship/approval.ts). `issue close`, `issue comment` and `issue migrate` act as whoever runs them,
+ * and a migrate links any session's task of the team, so each needs named holders.
  */
 export const TEAM_HELD_COMMANDS = new Set(SHIP_COMMANDS);
 /**
@@ -30,6 +40,7 @@ export const TEAM_HELD_COMMANDS = new Set(SHIP_COMMANDS);
 export const SERVICE_COMMAND_REACH = {
     'issue close': "closes any issue or pull request of github.repos, an outside author's too (a pull request closes unmerged), posting its --comment first",
     'issue comment': "posts a comment on any issue or pull request of github.repos, an outside author's too",
+    'issue migrate': "opens an issue on github.repos for each row of a rows file in the team's task files, with the row's public wording, and points that task's ref at it, any session's task of the team, never one kept local; each issue row counts toward the daily cap",
     'queue ship': "queues the team's ship tool on a worktree of the holder's own task branch: it builds, checks and commits there, and pushes nothing",
     'queue merge': "queues the ship tool's merge of the holder's own task branch: it pushes the branch and merges its pull request once the head is approved",
 };

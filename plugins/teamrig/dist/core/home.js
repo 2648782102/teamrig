@@ -80,7 +80,11 @@ const TASKS_FOLDER = 'tasks';
  * task's design is found by its id, never by a search.
  */
 export function taskFolder(kitHome, team, id) {
-    return join(teamHome(kitHome, team), TASKS_FOLDER, id);
+    return join(tasksFolder(kitHome, team), id);
+}
+/** The folder holding every task folder of the team. */
+export function tasksFolder(kitHome, team) {
+    return join(teamHome(kitHome, team), TASKS_FOLDER);
 }
 /** The team's paths; `claudeDir` is Claude Code's own folder (`claudeConfigDir`), whose `skills` is the default skills folder. */
 export function teamPaths(kitHome, team, claudeDir, overrides = {}) {
@@ -152,6 +156,7 @@ export function teamPaths(kitHome, team, claudeDir, overrides = {}) {
         githubSync: join(state, 'github-sync.json'),
         githubCi: join(state, 'github-ci'),
         githubSyncLock: join(state, 'github-sync.lock'),
+        githubPushHour: join(state, 'github-push-hour.json'),
         githubClocks: join(state, 'github-clocks.json'),
         githubWatch: join(state, 'github-watch.json'),
         githubWatchLock: join(state, 'github-watch.lock'),

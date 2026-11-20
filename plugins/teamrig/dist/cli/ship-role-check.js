@@ -102,6 +102,51 @@ export function shipTaskOfWords(git, kit, config, words, cwd) {
     const branch = worktree === undefined ? undefined : git.checkoutOf(placeOfWord(worktree, cwd))?.branch;
     return branch === undefined ? undefined : taskBranchOf(branch, config.pushGuard.protectedBranches);
 }
+/** Words that point git, gh or a shell at another place than the step's folder. */
+const ELSEWHERE_WORDS = new Set(['-C', '-R', '--repo', '--git-dir', '--work-tree', 'cd', 'pushd']);
+/** A word the shell reads as a script, not one argument: it holds whitespace, an operator or an expansion. */
+const SHELL_SCRIPT_WORD = /[\s;&|$`]/;
+/**
+ * True when `word` may point the step at another repository than `own`, its folder's: an option naming a repository or
+ * folder (`-C <dir>`, `-R <owner/repo>`, `--git-dir=`), an environment setting (`GIT_DIR=...`), a shell script in one
+ * word, or a path whose folder lies in another repository or in none.
+ */
+function pointsElsewhere(git, word, cwd, own) {
+    if (ELSEWHERE_WORDS.has(word) || /^-[CR]./.test(word) || /^--(repo|git-dir|work-tree)=/.test(word) || /^[A-Za-z_]\w*=/.test(word) || SHELL_SCRIPT_WORD.test(word)) {
+        return true;
+    }
+    if (!/[/\\]/.test(word)) {
+        return false;
+    }
+    const place = placeOfWord(word, cwd);
+    const repo = git.commonDir(place) ?? git.commonDir(dirname(place));
+    return repo === undefined || !samePath(repo, own);
+}
+/**
+ * The repository a step that holds the ship slot moves (#1711), as its shared git folder: for a step that runs a
+ * configured ship tool, its target worktree's (the word after the tool, after its `merge` in the merge form); for any
+ * other, the step's folder's, unless a word after the program may point it elsewhere (`pointsElsewhere`), the
+ * program is a path in another repository, or the program word is a whole shell line (a step of one word runs as one,
+ * `commandLine`), whose words are not read. Undefined when that is in doubt, so the step holds the slot of every
+ * repository, as before.
+ */
+export function shipSlotRepoOf(git, kit, config, words, cwd) {
+    const args = shipToolArgsOf(kit, config, words, cwd);
+    if (args !== undefined) {
+        const worktree = args[0] === 'merge' ? args[1] : args[0];
+        return worktree === undefined || worktree.startsWith('-') ? undefined : git.commonDir(placeOfWord(worktree, cwd));
+    }
+    const program = words[0] ?? '';
+    const own = git.commonDir(cwd);
+    if (own === undefined || SHELL_SCRIPT_WORD.test(program) || words.slice(1).some((word) => pointsElsewhere(git, word, cwd, own))) {
+        return undefined;
+    }
+    // The program word by its path: a script of another repository run straight moves that one; a program in no
+    // repository (`/usr/bin/git`) is a tool, which moves the folder's.
+    const place = placeOfWord(program, cwd);
+    const programRepo = /[/\\]/.test(program) ? (git.commonDir(place) ?? git.commonDir(dirname(place))) : undefined;
+    return programRepo === undefined || samePath(programRepo, own) ? own : undefined;
+}
 /** The words after the configured ship tool a step's words run; undefined when they run none. */
 function shipToolArgsOf(kit, config, words, cwd) {
     const at = words.findIndex((word) => shipRepoOf(kit, config, placeOfWord(word, cwd)) !== undefined);
@@ -139,13 +184,23 @@ export function toolRootsPath(tool) {
     const extension = posix.extname(tool);
     return `${extension === '' ? tool : tool.slice(0, -extension.length)}.roots.json`;
 }
-/** A roots file's shape: `{ "roots": ["src/cli/main.ts", "package.json"] }`, each path from the checkout's top. */
-function isRootsFile(value) {
-    return typeof value === 'object' && value !== null && 'roots' in value && Array.isArray(value.roots) && value.roots.every((root) => typeof root === 'string');
-}
+const isPathList = (value) => Array.isArray(value) && value.every((path) => typeof path === 'string');
 /**
- * The roots a roots file names, as paths in the checkout; undefined when it is no JSON of that shape, or a root is
- * absolute or leaves the checkout, so the caller cannot tell what the tool runs.
+ * A roots file's shape: `{ "roots": ["src/cli/main.ts", "package.json"], "staticOnly": ["src/cli/run.ts"] }`, each path
+ * from the checkout's top, `staticOnly` optional.
+ */
+function isRootsFile(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'roots' in value &&
+        isPathList(value.roots) &&
+        (!('staticOnly' in value) || isPathList(value.staticOnly)));
+}
+/** A path from the checkout's top: not the top itself, not absolute, not leaving it. */
+const inCheckout = (path) => path !== '.' && !path.startsWith('../') && !posix.isAbsolute(path) && !/^[A-Za-z]:/.test(path);
+/**
+ * What a roots file names, as paths in the checkout; undefined when it is no JSON of that shape, or a path is absolute
+ * or leaves the checkout, so the caller cannot tell what the tool runs.
  */
 export function toolRootsOf(text) {
     let value;
@@ -159,16 +214,17 @@ export function toolRootsOf(text) {
         return undefined;
     }
     const roots = value.roots.map((root) => posix.normalize(root));
-    return roots.some((root) => root === '.' || root.startsWith('../') || posix.isAbsolute(root) || /^[A-Za-z]:/.test(root)) ? undefined : roots;
+    const staticOnly = (value.staticOnly ?? []).map((path) => posix.normalize(path));
+    return [...roots, ...staticOnly].every(inCheckout) ? { roots, staticOnly } : undefined;
 }
 /**
  * The repository paths a module at `path` loads by a relative specifier: an import (`from './x.ts'`, `import('../y.ts')`)
  * or a file it reads beside it (`new URL('./repos.json', import.meta.url)`), so a data file the tool runs on is its code
- * too. Read from the module's code, never its comments or strings (see {@link moduleSpecifiersOf}); undefined when the
- * code cannot be read apart from its text.
+ * too, its `import('…')` calls left out with `dynamic: false`. Read from the module's code, never its comments or
+ * strings (see {@link moduleSpecifiersOf}); undefined when the code cannot be read apart from its text.
  */
-export function relativeImportsOf(text, path) {
-    const specifiers = moduleSpecifiersOf(text);
+export function relativeImportsOf(text, path, dynamic = true) {
+    const specifiers = moduleSpecifiersOf(text, { dynamic });
     return specifiers
         ?.filter((specifier) => specifier.startsWith('./') || specifier.startsWith('../'))
         .map((specifier) => posix.normalize(posix.join(posix.dirname(path), specifier)));
@@ -183,10 +239,11 @@ export function relativeImportsOf(text, path) {
 export function toolCodeAt(git, top, ref, tool) {
     const rootsPath = toolRootsPath(tool);
     const rootsRead = git.filesAt(top, ref, [rootsPath]);
-    const roots = rootsRead === undefined ? undefined : toolRootsOf(rootsRead.get(rootsPath) ?? '{"roots":[]}');
-    if (roots === undefined) {
+    const named = rootsRead === undefined ? undefined : toolRootsOf(rootsRead.get(rootsPath) ?? '{"roots":[]}');
+    if (named === undefined) {
         return undefined;
     }
+    const { roots, staticOnly } = named;
     const seen = new Set([rootsPath]);
     // One git read per level of imports, never one per file (T4035): a tool's code runs to hundreds of files, and the
     // start check of every queued ship reads it twice.
@@ -202,7 +259,7 @@ export function toolCodeAt(git, top, ref, tool) {
         const next = [];
         for (const path of fresh) {
             const text = texts.get(path);
-            const imports = text === undefined ? undefined : MODULE_FILE.test(path) ? relativeImportsOf(text, path) : [];
+            const imports = text === undefined ? undefined : MODULE_FILE.test(path) ? relativeImportsOf(text, path, !staticOnly.includes(path)) : [];
             if (imports === undefined) {
                 return undefined;
             }
@@ -326,12 +383,34 @@ function startReadOf(git, kit, config, pin) {
     const since = pin.head === undefined ? '' : head === pin.head ? ` at ${pin.head.slice(0, 9)}${files}` : ` changed from ${pin.head.slice(0, 9)} while the step waited${files} and`;
     return { ok: true, value: staleToolReason(pin.tool, state.value, since) };
 }
+/** The owner of task `task` in the team's register. */
+async function ownerOf(runtime, kit, task) {
+    return (await new JsonlEventLog(runtime.files, kit.paths.events).read()).state.tasks.get(task)?.owner;
+}
 /**
- * The branch a ship call runs on, when `holder` may run it (C4, C5 above); undefined otherwise, so the permission check
- * decides. The register is read only after the line's places pass, and git last.
+ * What a release merge acts on, `release T<id>`, when `holder` may run it: the line names the repository's main checkout
+ * and a release task the holder owns, matching the queue's `--task` when it names one (C4), and the tool is main's
+ * current code (C5); undefined otherwise.
+ */
+async function releaseTargetOf(runtime, kit, repo, holder, run, release) {
+    if (!samePath(run.worktree, repo.mainDir) || (run.task !== undefined && run.task !== release) || run.files.length > 0) {
+        return undefined;
+    }
+    if ((await ownerOf(runtime, kit, release)) !== holder) {
+        return undefined;
+    }
+    return toolIsLanded(runtime.mergeGit, run.tool, repo.mainDir) ? `release ${release}` : undefined;
+}
+/**
+ * The branch a ship call runs on, or a release merge's `release T<id>`, when `holder` may run it (C4, C5 above);
+ * undefined otherwise, so the permission check decides. The register is read only after the line's places pass, and
+ * git last.
  */
 export async function shipBranchOf(runtime, kit, config, holder, run) {
     const repo = shipRepoOf(kit, config, run.tool);
+    if (repo !== undefined && run.release !== undefined) {
+        return releaseTargetOf(runtime, kit, repo, holder, run, run.release);
+    }
     if (repo === undefined || !isInside(run.worktree, resolve(repo.mainDir, repo.config.worktreeFolder ?? DEFAULT_WORKTREE_FOLDER))) {
         return undefined;
     }
@@ -342,7 +421,7 @@ export async function shipBranchOf(runtime, kit, config, holder, run) {
     if (checkout === undefined || !checkout.linked || !samePath(checkout.top, run.worktree) || task === undefined || (run.task !== undefined && run.task !== task)) {
         return undefined;
     }
-    const owner = (await new JsonlEventLog(runtime.files, kit.paths.events).read()).state.tasks.get(task)?.owner;
+    const owner = await ownerOf(runtime, kit, task);
     const folder = taskFolder(kit.paths.kitHome, kit.paths.team, task);
     if (owner !== holder || !run.files.every((file) => isInside(file, folder))) {
         return undefined;

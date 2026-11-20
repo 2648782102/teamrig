@@ -1,9 +1,9 @@
 import { toolCommandReadings } from "../core/bash-tool-readings.js";
 import { parseIssueTarget, targetText } from "../issues/host.js";
 import { readable } from "../slash/plan.js";
-import { matchesKit } from "./route-kit.js";
+import { ABSOLUTE, matchesKit } from "./route-kit.js";
 import { plainWordsOf } from "./route-line.js";
-import { isIssueCommand } from "./service-commands.js";
+import { isIssueCommand, MIGRATE_COMMAND } from "./service-commands.js";
 import { shipCallOf } from "./ship-role-call.js";
 /**
  * The call shapes a service role lets run (T2984, design 1): each table command as the CLI's own parser reads it, with
@@ -14,13 +14,19 @@ import { shipCallOf } from "./ship-role-call.js";
  * target word as `owner/name#n` (a `#` inside a word starts no comment), and each double-quoted text holding no `"`,
  * `\`, `$`, backtick or control character (bash expands nothing in it). A line with a single quote or a backslash
  * outside such a text is no role call: the mask could not tell where bash's quotes end. A queued ship or merge is read
- * in the ship tool's own shape (ship-role-call.ts), through the same mask.
+ * in the ship tool's own shape (ship-role-call.ts), through the same mask. `teamrig issue migrate <rows file> --yes`
+ * names its file by an absolute path, which the allow holds to the team's task files (migrate-role-check.ts).
  */
 /** The shape of each issue command; a new table entry adds its shape here, with a security review. */
 const SHAPES = {
     'issue close': { commands: ['issue close'], options: ['session', 'comment'], positionals: 'one' },
     'issue comment': { commands: ['issue comment'], options: ['session', 'body'], positionals: 'one' },
 };
+/**
+ * `issue migrate`'s shape (T4606): the rows file and `--yes`, the run that opens the issues; never `--out`, which
+ * writes a preview at any path the line names.
+ */
+const MIGRATE_SHAPE = { commands: [MIGRATE_COMMAND], options: ['session', 'yes'], positionals: 'one' };
 /** A double-quoted text bash takes as it reads: nothing it expands, escapes or ends. */
 const LITERAL_TEXT = /^[^"\\$`\p{Cc}]*$/u;
 /** An issue target as a word of its own, its `#` the one the mask hides. */
@@ -69,6 +75,9 @@ export async function roleCallOf(line, context) {
         const session = parsed.flags.get('session');
         return ship === undefined || session === undefined ? undefined : { command: ship.merges ? 'queue merge' : 'queue ship', target: ship.worktree, session, ship };
     }
+    if (words !== undefined && parsed?.command === MIGRATE_COMMAND) {
+        return migrateCallOf(words, parsed, context);
+    }
     if (words === undefined || parsed === undefined || !isIssueCommand(parsed.command)) {
         return undefined;
     }
@@ -83,6 +92,15 @@ export async function roleCallOf(line, context) {
         return undefined;
     }
     return { command, target: targetText(target), session };
+}
+/** The migrate `words` run, when it opens the issues (`--yes`) from a rows file named by an absolute path; else undefined. */
+async function migrateCallOf(words, parsed, context) {
+    const [file] = parsed.positionals;
+    const session = parsed.flags.get('session');
+    if (file === undefined || !ABSOLUTE.test(file) || session === undefined || !parsed.switches.has('yes')) {
+        return undefined;
+    }
+    return (await matchesKit(MIGRATE_SHAPE, words, context)) ? { command: MIGRATE_COMMAND, target: file, session } : undefined;
 }
 /**
  * The role call a Bash tool call runs; undefined for any other tool or line. A call only when its shell may run one

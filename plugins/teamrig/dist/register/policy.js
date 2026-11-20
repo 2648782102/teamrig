@@ -12,7 +12,7 @@ import { verdictIsCurrent, verdictReadOf } from "./security-verdict.js";
 import { ITEM_TYPES, sizeProblem } from "./events.js";
 import { droppedApproval, isRepark, taskNumber } from "./fold.js";
 import { commitsNamed } from "./head-sha.js";
-import { ACTIVE_STATUSES, FOLLOWUP_STATUSES, GITHUB_SOURCE, ISSUE_REF_PREFIX, isTopPriority, priorityText, SESSION_NAME, WAIT_STATUSES } from "./model.js";
+import { ACTIVE_STATUSES, FOLLOWUP_STATUSES, GITHUB_SOURCE, hasIssueOrReason, ISSUE_REF_PREFIX, isTopPriority, priorityText, SESSION_NAME, WAIT_STATUSES } from "./model.js";
 import { ITEM_TYPE_TRAITS, traitsOf } from "./item-types.js";
 import { waitsOnOwner } from "./owner-waits.js";
 import { asksReview, missedTaskIds, reviewGap, reviewGapText, reviewProblem, reviewTexts } from "./review.js";
@@ -20,6 +20,8 @@ import { loopFix, needPath, NO_TASKS_ELSEWHERE, pathText } from "./tree.js";
 import { dueStartHolds, dueVerifyHold, heldStart, startHolds, WATCH_USAGE } from "./verify.js";
 import { isPeerWait, isReady, sameWait, sameWaits, unfinishedAfter, waitContext, waitSpelling } from "./waits.js";
 import { wipHold } from "./wip.js";
+import { MIGRATE_COMMAND } from "../permissions/service-commands.js";
+import { roleHolding } from "../permissions/service-roles.js";
 /** The skill name that closes a task which produced no reusable procedure. */
 export const NO_SKILL = 'none';
 /** Who the GitHub import's events are written by; its tasks carry GITHUB_SOURCE (model.ts). */
@@ -968,15 +970,21 @@ export class RegisterPolicy {
      * on any task, a sub-lead on the tasks of its group; only the LEAD_FIELDS (the lead the LEFT_OWNER_LEAD_FIELDS on a
      * task whose owner left the team, or when it points a task holding no issue ref at an issue: issue migrate opens an
      * issue for each task of the team and links it, replacing a note ref, while a task's issue stays its issue), and a
-     * sub-lead hands a task only
-     * to itself or a session it leads, so work never leaves its group by a sub-lead's hand.
+     * sub-lead hands a task only to itself or a session it leads, so work never leaves its group by a sub-lead's hand. A
+     * holder of a service role giving `issue migrate` (T4606) may make that one change, the ref alone, on any task but one
+     * kept local (`local: <why>`, a security hole among them): lifting that mark stays its owner's or a leader's call.
      */
     leaderUpdateProblem(task, caller, names, changes) {
         const isLead = caller === this.tree.lead;
+        const linksIssue = linksAnIssue(task, changes);
+        // The migrate role's holder links every team task to the issue its run opened for it (T4606), and nothing else; a
+        // task kept local is never one, so a holder's --yes run skips its row (migrate.ts skipReason asks this judge).
+        if (linksIssue && names.length === 1 && !hasIssueOrReason(task.ref) && roleHolding(this.config.serviceRoles, MIGRATE_COMMAND, caller) !== undefined) {
+            return undefined;
+        }
         if (!isLead && !this.tree.leads(caller, task.owner)) {
             return `only the owner (${task.owner}) or ${this.approversText(task.owner)} changes ${task.id}`;
         }
-        const linksIssue = task.ref?.startsWith(ISSUE_REF_PREFIX) !== true && changes.ref !== undefined && changes.ref !== null && changes.ref.startsWith(ISSUE_REF_PREFIX);
         const allowed = isLead && (linksIssue || !this.config.sessions.includes(task.owner)) ? LEFT_OWNER_LEAD_FIELDS : LEAD_FIELDS;
         const notLead = names.filter((name) => !allowed.includes(name));
         if (notLead.length > 0) {
@@ -1349,6 +1357,11 @@ function loopProblem(id, other, tasks, byWait) {
 /** Why a time to wait until (stored form) is refused, or undefined: it must be still to come. */
 function timeProblem(at, { now, zone }) {
     return (parseDeadline(at, zone)?.getTime() ?? 0) > now.getTime() ? undefined : `time ${showStored(at, zone)} has passed: name a time to come`;
+}
+/** True when `changes` point a task holding no issue ref at an issue: what issue migrate writes for each task it opens one for. */
+function linksAnIssue(task, changes) {
+    const ref = changes.ref;
+    return task.ref?.startsWith(ISSUE_REF_PREFIX) !== true && ref !== undefined && ref !== null && ref.startsWith(ISSUE_REF_PREFIX);
 }
 function blankToNull(text) {
     return text === undefined || text.trim() === '' ? null : text.trim();

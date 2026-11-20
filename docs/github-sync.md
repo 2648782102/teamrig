@@ -39,7 +39,7 @@ Add a `github` block to the team config (`~/.teamrig/teams/<team>/config.json`):
 | `repos` | The repositories to read, as `owner/name` (at most 20). Empty turns the sync off. |
 | `sessions` | Optional. The session that owns each repository's issues, so each session sees the issues of its own repositories. One session can own several. |
 | `owners` | Optional. A GitHub login to a session: an issue assigned to that login goes to that session, whatever its repository. |
-| `areaOwners` | Optional. A label to a session, such as `"area:cli": "cli"`: an issue with that label goes to the session of its area, whatever its repository. Matched without case; when an issue carries several, the first listed here wins. |
+| `areaOwners` | Optional. A label to a session, such as `"area:cli": "cli"`: an issue with that label goes to the session of its area, whatever its repository. Matched without case; when an issue carries several, the first listed here wins. `teamrig issue label` makes a label listed here that a repository lacks, in one area colour and description. |
 | `closedDays` | How many days back closed issues are read, to finish their tasks. Default 14. |
 | `probeSeconds` | How often it asks GitHub whether a repository changed, in seconds: 0, or 30 to 3600. Default 60; 0 leaves the sync to `teamrig issue sync --yes`. |
 | `acceptLabel` | Optional. The label that lets an issue by someone outside the repository become a task ([below](#whose-issues-become-tasks)). Default `teamrig`. |
@@ -339,6 +339,12 @@ teamrig issue migrate rows.jsonl --yes               # opens the issues
 - **Safe to rerun.** The first failure stops the run (`FAILED` or `REFUSED`, then `STOPPED`); fix the cause and run it
   again: a task that holds its issue already is skipped, and so is a finished task or a repository not in
   `github.repos`.
+- **A service role may run it.** The owner may give a session `issue migrate` in a service role (`teamrig roles
+  grant github --holder <id> --commands "issue migrate" --yes`): its tab then runs `teamrig issue migrate
+  <rows file> --yes --session <id>` past the permission check when the rows file sits in one task folder
+  (`teamrig files T<id>`). Each issue row counts toward the role's daily cap, and a file with more rows than the
+  room left is refused. The register lets it link any session's task of the team holding no issue to its new issue,
+  the ref alone, never a task kept local (`local: <why>` stays its owner's or a leader's call).
 - **Write access, for this run only.** The token of each owner needs **Issues: Read and write**. Set it back to
   Read-only once the issues are open, unless you comment on, label or close issues with it; the sync needs nothing
   more.
@@ -346,9 +352,10 @@ teamrig issue migrate rows.jsonl --yes               # opens the issues
 ## Commenting on, labelling and closing
 
 `teamrig issue comment` posts one comment on an issue or pull request, `teamrig issue label` adds and takes off its
-labels (where the repository lacks it, it makes first, with a `MADE` line, the `design` label or a label the
-repository's `.github/labels.json` defines, with that file's colour and description; any other label must already
-be there), and `teamrig issue close` closes one, first posting its `--comment` when given; a pull request closes
+labels (where the repository lacks it, it makes first, with a `MADE` line, the `design` label, a label the
+repository's `.github/labels.json` defines, with that file's colour and description, or a label `areaOwners` names,
+in teamrig's one area colour and description when that file does not define it; any other label must already be
+there), and `teamrig issue close` closes one, first posting its `--comment` when given; a pull request closes
 unmerged. `--reason completed`, `not-planned` or `duplicate` says why it closed (GitHub keeps it on an issue only);
 `--duplicate-of` closes it as a duplicate of another issue of the same repository, which GitHub links as the
 original. `teamrig issue edit` replaces the body (the description) with the text of a file, so a spec of many lines
@@ -481,9 +488,13 @@ PREVIEW nothing was written; a push would send 7 write(s) now, at most 40 a run,
   `github.repos` order; the rest waits for the next run.
 - **On its own, once you turn it on.** With `"statusPush": true` in the team config's `github` block, the
   [automatic sync](#then-it-runs-on-its-own) sends the push after each import, so no session runs it. Each run then
-  sends fewer writes when the sync can run often, so an hour of runs sends at most 250, half GitHub's 500 an hour
-  (probing every 60 seconds: 4 a run; every 300: 20). Its own label writes read as a change, so a longer list drains
-  a run per probe. It sends labels, assignees, fields and types only: a close is the one write a person reads as a decision,
+  counts its writes over the rolling hour in `state/github-push-hour.json`, so a backlog drains 40 a run until the
+  hour has sent 250, half GitHub's 500 an hour, and each run past that sends only what the hour has left, with a
+  `NOTE` saying so. A run reserves its limit in the count before it sends and settles it to the writes it sent, so
+  two runs never both spend the same writes and a run that stops half way counts high, never low. A count that
+  cannot be read or written gives the run the even share of the hour instead (probing every 60 seconds: 4 a run;
+  every 300: 20), with a `NOTE`; one that cannot be read is rewritten from that run on. Its own label writes read as
+  a change, so a longer list drains a run per probe. It sends labels, assignees, fields and types only: a close is the one write a person reads as a decision,
   so the automatic push prints it as a `HELD` line and leaves it to a session's `teamrig issue sync --push --yes`.
   A failed write is told to the lead's inbox like a repository that cannot be read. It is off by default: read `teamrig issue sync --push` first, and give the token **Issues: Read and write**.
 
@@ -511,8 +522,8 @@ commenter, swaps `status:open` for `status:claimed`, and replies once with the r
   at most ten issues whose new comments could claim, oldest first; the rest are printed `HELD` and read on the next
   run, as is an issue whose read failed. A claim past an issue's first 30 new comments waits for a person to assign.
 - **Within the run's writes.** A claim's writes (assign, labels, reply) count in the same writes per run as the
-  status push, and come first; a claim past them is printed `HELD` and made on the next run. A run whose share of
-  the hour is less than one claim's 5 writes (4 at the default `probeSeconds` of 60) may still send one whole claim:
+  status push, and come first; a claim past them is printed `HELD` and made on the next run. A run whose writes
+  left in the hour are fewer than one claim's 5 may still send one whole claim, counted in the hour like the rest:
   at most five claims a day per repository keep that small.
 
 ## Linking issues as the task tree
@@ -592,7 +603,9 @@ again.
   -X DELETE` with that login only), the read of the repository's label file
   (`repos/<owner>/<name>/contents/.github/labels.json` with the raw media type, nothing else), the create of a label
   teamrig makes (`repos/<owner>/<name>/labels -X POST` with the name, colour and description of one of the five
-  status labels or `design`, word for word) or of one that file named when the same run read it, word for word, and
+  status labels or `design`, word for word), of an area label (any name GitHub takes, in the one area colour and
+  description, word for word; `teamrig issue label` makes only one `areaOwners` names) or of one that file named
+  when the same run read it, word for word, and
   `teamrig issue links`'s one link (`.../issues/<number>/sub_issues` or `.../dependencies/blocked_by`, `-X POST`
   with one issue id only). No link is ever removed.
 - **Never on disk in the clear.** The token lives in the system's credential store, encrypted under your login. It
