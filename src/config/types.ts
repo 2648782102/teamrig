@@ -1850,5 +1850,12 @@ export interface KitConfig {
   readonly focus: FocusConfig;
   /** Each session's Claude Code model and effort, by id; the lead's unset keys take `DEFAULT_LEAD_LAUNCH`. */
   readonly launch: Readonly<Record<string, LaunchConfig>>;
+  readonly featureHints: FeatureHintsConfig;
   readonly paths: PathsConfig;
+}
+
+/** The OFF-HELPS check lines (src/cli/off-helps-check.ts, T4584): a feature off by default that would help the team now. */
+export interface FeatureHintsConfig {
+  /** The config keys whose OFF-HELPS line the lead dismissed for good, such as `github.statusPush`. */
+  readonly dismiss: readonly string[];
 }

@@ -57,6 +57,7 @@ Team settings for the teamrig plugin. Only the roster (sessions, roles.lead) is 
 | `statusLine` | [object](#statusline) |  | What teamrig statusline shows beside the model and the plan's use of the week. |
 | `focus` | [object](#focus) |  | Goal-first ranking: the work classes a task is filed under (teamrig add and update --class), how its WSJF score is made (cost of delay over size), the WIP rule and the share of the week each class is planned to take. When classes, roadmapClass, maintenanceClass, defaultClass and allocation disagree, each problem is reported and all five take their defaults. |
 | `launch` | map from [session name](#shared-types) to [object](#launch) | `{}` | Each session's Claude Code model and effort, and the folder it works in, by id: teamrig open starts it with claude --model and --effort; a session running on another model is told the /model to type at its start, and one at another effort the /effort to type at its first stop. A model or effort left unset is Claude Code's own choice, except for the lead, which starts on model opus at xhigh effort for each one it leaves unset. |
+| `featureHints` | [object](#featurehints) |  | The OFF-HELPS lines teamrig check shows the lead: a feature that is off by default and would help the team now, with why and the command that turns it on. The lead hears of each one once. |
 | `refresh` | [object](#refresh) |  | Context refresh: when a session finishes a task (teamrig set \<id> --status done) with its context at or over contextTokens, or with everyTasks tasks finished since its context was last fresh and the context at everyTasksMinTokens or more, or after the lead ran teamrig refresh \<session>, it writes a handover; then the user types /clear, or teamrig starts it fresh on its own (autoRestart). A relative handoverDir is resolved against the team's folder; unset, it is \<team folder>/handover. |
 | `hiring` | [object](#hiring) |  | Hiring sessions with teamrig hire, each a worker the leader is sure the team needs: who decides. No cap counts hires: the host's room bounds who is at the office, and the leader decides who is hired. A hire is written into sessions, names and launch, and logged with its reason and review date; its part of the team's daily budget follows its share and queued work, like any session's. |
 | `burst` | [object](#burst) |  | Bursts with teamrig burst: a time-boxed scale-out onto helpers and hired sessions that spends more of the week, for a surplus the week would leave unused at the reset or for a deadline. A person always starts one by command; nothing starts one on its own. |
@@ -894,6 +895,14 @@ Each session's Claude Code model and effort, and the folder it works in, by id: 
 | `model` | one of `"default"`, `"best"`, `"fable"`, `"opus"`, `"sonnet"`, `"haiku"`, `"opusplan"`, `"fable[1m]"`, `"opus[1m]"`, `"sonnet[1m]"`, `"opusplan[1m]"` or string (at most 100 characters, matching `^claude-[a-z0-9]+(?:[.@-][a-z0-9]+)*(?:\[1m\])?$`) |  | A Claude Code model alias or a full model id such as claude-opus-5-5. best is Fable where the account has it, else Opus; default leaves the model to Claude Code. |
 | `effort` | one of `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |  | The effort level; a model that lacks it runs at the highest level it has below it. An /effort the user types in the session's tab is written here. |
 | `project` | string |  | The session's project folder, an absolute path: teamrig open starts it there, and close and hire look for its Claude Code sessions there. Unset, team.project, else the folder holding the team's .teamrig.json pointer; doctor flags a folder that does not exist. |
+
+## `featureHints`
+
+The OFF-HELPS lines teamrig check shows the lead: a feature that is off by default and would help the team now, with why and the command that turns it on. The lead hears of each one once.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `dismiss` | array (at most 64 items) of string (matching `^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$`) | `[]` | The config keys whose OFF-HELPS line is dismissed for good, such as github.statusPush. |
 
 ## `refresh`
 

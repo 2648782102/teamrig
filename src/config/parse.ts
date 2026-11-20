@@ -266,6 +266,9 @@ const SECRET_KEY: Check<string> = (name) =>
 /** The key shape the skills lint recognises in frontmatter. */
 const isFrontmatterKey: Check<string> = (key) => (/^[A-Za-z0-9_-]+$/.test(key) ? undefined : 'expected a frontmatter key: letters, digits, _ or -');
 
+/** A config key's dotted path, as `teamrig config set` takes it: `github.statusPush`. */
+const configKeyCheck: Check<string> = (key) => (/^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/.test(key) ? undefined : 'expected a config key such as github.statusPush');
+
 /** A git trailer key, such as `Large-commit`. */
 const isTrailerKey: Check<string> = (key) =>
   /^[A-Za-z][A-Za-z0-9-]{0,39}$/.test(key) ? undefined : 'expected a trailer key: a letter, then at most 39 letters, digits or -';
@@ -623,6 +626,9 @@ export function parseConfig(raw: JsonRecord, above?: AccountBudget): ConfigParse
     open: parseOpen(read, read.section(raw, 'open', ''), sessions),
     statusLine: parseStatusLine(read, read.section(raw, 'statusLine', '')),
     focus: parseFocus(read, read.section(raw, 'focus', '')),
+    featureHints: {
+      dismiss: read.stringList(read.section(raw, 'featureHints', ''), 'dismiss', 'featureHints', [], configKeyCheck, CONFIG_LIMITS.featureHintsDismiss.maxItems),
+    },
     launch,
     paths: parsePaths(read, read.section(raw, 'paths', '')),
   };

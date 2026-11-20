@@ -33,6 +33,7 @@ export const LEAD_KEYS: ReadonlySet<string> = new Set([
   'github.repos', 'github.watcher', 'github.closedDays', 'github.probeSeconds', 'github.similarThreshold', 'github.acceptLabel',
   'decisions.batchTimesUtc', 'decisions.batchAt',
   'tabStatus.enabled',
+  'featureHints.dismiss',
   'needsYou.enabled', 'needsYou.kinds', 'needsYou.osToast',
   'meeting.panel.enabled', 'meeting.spotlight.enabled', 'meeting.spotlight.dim', 'meeting.spotlight.breakthroughSeconds',
   'meeting.statusLine.enabled', 'meeting.statusLine.colour', 'meeting.statusLine.heldText',

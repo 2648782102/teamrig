@@ -29,6 +29,7 @@ export const CONFIG_LIMITS = {
   reviewRequireOn: { maxItems: 2 },
   criticalOwners: { maxItems: 32 },
   dedicatedOwners: { maxItems: 32 },
+  featureHintsDismiss: { maxItems: 64 },
   maxVerifying: { min: 0, max: 100 },
   maxReparks: { min: 0, max: 20 },
   maxSelfMadePerDay: { min: 0, max: 200 },

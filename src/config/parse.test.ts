@@ -2337,6 +2337,21 @@ describe('parseConfig: the decision card', () => {
   });
 });
 
+describe('parseConfig: featureHints (T4584)', () => {
+  it('dismisses nothing by default, and keeps the config keys given', () => {
+    assert.deepEqual(parseConfig(ROSTER).config.featureHints, { dismiss: [] });
+    const { config, issues } = parseConfig({ ...ROSTER, featureHints: { dismiss: ['github.statusPush', 'open.idle.reopenForDueToday'] } });
+    assert.deepEqual([issues, config.featureHints.dismiss], [[], ['github.statusPush', 'open.idle.reopenForDueToday']]);
+  });
+
+  it('drops an entry that is no config key, and refuses a list past its cap', () => {
+    const named = parseConfig({ ...ROSTER, featureHints: { dismiss: ['github.statusPush', 'statusPush', 'github status'] } });
+    assert.deepEqual([paths(named.issues), named.config.featureHints.dismiss], [['featureHints.dismiss[1]', 'featureHints.dismiss[2]'], ['github.statusPush']]);
+    const many = parseConfig({ ...ROSTER, featureHints: { dismiss: Array.from({ length: 65 }, (_, index) => `area.key${index}`) } });
+    assert.deepEqual([paths(many.issues), many.config.featureHints.dismiss], [['featureHints.dismiss'], []]);
+  });
+});
+
 describe('parseConfig: the owner decision batches', () => {
   it('reads no batch times, a batch at 5 and no dedicated owners by default', () => {
     assert.deepEqual(parseConfig(ROSTER).config.decisions, { batchTimesUtc: [], batchAt: 5, dedicatedOwners: [] });
