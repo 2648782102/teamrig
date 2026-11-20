@@ -183,13 +183,13 @@ matrix.
 - **An outside pull request's CI runs without a maintainer's click**, so the same spec stands in for that click.
   Every workflow is written in one plain YAML shape, which the spec reads line by line and fails closed outside of:
   plain keys at two-space steps, no flow maps, no escapes, anchors or tags, no quoted value that a ` #` follows, and
-  block scalars only for `run:` and `config:`. No workflow starts on `workflow_run`, `workflow_call` or
-  `pull_request_target`, and each one a pull request or merge queue group starts (read from its triggers; one it
-  cannot read counts) runs only on GitHub-hosted runners, named from an allowed list (a matrix label read only from
-  the job's own `strategy:`), calls no reusable workflow, uses only the actions on the spec's reviewed list, and
-  writes no Actions cache (no caching action, no `cache` input, and no setup-node caching npm by itself once
-  `package.json` names a package manager). Any change to these rules, or to the workflows past them, needs a security
-  review first.
+  block scalars only for `run:` and `config:`. A workflow starts only on the reviewed events: `push`,
+  `pull_request`, `merge_group`, `schedule` and `workflow_dispatch`. Each one started by anything but `push`,
+  `schedule` or `workflow_dispatch` (read from its triggers; one it cannot read counts) runs only on GitHub-hosted
+  runners, named from an allowed list (a matrix label read only from the job's own `strategy:`), calls no reusable
+  workflow, uses only the actions on the spec's reviewed list, and writes no Actions cache (no caching action, no
+  input or env key naming a cache or caching, and no setup-node caching npm by itself once `package.json` names a
+  package manager). Any change to these rules, or to the workflows past them, needs a security review first.
 - **A vulnerability** is reported privately, never in an issue: [SECURITY.md](SECURITY.md).
 
 ## Branches and releases
