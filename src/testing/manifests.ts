@@ -16,5 +16,5 @@ export function hostDeclarationData(over: Readonly<Record<string, unknown>> = {}
 
 /** A connector declaration as loaded data, a tracker and a code host, with the fields of `over` in place of its own. */
 export function connectorDeclarationData(over: Readonly<Record<string, unknown>> = {}): Record<string, unknown> {
-  return { apiVersion: '0.1.0', id: 'some-tool', name: 'Some Tool', kinds: ['tracker', 'codehost'], refPrefix: 'st:', manifest: manifestOf('connector'), ...over };
+  return { apiVersion: '0.1.0', id: 'some-tool', name: 'Some Tool', kinds: ['tracker', 'codehost'], refPrefix: 'st:', configKeys: {}, manifest: manifestOf('connector'), ...over };
 }
