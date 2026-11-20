@@ -218,10 +218,10 @@ matrix.
   block scalars only for `run:` and `config:`. A workflow starts only on the reviewed events: `push`,
   `pull_request`, `merge_group`, `schedule` and `workflow_dispatch`. Each one started by anything but `push`,
   `schedule` or `workflow_dispatch` (read from its triggers; one it cannot read counts) runs only on GitHub-hosted
-  runners, named from an allowed list (a matrix label read only from the job's own `strategy:`), calls no reusable
-  workflow, uses only the actions on the spec's reviewed list, and writes no Actions cache (no caching action, no
-  input or env key naming a cache or caching, and no setup-node caching npm by itself once `package.json` names a
-  package manager). Any change to these rules, or to the workflows past them, needs a security review first.
+  runners, named from an allowed list (a matrix label read only from the job's own `strategy:`, or from the output of
+  ci.yml's change kind job, which runs the base commit's classifier), calls no reusable workflow, uses only the
+  actions on the spec's reviewed list, and writes no Actions cache (no caching action, no input or env key naming a
+  cache or caching, and no setup-node caching npm by itself once `package.json` names a package manager). Any change to these rules, or to the workflows past them, needs a security review first.
 - **A vulnerability** is reported privately, never in an issue: [SECURITY.md](SECURITY.md).
 
 ## Branches and releases
