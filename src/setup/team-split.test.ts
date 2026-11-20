@@ -96,11 +96,13 @@ describe('planTeamSplit', () => {
       refresh: { contextTokens: 130000 },
       readonlyShell: { enabled: false },
       wake: { enabled: false },
+      featureHints: { dismiss: ['github.statusPush'] },
     };
     const { config } = valueOf(plan(new Map(), parentOf(record)));
     assert.deepEqual(config['refresh'], { contextTokens: 130000 });
     assert.deepEqual(config['readonlyShell'], { enabled: false });
     assert.deepEqual(config['wake'], { enabled: false });
+    assert.deepEqual(config['featureHints'], { dismiss: ['github.statusPush'] });
   });
 
   it("takes the copied blocks and launch blocks from the config in this teamrig's format, not the older file", () => {
