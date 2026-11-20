@@ -155,17 +155,29 @@ function triggersOf(text: string): readonly string[] | undefined {
   return events;
 }
 
-/** The events that run a pull request's code: merge_group runs a fork's commits too, in the base repository. */
-const PULL_REQUEST_EVENTS: ReadonlySet<string> = new Set(['pull_request', 'pull_request_target', 'merge_group']);
+/**
+ * The events that start only main's own code, on a push by someone with write access, a schedule or a maintainer's
+ * click. Every other event counts as running a pull request's code, so an event added later is held to the rules below
+ * until it is reviewed: pull_request runs the pull request's merge ref, and merge_group a fork's commits in the base
+ * repository.
+ */
+const MAIN_ONLY_EVENTS: ReadonlySet<string> = new Set(['push', 'schedule', 'workflow_dispatch']);
 const runsPullRequestCode = (text: string): boolean =>
-  triggersOf(text)?.some((name) => PULL_REQUEST_EVENTS.has(name)) ?? true;
+  triggersOf(text)?.some((name) => !MAIN_ONLY_EVENTS.has(name)) ?? true;
 
 /**
- * The mentions of an event no workflow may start on: workflow_run runs with secrets and a write token after a fork
- * pull request's run, and workflow_call runs a file under its caller's event, out of reach of the trigger reader.
+ * The events a workflow may start on, each reviewed. Any other fails, so none is let in by being left off a list:
+ * pull_request_target, issue_comment and workflow_run run with secrets and a write token on an outside author's
+ * trigger, pull_request_review and its comments run the pull request's code like pull_request, and workflow_call runs
+ * a file under its caller's event, out of reach of the trigger reader.
  */
-const forbiddenEvents = (text: string): readonly string[] =>
-  [...structuralLines(text).join('\n').matchAll(/\bworkflow_(?:run|call)\b/gi)].map(([word]) => word);
+const REVIEWED_EVENTS: ReadonlySet<string> = new Set([...MAIN_ONLY_EVENTS, 'pull_request', 'merge_group']);
+
+/** The events a workflow starts on that are not reviewed, or one line saying its triggers cannot be read. */
+function unreviewedEvents(text: string): readonly string[] {
+  const triggers = triggersOf(text);
+  return triggers === undefined ? ['triggers that cannot be read'] : triggers.filter((name) => !REVIEWED_EVENTS.has(name));
+}
 
 /**
  * GitHub-hosted runner labels, allowed by name: a self-hosted runner takes any custom label, so refusing the word
@@ -260,15 +272,16 @@ const unlistedActions = (text: string): readonly string[] =>
 
 /**
  * The lines that write an Actions cache a later run of main could restore: a caching action (actions/cache and its
- * save and restore parts, or any other whose path names a cache) or a `cache…:` input, setup-node's `cache:` too.
+ * save and restore parts, or any other whose path names a cache) or a key naming a cache or caching, as an input or
+ * an env key: setup-node's `cache:`, codeql init's `dependency-caching:` and its `CODEQL_ACTION_DEPENDENCY_CACHING`.
  * `package-manager-cache: false`, which turns setup-node's own caching off, is the one cache key let through.
  */
 const cacheWrites = (text: string): readonly string[] =>
   structuralLines(text)
     .filter(
       (line) =>
-        /\buses:\s*['"]?[\w.-]+\/[\w./-]*cache/i.test(line) ||
-        (/^\s*(?:-\s*)?[\w-]*cache[\w-]*:/i.test(line) && !/^\s*package-manager-cache:\s*false$/.test(line)),
+        /\buses:\s*['"]?[\w.-]+\/[\w./-]*cach/i.test(line) ||
+        (/^\s*(?:-\s*)?[\w-]*cach[\w-]*:/i.test(line) && !/^\s*package-manager-cache:\s*false$/.test(line)),
     )
     .map((line) => line.trim());
 
@@ -365,13 +378,21 @@ describe('every workflow', () => {
     assert.deepEqual(structuralLines('      - run: >-\n          x\n        with: y\n'), ['      - run: >-', '', '        with: y', '']);
   });
 
-  it('starts on no workflow_run, which runs with secrets after a fork pull request\'s run, and no workflow_call', () => {
+  it('starts only on the reviewed events, so an event left off a list is refused, not let through', () => {
     for (const [name, text] of workflows) {
-      assert.deepEqual(forbiddenEvents(text), [], `${name}: ${REVIEWED}`);
+      assert.deepEqual(unreviewedEvents(text), [], `${name}: ${REVIEWED}`);
     }
-    assert.deepEqual(forbiddenEvents('on:\n  workflow_run:\n    workflows: [ci]'), ['workflow_run']);
-    assert.deepEqual(forbiddenEvents('on: [push, workflow_call]\n'), ['workflow_call']);
-    assert.deepEqual(forbiddenEvents('  # never workflow_run here\n  run: |\n    echo workflow_call\n'), []);
+    assert.deepEqual(unreviewedEvents('on:\n  push:\n  pull_request:\n  merge_group:\n  schedule:\n    - cron: x\n  workflow_dispatch:\n'), []);
+    assert.deepEqual(unreviewedEvents('on:\n  workflow_run:\n    workflows: [ci]'), ['workflow_run']);
+    assert.deepEqual(unreviewedEvents('on: [push, workflow_call]\n'), ['workflow_call']);
+    assert.deepEqual(unreviewedEvents('on: pull_request_target\n'), ['pull_request_target']);
+    assert.deepEqual(unreviewedEvents('on:\n  pull_request_review:\n  pull_request_review_comment:\n  issue_comment:\n'), [
+      'pull_request_review',
+      'pull_request_review_comment',
+      'issue_comment',
+    ]);
+    assert.deepEqual(unreviewedEvents('on: WORKFLOW_CALL\n'), ['triggers that cannot be read']);
+    assert.deepEqual(unreviewedEvents('name: x\n'), ['triggers that cannot be read']);
   });
 
   it('pins each action to a full commit SHA with its version beside it, so a moved tag cannot change what runs', () => {
@@ -422,7 +443,10 @@ describe("a workflow that runs a pull request's code", () => {
       assert.equal(runsPullRequestCode(unreadable), true, unreadable);
     }
     assert.equal(runsPullRequestCode('on:\n  merge_group:\n'), true);
-    assert.equal(runsPullRequestCode('on:\n  push:\n  workflow_dispatch:\n'), false);
+    for (const event of ['pull_request_review', 'pull_request_review_comment', 'issue_comment', 'workflow_run']) {
+      assert.equal(runsPullRequestCode(`on:\n  push:\n  ${event}:\n`), true, event);
+    }
+    assert.equal(runsPullRequestCode('on:\n  push:\n  schedule:\n    - cron: x\n  workflow_dispatch:\n'), false);
   });
 
   it('runs every job on a GitHub-hosted runner, named by an allowed label', () => {
@@ -542,21 +566,32 @@ describe("a workflow that runs a pull request's code", () => {
       '      - uses: actions/cache@0123 # v4.0.0',
       '      - uses: actions/cache/save@0123',
       "      - uses: 'someone/fast-cache-action@0123'",
+      '      - uses: someone/caching-action@0123',
       '        with:',
       '          cache: npm',
       '          cache-dependency-path: package-lock.json',
       '          package-manager-cache: true',
       '          package-manager-cache: false',
       '          node-version: 22 # no cache: here',
+      '          dependency-caching: true',
+      '          caching: npm',
+      '          trap-caching: true',
+      '        env:',
+      '          CODEQL_ACTION_DEPENDENCY_CACHING: true',
       '    cancel-in-progress: true',
     ].join('\n');
     assert.deepEqual(cacheWrites(risky), [
       '- uses: actions/cache@0123',
       '- uses: actions/cache/save@0123',
       "- uses: 'someone/fast-cache-action@0123'",
+      '- uses: someone/caching-action@0123',
       'cache: npm',
       'cache-dependency-path: package-lock.json',
       'package-manager-cache: true',
+      'dependency-caching: true',
+      'caching: npm',
+      'trap-caching: true',
+      'CODEQL_ACTION_DEPENDENCY_CACHING: true',
     ]);
   });
 
@@ -599,12 +634,32 @@ describe("the security review's probes past the first spec (T4687)", () => {
     ['a quoted cache input', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-python@${SHA} # v5.0.0\n        with:\n          "cache": pip\n`, shapeFaults],
     ['a matrix decoy in a script', 'on: pull_request\njobs:\n  a:\n    steps:\n      - run: |\n          os: [ubuntu-latest]\n    strategy:\n      matrix:\n        os: ${{ fromJSON(vars.RUNNERS) }}\n    runs-on: ${{ matrix.os }}\n', unhostedRunners],
     ['an action that caches by default', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-go@${SHA} # v5.0.0\n        with:\n          go-version: '1.23'\n`, unlistedActions],
-    ['a workflow_call callee', 'on: workflow_call\njobs:\n  a:\n    runs-on: self-hosted\n', forbiddenEvents],
+    ['a workflow_call callee', 'on: workflow_call\njobs:\n  a:\n    runs-on: self-hosted\n', unreviewedEvents],
   ];
 
   for (const [name, text, rule] of probes) {
     it(`stops ${name}`, () => {
       if (rule !== shapeFaults) assert.deepEqual(shapeFaults(text), [], 'the probe is in the shape, so the rule below is the one that stops it');
+      assert.notDeepEqual(rule(text), [], text);
+    });
+  }
+});
+
+describe("the security re-check's probes (T4720)", () => {
+  const job = `jobs:\n  a:\n    runs-on: self-hosted\n    steps:\n      - uses: actions/cache/save@${SHA} # v4.0.0\n`;
+  const probes: readonly (readonly [string, string, (text: string) => readonly string[]])[] = [
+    ['a pull_request_review run', `on: pull_request_review\n${job}`, unreviewedEvents],
+    ['a pull_request_review_comment run', `on: pull_request_review_comment\n${job}`, unreviewedEvents],
+    ['an issue_comment run', `on: issue_comment\n${job}`, unreviewedEvents],
+    ['codeql dependency caching', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: github/codeql-action/init@${SHA} # v4.0.0\n        with:\n          dependency-caching: true\n`, cacheWrites],
+    ['codeql dependency caching by env', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    env:\n      CODEQL_ACTION_DEPENDENCY_CACHING: true\n`, cacheWrites],
+    ['a plain caching input', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-node@${SHA} # v5.0.0\n        with:\n          caching: npm\n`, cacheWrites],
+  ];
+
+  for (const [name, text, rule] of probes) {
+    it(`stops ${name}`, () => {
+      assert.deepEqual(shapeFaults(text), [], 'the probe is in the shape, so the rule below is the one that stops it');
+      assert.equal(runsPullRequestCode(text), true, 'the probe counts as running a pull request\'s code');
       assert.notDeepEqual(rule(text), [], text);
     });
   }
