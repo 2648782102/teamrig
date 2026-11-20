@@ -162,6 +162,7 @@ import {
   type DeliveryConfig,
   type DeliveryRepoConfig,
   type QueueConfig,
+  type WaitToastConfig,
   type MergeConfig,
   type DeployConfig,
   type DeployCheckConfig,
@@ -1309,6 +1310,17 @@ function parseQueue(read: ConfigReader, raw: JsonRecord): QueueConfig {
     maxHeavyParallel: read.integer(raw, 'maxHeavyParallel', path, DEFAULT_QUEUE.maxHeavyParallel, CONFIG_LIMITS.queueMaxHeavyParallel),
     maxSmallParallel: read.integer(raw, 'maxSmallParallel', path, DEFAULT_QUEUE.maxSmallParallel, CONFIG_LIMITS.queueMaxSmallParallel),
     heavyIdleCpuPct: read.integer(raw, 'heavyIdleCpuPct', path, DEFAULT_QUEUE.heavyIdleCpuPct, CONFIG_LIMITS.queueHeavyIdleCpuPct),
+    waitToast: parseWaitToast(read, read.section(raw, 'waitToast', path)),
+  };
+}
+
+/** `delivery.queue.waitToast`: when a queued step's wait shows an OS notice (T4594). */
+function parseWaitToast(read: ConfigReader, raw: JsonRecord): WaitToastConfig {
+  const path = 'delivery.queue.waitToast';
+  const defaults = DEFAULT_QUEUE.waitToast;
+  return {
+    afterMinutes: read.integer(raw, 'afterMinutes', path, defaults.afterMinutes, CONFIG_LIMITS.queueWaitToastAfterMinutes),
+    everyMinutes: read.integer(raw, 'everyMinutes', path, defaults.everyMinutes, CONFIG_LIMITS.queueWaitToastEveryMinutes),
   };
 }
 

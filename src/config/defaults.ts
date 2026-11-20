@@ -425,8 +425,10 @@ export const QUEUE_TTL_MARGIN_MINUTES = 10;
  * A host lock lasts 150 minutes and a queued step at most 45 of them, a small step at most 10; a step waits up to an hour
  * for the lock, and its memory is sampled every 15 seconds while it runs. The line is in `pipeline` order: a waiting
  * step's priority rises a level each 15 minutes, at most 2 steps of one session run, and 2 heavy steps share the host
- * with the lock file free, the second let in only while 25% of the CPU is idle. A team whose own deploy tool takes the lock file without first waiting for the shares in
- * `<lock>.shared` to end sets `serial`, else that tool could start a roll beside 2 heavy builds.
+ * with the lock file free, the second let in only while 25% of the CPU is idle. A team whose own deploy tool takes the
+ * lock file without first waiting for the shares in `<lock>.shared` to end sets `serial`, else that tool could start a
+ * roll beside 2 heavy builds. A step that waits 10 minutes shows an OS notice, again each 15 while it waits: a wait
+ * shorter than that is a normal line, and a notice more often would only nag.
  */
 export const DEFAULT_QUEUE: QueueConfig = {
   lockTtlMinutes: 150,
@@ -444,6 +446,7 @@ export const DEFAULT_QUEUE: QueueConfig = {
   maxHeavyParallel: 2,
   maxSmallParallel: 4,
   heavyIdleCpuPct: 25,
+  waitToast: { afterMinutes: 10, everyMinutes: 15 },
 };
 
 /** A waiting delivery step looks again every 30 seconds; a deploy step waits up to an hour for freezes and the host lock. */

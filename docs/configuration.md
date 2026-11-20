@@ -413,6 +413,16 @@ The host lock and the limits of one queued step.
 | `maxHeavyParallel` | integer (1 to 64) | `2` | In pipeline admission, at most this many heavy queued steps share the host at once, each let in only while the memory gate has room for it beside the steps already sharing it; a merge and a deploy still take the whole host, waiting for every share to end. |
 | `maxSmallParallel` | integer (1 to 64) | `4` | In pipeline admission, small queued steps (teamrig queue --small) wait in a line of their own, never behind a heavy step, and at most this many share the host at once, each let in only while the memory gate has room for its need (smallReserveMb when none is learned or declared); a merge or a deploy holding the whole host still keeps them out. |
 | `heavyIdleCpuPct` | integer (0 to 100) | `25` | In pipeline admission, a heavy queued step joins another heavy one already sharing the host only while at least this % of the host's CPU time is idle (read over 2 seconds), as two test runs fanned out over every core slow each other until their time limits fire; a heavy step alone on the host never waits on CPU; 0 reads no CPU. |
+| `waitToast` | [object](#deliveryqueuewaittoast) |  | When a queued step's wait for the host shows an OS notice (a toast on Windows, a banner on macOS, notify-send on Linux): one per host at a time, however many steps wait, so a long line is seen without a terminal open. |
+
+## `delivery.queue.waitToast`
+
+When a queued step's wait for the host shows an OS notice (a toast on Windows, a banner on macOS, notify-send on Linux): one per host at a time, however many steps wait, so a long line is seen without a terminal open.
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `afterMinutes` | integer (1 to 1440) | `10` | A step waits this many minutes before the first notice. |
+| `everyMinutes` | integer (0 to 1440) | `15` | The notice comes again each this many minutes while a step still waits; 0 shows none. |
 
 ## `delivery.freezes`
 

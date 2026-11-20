@@ -906,6 +906,27 @@
               "minimum": 0,
               "maximum": 100,
               "default": 25
+            },
+            "waitToast": {
+              "description": "When a queued step's wait for the host shows an OS notice (a toast on Windows, a banner on macOS, notify-send on Linux): one per host at a time, however many steps wait, so a long line is seen without a terminal open.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "afterMinutes": {
+                  "description": "A step waits this many minutes before the first notice.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1440,
+                  "default": 10
+                },
+                "everyMinutes": {
+                  "description": "The notice comes again each this many minutes while a step still waits; 0 shows none.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1440,
+                  "default": 15
+                }
+              }
             }
           }
         },

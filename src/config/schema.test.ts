@@ -230,6 +230,8 @@ const LIMIT_PATHS: { readonly [Name in keyof typeof CONFIG_LIMITS]: string } = {
   queueMaxHeavyParallel: 'delivery.queue.maxHeavyParallel',
   queueMaxSmallParallel: 'delivery.queue.maxSmallParallel',
   queueHeavyIdleCpuPct: 'delivery.queue.heavyIdleCpuPct',
+  queueWaitToastAfterMinutes: 'delivery.queue.waitToast.afterMinutes',
+  queueWaitToastEveryMinutes: 'delivery.queue.waitToast.everyMinutes',
   headroomSessionMb: 'open.headroom.sessionMb',
   headroomCommitMaxPct: 'open.headroom.commitMaxPct',
   headroomCloseIdleMinutes: 'open.headroom.closeIdleMinutes',

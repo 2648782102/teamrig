@@ -33,7 +33,7 @@ describe('parseConfig', () => {
     assert.deepEqual(config.budget, DEFAULT_BUDGET);
     assert.deepEqual(config.delivery, {
       schedule: {},
-      queue: { lockTtlMinutes: 150, maxRunMinutes: 45, smallMaxRunMinutes: 10, waitMinutes: 60, memorySampleSeconds: 15, memoryFloorMb: 4096, smallReserveMb: 2048, heavyReserveMb: 2048, admission: 'pipeline', agingMinutes: 15, memoryPassMinutes: 15, perSessionRunning: 2, maxHeavyParallel: 2, maxSmallParallel: 4, heavyIdleCpuPct: 25 },
+      queue: { lockTtlMinutes: 150, maxRunMinutes: 45, smallMaxRunMinutes: 10, waitMinutes: 60, memorySampleSeconds: 15, memoryFloorMb: 4096, smallReserveMb: 2048, heavyReserveMb: 2048, admission: 'pipeline', agingMinutes: 15, memoryPassMinutes: 15, perSessionRunning: 2, maxHeavyParallel: 2, maxSmallParallel: 4, heavyIdleCpuPct: 25, waitToast: { afterMinutes: 10, everyMinutes: 15 } },
       wait: { pollSeconds: 30, maxMinutes: 60 },
       checkTimeoutSeconds: 20,
       passEnv: [],
@@ -762,7 +762,7 @@ describe('parseConfig', () => {
   it('keeps the delivery folder, host lock and queued step limits', () => {
     const delivery = {
       dir: 'data/deploys',
-      queue: { lockPath: 'data/deploys/host.lock', lockTtlMinutes: 90, maxRunMinutes: 80, smallMaxRunMinutes: 80, waitMinutes: 0, memorySampleSeconds: 0, memoryFloorMb: 0, smallReserveMb: 512, heavyReserveMb: 1024, admission: 'serial', agingMinutes: 0, memoryPassMinutes: 0, perSessionRunning: 0, maxHeavyParallel: 3, maxSmallParallel: 6, heavyIdleCpuPct: 0 },
+      queue: { lockPath: 'data/deploys/host.lock', lockTtlMinutes: 90, maxRunMinutes: 80, smallMaxRunMinutes: 80, waitMinutes: 0, memorySampleSeconds: 0, memoryFloorMb: 0, smallReserveMb: 512, heavyReserveMb: 1024, admission: 'serial', agingMinutes: 0, memoryPassMinutes: 0, perSessionRunning: 0, maxHeavyParallel: 3, maxSmallParallel: 6, heavyIdleCpuPct: 0, waitToast: { afterMinutes: 10, everyMinutes: 15 } },
       wait: { pollSeconds: 5, maxMinutes: 0 },
       checkTimeoutSeconds: 45,
       passEnv: ['NPM_TOKEN', 'gh_token'],
@@ -1095,7 +1095,7 @@ describe('parseConfig', () => {
     assert.equal(issues.find((issue) => issue.path === 'delivery.queue.admission')?.message, 'expected one of pipeline, serial (got "fifo")');
     assert.deepEqual(config.delivery, {
       schedule: {},
-      queue: { lockTtlMinutes: 150, maxRunMinutes: 45, smallMaxRunMinutes: 10, waitMinutes: 60, memorySampleSeconds: 15, memoryFloorMb: 4096, smallReserveMb: 2048, heavyReserveMb: 2048, admission: 'pipeline', agingMinutes: 15, memoryPassMinutes: 15, perSessionRunning: 2, maxHeavyParallel: 2, maxSmallParallel: 4, heavyIdleCpuPct: 25 },
+      queue: { lockTtlMinutes: 150, maxRunMinutes: 45, smallMaxRunMinutes: 10, waitMinutes: 60, memorySampleSeconds: 15, memoryFloorMb: 4096, smallReserveMb: 2048, heavyReserveMb: 2048, admission: 'pipeline', agingMinutes: 15, memoryPassMinutes: 15, perSessionRunning: 2, maxHeavyParallel: 2, maxSmallParallel: 4, heavyIdleCpuPct: 25, waitToast: { afterMinutes: 10, everyMinutes: 15 } },
       wait: { pollSeconds: 30, maxMinutes: 60 },
       checkTimeoutSeconds: 20,
       passEnv: [],
@@ -2334,6 +2334,21 @@ describe('parseConfig: the decision card', () => {
     assert.equal(parseConfig({ ...ROSTER, register: { requireDecisionCard: false } }).config.register.requireDecisionCard, false);
     const { config, issues } = parseConfig({ ...ROSTER, register: { requireDecisionCard: 'yes' } });
     assert.deepEqual([paths(issues), config.register.requireDecisionCard], [['register.requireDecisionCard'], true]);
+  });
+});
+
+describe('parseConfig: delivery.queue.waitToast (T4594)', () => {
+  it('defaults to a toast after 10 minutes, again each 15, and keeps a good value', () => {
+    assert.deepEqual(parseConfig(ROSTER).config.delivery.queue.waitToast, { afterMinutes: 10, everyMinutes: 15 });
+    const { config, issues } = parseConfig({ ...ROSTER, delivery: { queue: { waitToast: { afterMinutes: 3, everyMinutes: 0 } } } });
+    assert.deepEqual([config.delivery.queue.waitToast, issues], [{ afterMinutes: 3, everyMinutes: 0 }, []]);
+  });
+
+  it('refuses a value out of range or not a whole number, keeping the default', () => {
+    const { config, issues } = parseConfig({ ...ROSTER, delivery: { queue: { waitToast: { afterMinutes: 0, everyMinutes: 1441 } } } });
+    assert.deepEqual(paths(issues).sort(), ['delivery.queue.waitToast.afterMinutes', 'delivery.queue.waitToast.everyMinutes']);
+    assert.deepEqual(config.delivery.queue.waitToast, { afterMinutes: 10, everyMinutes: 15 });
+    assert.deepEqual(paths(parseConfig({ ...ROSTER, delivery: { queue: { waitToast: { afterMinutes: 2.5 } } } }).issues), ['delivery.queue.waitToast.afterMinutes']);
   });
 });
 

@@ -1108,6 +1108,19 @@ export interface QueueConfig {
    * other until their time limits fire; a heavy step alone on the host never waits on CPU; 0 reads no CPU.
    */
   readonly heavyIdleCpuPct: number;
+  /** The OS notice that tells the person a queued step still waits for the host (T4594). */
+  readonly waitToast: WaitToastConfig;
+}
+
+/**
+ * When a queued step's wait for the host shows an OS notice (a toast on Windows, a banner on macOS, notify-send on
+ * Linux): one per host at a time, however many steps wait, so a long line is seen without a terminal open.
+ */
+export interface WaitToastConfig {
+  /** A step waits this many minutes before the first notice. */
+  readonly afterMinutes: number;
+  /** The notice comes again each this many minutes while a step still waits; 0 shows none. */
+  readonly everyMinutes: number;
 }
 
 /** How a delivery step waits. */
