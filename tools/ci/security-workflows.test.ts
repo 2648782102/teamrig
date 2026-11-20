@@ -17,12 +17,104 @@ const workflows: ReadonlyMap<string, string> = new Map(
  */
 const REVIEWED = 'outside pull requests run CI with no maintainer click, so any change to this rule needs a security review first';
 
-/** A workflow's lines as GitHub reads them: a `#` at a line's start or after a space opens a comment. */
-function uncommented(text: string): readonly string[] {
-  return text.split('\n').map((line) => line.replace(/(^|\s)#.*$/, '').trimEnd());
+/** A line of a workflow file as this spec reads it. */
+interface WorkflowLine {
+  /** The line as written, its trailing carriage return dropped. */
+  readonly source: string;
+  /** The line with its comment cut, or '' for a line of a block scalar's text. */
+  readonly kept: string;
+  /** Whether the line is the text of a block scalar (`run: |`), which no check reads as keys. */
+  readonly body: boolean;
 }
 
 const indentOf = (line: string): number => line.length - line.trimStart().length;
+/** The indent of a line's content: past a list item's `- `. */
+const contentIndentOf = (line: string): number => indentOf(line) + (/^\s*- /.test(line) ? 2 : 0);
+/** Where a line's comment starts, as GitHub reads it: a `#` at the line's start or after a space; -1 for none. */
+const commentAt = (line: string): number => line.search(/(?:^|\s)#/);
+
+/**
+ * The one line shape the checks read: an indent of two-space steps, then a plain key (with a list item's `- ` before
+ * it or not) and its value, or a list item's bare value. Groups: 1 indent, 2 the `- `, 3 key, 4 its value, 5 an item.
+ */
+const SHAPE = /^((?: {2})*)(- )?(?:([A-Za-z_][\w-]*):(?: (.*))?|(.+))$/;
+/** A block scalar's header (`|`, `>-`, `|+`): the deeper lines below it are its text. */
+const BLOCK_SCALAR = /^[|>][-+]?$/;
+/** The keys whose value may be a block scalar: a step's script, and CodeQL's config, neither read as workflow keys. */
+const TEXT_KEYS: ReadonlySet<string> = new Set(['run', 'config']);
+/** Printable ASCII only: no tab, lone carriage return or Unicode line break can split a line where YAML would. */
+const PRINTABLE = /^[\x20-\x7e]*$/;
+
+/** The scalar a line holds: a key's value or a list item's, '' for a key that opens a block. */
+const scalarOf = (kept: string): string => {
+  const parts = SHAPE.exec(kept);
+  return (parts?.[4] ?? parts?.[5] ?? '').trim();
+};
+
+/** Each line of a workflow, its comment cut and a block scalar's text marked, so no check reads a script as keys. */
+function readLines(text: string): readonly WorkflowLine[] {
+  let textOver: number | undefined;
+  return text.split('\n').map((line) => {
+    const source = line.replace(/\r$/, '');
+    if (textOver !== undefined && (source.trim() === '' || indentOf(source) > textOver)) return { source, kept: '', body: true };
+    textOver = undefined;
+    const at = commentAt(source);
+    const kept = (at === -1 ? source : source.slice(0, at)).trimEnd();
+    if (BLOCK_SCALAR.test(scalarOf(kept))) textOver = contentIndentOf(kept);
+    return { source, kept, body: false };
+  });
+}
+
+/** A workflow's lines as its keys read: comments cut, and '' for each line of a block scalar's text. */
+const structuralLines = (text: string): readonly string[] => readLines(text).map(({ kept }) => kept);
+
+/** Why a plain value is outside the shape, or undefined when it is in it. */
+function valueFault(value: string): string | undefined {
+  if (value === '') return undefined;
+  if (value.startsWith('"')) return /^"[^"]*"$/.test(value) ? undefined : 'a double-quoted value that does not end on its line';
+  if (value.startsWith("'")) return /^'(?:[^']|'')*'$/.test(value) ? undefined : 'a single-quoted value that does not end on its line';
+  if (value.startsWith('[')) return /^\[[^[\]]*\]$/.test(value) ? undefined : 'a flow list that nests or does not end on its line';
+  if (/^(?:[&*!%@`?:,#|>]|-(?: |$))/.test(value)) return 'an anchor, alias, tag, block scalar or other YAML marker';
+  if (/:(?: |$)/.test(value)) return 'a `: ` inside a plain value';
+  return undefined;
+}
+
+/** Why one uncommented line, outside a block scalar's text, is outside the shape; undefined when it is in it. */
+function structureFault(source: string, kept: string, room: number): string | undefined {
+  const comment = commentAt(source);
+  if (comment !== -1 && /['"]/.test(source.slice(0, comment))) return 'a quote before a ` #`, which may sit inside a quoted value';
+  if (kept.includes('\\')) return 'a backslash, which may be a YAML escape';
+  if (/[{}]/.test(kept.replace(/\$\{\{.*?\}\}/g, ''))) return 'a flow map';
+  const parts = SHAPE.exec(kept);
+  const [, indent = '', dash, key, value, item] = parts ?? [];
+  if (parts === null || (key === undefined && dash === undefined)) return 'not a plain key or a list item at a two-space indent';
+  if (indent.length > room) return `an indent past ${room}`;
+  const scalar = (value ?? item ?? '').trim();
+  if (BLOCK_SCALAR.test(scalar)) return key !== undefined && TEXT_KEYS.has(key) ? undefined : 'a block scalar outside run: and config:';
+  return valueFault(scalar);
+}
+
+/**
+ * The lines of a workflow outside the one YAML shape the checks below read, as `<line>: <why>: <text>`. GitHub
+ * accepts YAML in more forms (quoted or escaped keys, flow maps, deeper indents, anchors), each of which could carry
+ * a runner, an action or a trigger past a check that reads lines; so a file in any other form fails, and the checks
+ * hold for every file that passes.
+ */
+function shapeFaults(text: string): readonly string[] {
+  const faults: string[] = [];
+  let room = 0;
+  for (const [at, { source, kept, body }] of readLines(text).entries()) {
+    const fault = !PRINTABLE.test(source)
+      ? 'a character outside printable ASCII'
+      : body || kept === ''
+        ? undefined
+        : structureFault(source, kept, room);
+    if (fault !== undefined) faults.push(`${at + 1}: ${fault}: ${source.trim()}`);
+    if (!body && kept !== '') room = contentIndentOf(kept) + (kept.endsWith(':') ? 2 : 0);
+  }
+  return faults;
+}
+
 const unquoted = (word: string): string => word.trim().replace(/^(['"])(.*)\1$/, '$2');
 const listOf = (flow: string): readonly string[] => flow.split(',').map(unquoted);
 
@@ -32,7 +124,7 @@ const listOf = (flow: string): readonly string[] => flow.split(',').map(unquoted
  * a flow map, an odd indent), which a caller counts as running a pull request's code: the rules fail closed.
  */
 function triggersOf(text: string): readonly string[] | undefined {
-  const lines = uncommented(text);
+  const lines = structuralLines(text);
   const starts = lines.flatMap((line, at) => (/^(?:on|"on"|'on'):/.test(line) ? [at] : []));
   const [start] = starts;
   if (start === undefined || starts.length > 1) return undefined;
@@ -69,6 +161,13 @@ const runsPullRequestCode = (text: string): boolean =>
   triggersOf(text)?.some((name) => PULL_REQUEST_EVENTS.has(name)) ?? true;
 
 /**
+ * The mentions of an event no workflow may start on: workflow_run runs with secrets and a write token after a fork
+ * pull request's run, and workflow_call runs a file under its caller's event, out of reach of the trigger reader.
+ */
+const forbiddenEvents = (text: string): readonly string[] =>
+  [...structuralLines(text).join('\n').matchAll(/\bworkflow_(?:run|call)\b/gi)].map(([word]) => word);
+
+/**
  * GitHub-hosted runner labels, allowed by name: a self-hosted runner takes any custom label, so refusing the word
  * `self-hosted` would miss one routed by its own label.
  */
@@ -84,17 +183,35 @@ function jobAround(lines: readonly string[], at: number): readonly string[] {
   return lines.slice(start, end);
 }
 
+/** The deeper lines under the first of `lines` that `opener` matches, or undefined when none does. */
+function blockUnder(lines: readonly string[], opener: RegExp): readonly string[] | undefined {
+  const start = lines.findIndex((line) => opener.test(line));
+  if (start === -1) return undefined;
+  const indent = indentOf(lines[start] ?? '');
+  const block: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === '') continue;
+    if (indentOf(line) <= indent) break;
+    block.push(line);
+  }
+  return block;
+}
+
 /**
- * The runner labels one `runs-on:` value asks for. `${{ matrix.<key> }}` is read through the job's `<key>: [..]` list;
- * any other expression, a matrix `include:` (which can add a label), the block form and `group:` come back as they
- * are, so the label check reports them.
+ * The runner labels one `runs-on:` value asks for. `${{ matrix.<key> }}` is read through the `<key>: [..]` list of
+ * the job's own `strategy:` `matrix:`, and nowhere else in the job; any other expression, a matrix `include:` (which
+ * can add a label), a matrix with no such list, the block form and `group:` come back as they are, so the label check
+ * reports them.
  */
 function labelsOf(value: string, job: readonly string[]): readonly string[] {
   if (value === '') return ['runs-on in the block form'];
   const matrixKey = /^\$\{\{\s*matrix\.([\w-]+)\s*\}\}$/.exec(value)?.[1];
   if (matrixKey !== undefined) {
-    if (job.some((line) => /^\s+include:/.test(line))) return [`${value} with a matrix include`];
-    const flow = job.map((line) => new RegExp(`^\\s+${matrixKey}:\\s*\\[(.*)\\]$`).exec(line)?.[1]).find((list) => list !== undefined);
+    const matrix = blockUnder(blockUnder(job, /^ {4}strategy:$/i) ?? [], /^ {6}matrix:$/i) ?? [];
+    if (matrix.some((line) => /^ {8}include:/i.test(line))) return [`${value} with a matrix include`];
+    // A context's key reads in any case, so `OS:` and `os:` both answer matrix.os: more than one such key is unread.
+    const values = matrix.flatMap((line) => new RegExp(`^ {8}${matrixKey}:(.*)$`, 'i').exec(line)?.[1] ?? []);
+    const flow = values.length === 1 ? /^\s*\[(.*)\]$/.exec(values[0] ?? '')?.[1] : undefined;
     return flow === undefined ? [`${value} with no [..] list`] : listOf(flow);
   }
   const flow = /^\[(.*)\]$/.exec(value)?.[1];
@@ -103,9 +220,9 @@ function labelsOf(value: string, job: readonly string[]): readonly string[] {
 
 /** Each job's runner label in a workflow that is not a GitHub-hosted one, as `<job line>: <label>`. */
 function unhostedRunners(text: string): readonly string[] {
-  const lines = uncommented(text);
+  const lines = structuralLines(text);
   return lines.flatMap((line, at) => {
-    const value = /^\s+runs-on:(.*)$/.exec(line)?.[1];
+    const value = /^\s+runs-on:(.*)$/i.exec(line)?.[1];
     if (value === undefined) return [];
     const job = jobAround(lines, at);
     return labelsOf(value.trim(), job)
@@ -114,9 +231,32 @@ function unhostedRunners(text: string): readonly string[] {
   });
 }
 
-/** The job-level `uses:` lines: a reusable workflow, whose runners and caches this spec cannot read. */
+/** The job-level `uses:` lines (job keys sit at 4 once the shape rule passed): a reusable workflow, which runs unread. */
 const reusableWorkflowCalls = (text: string): readonly string[] =>
-  uncommented(text).filter((line) => /^ {4}uses:/.test(line)).map((line) => line.trim());
+  structuralLines(text).filter((line) => /^ {4}uses:/i.test(line)).map((line) => line.trim());
+
+/**
+ * The actions a pull request workflow may run, by owner/repo/path, each reviewed to write no Actions cache unasked
+ * (setup-node's own caching is held off by the rule below). Any other one, a local `./` action or a `docker://` image
+ * included, fails: actions/setup-go, gradle/actions/setup-gradle and astral-sh/setup-uv cache by default, with no input
+ * to name.
+ */
+const PULL_REQUEST_ACTIONS: ReadonlySet<string> = new Set([
+  'actions/checkout',
+  'actions/setup-node',
+  'actions/dependency-review-action',
+  'github/codeql-action/init',
+  'github/codeql-action/analyze',
+]);
+
+/** The `uses:` lines of a workflow whose action is not on the reviewed list. */
+const unlistedActions = (text: string): readonly string[] =>
+  structuralLines(text).flatMap((line) => {
+    const value = /^\s*(?:- )?uses:(.*)$/i.exec(line)?.[1];
+    if (value === undefined) return [];
+    const [action = ''] = unquoted(value).split('@');
+    return PULL_REQUEST_ACTIONS.has(action) ? [] : [line.trim()];
+  });
 
 /**
  * The lines that write an Actions cache a later run of main could restore: a caching action (actions/cache and its
@@ -124,7 +264,7 @@ const reusableWorkflowCalls = (text: string): readonly string[] =>
  * `package-manager-cache: false`, which turns setup-node's own caching off, is the one cache key let through.
  */
 const cacheWrites = (text: string): readonly string[] =>
-  uncommented(text)
+  structuralLines(text)
     .filter(
       (line) =>
         /\buses:\s*['"]?[\w.-]+\/[\w./-]*cache/i.test(line) ||
@@ -147,28 +287,96 @@ function namesPackageManager(manifest: unknown): boolean {
 
 /** The setup-node steps that leave its own caching on (no `package-manager-cache: false` in the step). */
 const setupNodeCaching = (text: string): readonly string[] =>
-  uncommented(text)
+  structuralLines(text)
     .join('\n')
     .split(/^(?=\s*-\s)/m)
-    .filter((step) => /\buses:\s*actions\/setup-node@/.test(step) && !/^\s*package-manager-cache:\s*false$/m.test(step))
+    .filter((step) => /\buses:\s*actions\/setup-node@/i.test(step) && !/^\s*package-manager-cache:\s*false$/m.test(step))
     .map((step) => step.trim().split('\n')[0] ?? '');
+
+/** A 40-hex commit for the fixtures below. */
+const SHA = '0123456789abcdef0123456789abcdef01234567';
 
 describe('every workflow', () => {
   it('is there to read', () => {
     assert.ok(workflows.has('ci.yml') && workflows.has('codeql.yml'), [...workflows.keys()].join(', '));
   });
 
-  it('starts on no workflow_run, which runs with secrets and a write token after a fork pull request\'s run', () => {
+  it('is written in the one YAML shape the checks read, so no other form carries a key past them', () => {
     for (const [name, text] of workflows) {
-      assert.doesNotMatch(uncommented(text).join('\n'), /\bworkflow_run\b/, `${name}: ${REVIEWED}`);
+      assert.deepEqual(shapeFaults(text), [], `${name}: ${REVIEWED}`);
     }
-    assert.match(uncommented('on:\n  workflow_run:\n    workflows: [ci]').join('\n'), /\bworkflow_run\b/);
-    assert.doesNotMatch(uncommented('  # never workflow_run here').join('\n'), /\bworkflow_run\b/);
+    const ok = [
+      'on:',
+      '  push:',
+      '    branches: [main]',
+      '  schedule:',
+      "    - cron: '23 4 * * 1'",
+      'jobs:',
+      '  a:',
+      '    if: ${{ github.event_name == \'push\' }}',
+      '    runs-on: ubuntu-latest # a comment',
+      '    steps:',
+      '      - run: |',
+      '          echo "a: {b}" # all text',
+      '',
+      '          "uses": x',
+      '      - uses: actions/checkout@0123 # v5.0.0',
+      '        with:',
+      '          config: >-',
+      '            x',
+      '        env:',
+      '          GH_TOKEN: ${{ github.token }}',
+      '          NAME: "plain"',
+      "          NOTE: 'it''s'",
+    ].join('\r\n');
+    assert.deepEqual(shapeFaults(ok), []);
+    const risky: readonly (readonly [string, string])[] = [
+      ['jobs:\n  a:\n    "runs-on": self-hosted\n', 'not a plain key'],
+      ["jobs:\n  a:\n    'uses': ./.github/workflows/x.yml\n", 'not a plain key'],
+      ['jobs:\n  a: {runs-on: self-hosted}\n', 'a flow map'],
+      ['on:\n  "workflow\\x5frun":\n', 'a backslash'],
+      ['jobs:\n  a:\n    name: "a\\u0023"\n', 'a backslash'],
+      ["on: [push, 'a #b']\n", 'a quote before'],
+      ['jobs:\n    a:\n        uses: x\n', 'an indent past 2'],
+      ['jobs:\n  a:\n   runs-on: self-hosted\n', 'not a plain key'],
+      ['jobs:\n  a:\n\truns-on: self-hosted\n', 'outside printable ASCII'],
+      ['jobs:\n  a:\n    runs-on: x\rruns-on: self-hosted\n', 'outside printable ASCII'],
+      ['jobs:\n  a:\n    runs-on: x\u2028    runs-on: self-hosted\n', 'outside printable ASCII'],
+      ['jobs:\n  a:\n    runs-on: *runner\n', 'an anchor, alias'],
+      ['jobs:\n  a:\n    runs-on: !!str self-hosted\n', 'an anchor, alias'],
+      ['jobs:\n  a: &job\n', 'an anchor, alias'],
+      ['jobs:\n  <<: *jobs\n', 'not a plain key'],
+      ['---\non: push\n', 'not a plain key'],
+      ['on: |\n  workflow_run\n', 'a block scalar outside'],
+      ['jobs:\n  a:\n    runs-on: "self-hosted\n      x"\n', 'a double-quoted value'],
+      ["jobs:\n  a:\n    runs-on: 'self-hosted\n", 'a single-quoted value'],
+      ['jobs:\n  a:\n    runs-on: [ubuntu-latest,\n      self-hosted]\n', 'a flow list'],
+      ['jobs:\n  a:\n    name: a: b\n', 'a `: ` inside'],
+      ['jobs:\n  a:\n    ? runs-on\n', 'not a plain key'],
+    ];
+    for (const [text, why] of risky) {
+      const faults = shapeFaults(text);
+      assert.ok(faults.some((fault) => fault.includes(why)), `${JSON.stringify(text)}: ${faults.join(' | ')}`);
+    }
+  });
+
+  it('reads a block scalar as text, never as keys, from its header to the first line not deeper than its key', () => {
+    assert.deepEqual(structuralLines('a:\n  run: |\n    x: 1\n\n    y # z\n  b: 2 # c\n'), ['a:', '  run: |', '', '', '', '  b: 2', '']);
+    assert.deepEqual(structuralLines('      - run: >-\n          x\n        with: y\n'), ['      - run: >-', '', '        with: y', '']);
+  });
+
+  it('starts on no workflow_run, which runs with secrets after a fork pull request\'s run, and no workflow_call', () => {
+    for (const [name, text] of workflows) {
+      assert.deepEqual(forbiddenEvents(text), [], `${name}: ${REVIEWED}`);
+    }
+    assert.deepEqual(forbiddenEvents('on:\n  workflow_run:\n    workflows: [ci]'), ['workflow_run']);
+    assert.deepEqual(forbiddenEvents('on: [push, workflow_call]\n'), ['workflow_call']);
+    assert.deepEqual(forbiddenEvents('  # never workflow_run here\n  run: |\n    echo workflow_call\n'), []);
   });
 
   it('pins each action to a full commit SHA with its version beside it, so a moved tag cannot change what runs', () => {
     for (const [name, text] of workflows) {
-      for (const [line] of text.matchAll(/^.*\buses: .+$/gm)) {
+      for (const [line] of text.matchAll(/^.*\buses:.*$/gim)) {
         assert.match(line, /uses: [\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/, `${name}: ${line.trim()}`);
       }
     }
@@ -177,7 +385,7 @@ describe('every workflow', () => {
   it('gives the token read-only contents by default, and never runs a fork pull request with secrets', () => {
     for (const [name, text] of workflows) {
       assert.match(text, /^permissions:\n {2}contents: read\n/m, name);
-      assert.doesNotMatch(text, /pull_request_target/, name);
+      assert.doesNotMatch(text, /pull_request_target/i, name);
     }
   });
 
@@ -209,7 +417,7 @@ describe("a workflow that runs a pull request's code", () => {
       triggersOf('on:\n  # a comment\n  push:\n    branches: [main]\n\n  pull_request: {}\n  schedule:\n    - cron: x\njobs:\n'),
       ['push', 'pull_request', 'schedule'],
     );
-    for (const unreadable of ['name: x\n', 'on: {push: {}}\n', 'on:\njobs:\n', 'on: push\non: pull_request\n', 'on:\n    push:\n  pull_request:\n']) {
+    for (const unreadable of ['name: x\n', 'on: {push: {}}\n', 'on:\njobs:\n', 'on: push\non: pull_request\n', 'on:\n    push:\n  pull_request:\n', 'on: |\n  push\n']) {
       assert.equal(triggersOf(unreadable), undefined, unreadable);
       assert.equal(runsPullRequestCode(unreadable), true, unreadable);
     }
@@ -250,6 +458,28 @@ describe("a workflow that runs a pull request's code", () => {
       '    runs-on: ${{ matrix.os }}',
       '  h:',
       '    runs-on: ${{ matrix.os }}',
+      '  i:',
+      '    env:',
+      '      os: [ubuntu-latest]',
+      '    strategy:',
+      '      matrix:',
+      '        os: ${{ fromJSON(vars.RUNNERS) }}',
+      '    runs-on: ${{ matrix.os }}',
+      '  j:',
+      '    strategy:',
+      '      matrix: ${{ fromJSON(vars.MATRIX) }}',
+      '    steps:',
+      '      - run: |',
+      '          os: [ubuntu-latest]',
+      '    runs-on: ${{ matrix.os }}',
+      '  k:',
+      '    RUNS-ON: self-hosted',
+      '  l:',
+      '    strategy:',
+      '      matrix:',
+      '        OS: [build-box]',
+      '        os: [ubuntu-latest]',
+      '    runs-on: ${{ matrix.os }}',
     ].join('\n');
     assert.deepEqual(unhostedRunners(risky), [
       'a: self-hosted',
@@ -260,6 +490,10 @@ describe("a workflow that runs a pull request's code", () => {
       'f: build-box',
       'g: ${{ matrix.os }} with a matrix include',
       'h: ${{ matrix.os }} with no [..] list',
+      'i: ${{ matrix.os }} with no [..] list',
+      'j: ${{ matrix.os }} with no [..] list',
+      'k: self-hosted',
+      'l: ${{ matrix.os }} with no [..] list',
     ]);
   });
 
@@ -267,8 +501,37 @@ describe("a workflow that runs a pull request's code", () => {
     for (const [name, text] of pullRequestRuns) {
       assert.deepEqual(reusableWorkflowCalls(text), [], `${name}: ${REVIEWED}`);
     }
-    const risky = 'jobs:\n  a:\n    uses: some/repo/.github/workflows/x.yml@0123\n  b:\n    steps:\n      - uses: actions/checkout@0123\n';
-    assert.deepEqual(reusableWorkflowCalls(risky), ['uses: some/repo/.github/workflows/x.yml@0123']);
+    const risky = 'jobs:\n  a:\n    uses: some/repo/.github/workflows/x.yml@0123\n  b:\n    steps:\n      - uses: actions/checkout@0123\n  c:\n    Uses: x/y/.github/workflows/z.yml@0123\n';
+    assert.deepEqual(reusableWorkflowCalls(risky), ['uses: some/repo/.github/workflows/x.yml@0123', 'Uses: x/y/.github/workflows/z.yml@0123']);
+  });
+
+  it('uses only the actions reviewed to write no cache unasked', () => {
+    for (const [name, text] of pullRequestRuns) {
+      assert.deepEqual(unlistedActions(text), [], `${name}: ${REVIEWED}`);
+    }
+    const steps = [
+      `      - uses: actions/checkout@${SHA} # v5.0.0`,
+      `      - uses: 'github/codeql-action/init@${SHA}'`,
+      `      - uses: actions/setup-go@${SHA} # v5.0.0`,
+      `      - name: gradle`,
+      `        uses: gradle/actions/setup-gradle@${SHA}`,
+      `      - uses: astral-sh/setup-uv@${SHA}`,
+      '      - uses: ./.github/actions/local',
+      '      - uses: docker://alpine:3',
+      `      - uses: actions/checkout/sub@${SHA}`,
+      `      - uses: Actions/Checkout@${SHA}`,
+      '    uses: org/repo/.github/workflows/x.yml@main',
+    ].join('\n');
+    assert.deepEqual(unlistedActions(steps), [
+      `- uses: actions/setup-go@${SHA}`,
+      `uses: gradle/actions/setup-gradle@${SHA}`,
+      `- uses: astral-sh/setup-uv@${SHA}`,
+      '- uses: ./.github/actions/local',
+      '- uses: docker://alpine:3',
+      `- uses: actions/checkout/sub@${SHA}`,
+      `- uses: Actions/Checkout@${SHA}`,
+      'uses: org/repo/.github/workflows/x.yml@main',
+    ]);
   });
 
   it('writes no Actions cache, which a later run of main could restore', () => {
@@ -320,6 +583,31 @@ describe("a workflow that runs a pull request's code", () => {
     ].join('\n');
     assert.deepEqual(setupNodeCaching(steps), ['- uses: actions/setup-node@0123']);
   });
+});
+
+describe("the security review's probes past the first spec (T4687)", () => {
+  /** Each probe, and the rule that now stops it; a probe aimed past another rule must pass the shape rule first. */
+  const probes: readonly (readonly [string, string, (text: string) => readonly string[]])[] = [
+    ['a # in quotes hides workflow_run', `on: {push: {branches: ['a #b']}, workflow_run: {workflows: [ci], types: [completed]}}\n`, shapeFaults],
+    ['an escaped workflow_run', 'on:\n  "workflow\\x5frun":\n    workflows: [ci]\n', shapeFaults],
+    ['an escaped pull_request_target', 'on:\n  "pull\\x5frequest_target": {}\n', shapeFaults],
+    ['a quoted runs-on', 'on: pull_request\njobs:\n  a:\n    "runs-on": self-hosted\n', shapeFaults],
+    ['a flow-map job', 'on: pull_request\njobs:\n  a: {runs-on: self-hosted, steps: [{run: x}]}\n', shapeFaults],
+    ['a reusable call at a 4-space job indent', `on: pull_request\njobs:\n    a:\n        uses: org/repo/.github/workflows/x.yml@${SHA} # v1.0.0\n`, shapeFaults],
+    ['a quoted local uses', 'on: pull_request\njobs:\n  a:\n    "uses": ./.github/workflows/x.yml\n', shapeFaults],
+    ['a quoted cache uses', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - "uses": actions/cache/save@${SHA}\n        with: {path: x, key: y}\n`, shapeFaults],
+    ['a quoted cache input', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-python@${SHA} # v5.0.0\n        with:\n          "cache": pip\n`, shapeFaults],
+    ['a matrix decoy in a script', 'on: pull_request\njobs:\n  a:\n    steps:\n      - run: |\n          os: [ubuntu-latest]\n    strategy:\n      matrix:\n        os: ${{ fromJSON(vars.RUNNERS) }}\n    runs-on: ${{ matrix.os }}\n', unhostedRunners],
+    ['an action that caches by default', `on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-go@${SHA} # v5.0.0\n        with:\n          go-version: '1.23'\n`, unlistedActions],
+    ['a workflow_call callee', 'on: workflow_call\njobs:\n  a:\n    runs-on: self-hosted\n', forbiddenEvents],
+  ];
+
+  for (const [name, text, rule] of probes) {
+    it(`stops ${name}`, () => {
+      if (rule !== shapeFaults) assert.deepEqual(shapeFaults(text), [], 'the probe is in the shape, so the rule below is the one that stops it');
+      assert.notDeepEqual(rule(text), [], text);
+    });
+  }
 });
 
 describe('codeql.yml', () => {
