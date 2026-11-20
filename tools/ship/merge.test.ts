@@ -987,6 +987,13 @@ test("the release pull request merges on its release task's approval, its head r
   assert.deepEqual(sweep.mock.calls.map(call => call.arguments[0]), [{ repo: REPO, head: RELEASE, sha: SHA }]);
 });
 
+test('a release merge needs no pull request text: its release tool wrote the text of the pull request it opened (T3420, T4645)', async () => {
+  const { deps, err, out } = runFixture({ release: {}, pullText: null });
+  assert.equal(await runMerge(RELEASE_ARGS, deps), 0, err.join('\n'));
+  assert.deepEqual(err, []);
+  assert.equal(out.at(-1), 'MERGED #3 into main, now at main999');
+});
+
 test('a release pull request that is not open is refused, never opened by the merge (T4645)', async () => {
   const { deps, err, ghWrites } = runFixture({ release: { open: false } });
   assert.equal(await runMerge(RELEASE_ARGS, deps), 1);
