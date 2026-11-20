@@ -196,7 +196,7 @@ sequenceDiagram
   is small and recent enough, else opens fresh, on its handover while its refresh is ready (a resume would never take
   it); `state/session-log.jsonl` logs each close and reopen, and a reboot's
   restore leaves a closed session closed. `teamrig close` (the lead) ends only a session
-  quiet `open.headroom.closeIdleMinutes` (60) or more, with no work it can start and no time wait of its own ending
+  quiet `open.headroom.closeIdleMinutes` (30) or more, with no work it can start and no time wait of its own ending
   within 30 minutes, its last turn ended (not at a tool call or a decision put to the person), no background work
   or shells, and
   small and recent enough to resume.

@@ -2477,7 +2477,7 @@ session listed in `open.idle.keepOpen`, one in the owner's open booked
 meeting (started, under 4 hours, neither ended nor dropped: the owner talks to its tab), a lead or sub-lead that a
 live task's approval or decision waits on (the team's lead for the owner's too) or one of whose sessions runs, a session not running, one
 with work it can start or a time wait of its own ending within 30 minutes, one quiet under
-`open.headroom.closeIdleMinutes` (60) since its transcript's last entry of the person or the model (a slash command,
+`open.headroom.closeIdleMinutes` (30) since its transcript's last entry of the person or the model (a slash command,
 an away summary or a file change with no entry is no activity), in a turn, at a tool call (running, or waiting on a permission or an answer), waiting on a decision it put to the
 person (a `Decision needed:` line) or still running background work, one whose Claude Code runs shells the end
 would cut off, and one too big or idle to resume (`hiring.resumeMaxTokens`,
