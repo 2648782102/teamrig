@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { TEST_SYSTEMS } from './change-kind.ts';
 
 const root = new URL('../../', import.meta.url);
 const read = (path: string): string => readFileSync(new URL(path, root), 'utf8');
@@ -185,14 +186,63 @@ function unreviewedEvents(text: string): readonly string[] {
  */
 const HOSTED = /^(?:ubuntu-(?:latest|\d{2}\.\d{2}(?:-arm)?)|windows-(?:latest|\d{4}|11-arm)|macos-(?:latest|\d{2}(?:-(?:large|xlarge|intel))?))$/;
 
-/** The lines of the job holding line `at`: from its two-space id to the next line at that indent or less. */
-function jobAround(lines: readonly string[], at: number): readonly string[] {
+/** Where the job holding line `at` starts and ends: from its two-space id to the next line at that indent or less. */
+function jobRange(lines: readonly string[], at: number): { readonly start: number; readonly end: number } {
   const opens = (line: string): boolean => line.trim() !== '' && indentOf(line) <= 2;
   let start = at;
   while (start > 0 && !opens(lines[start] ?? '')) start -= 1;
   let end = at + 1;
   while (end < lines.length && !opens(lines[end] ?? '')) end += 1;
+  return { start, end };
+}
+
+/** The lines of the job holding line `at`. */
+function jobAround(lines: readonly string[], at: number): readonly string[] {
+  const { start, end } = jobRange(lines, at);
   return lines.slice(start, end);
+}
+
+/**
+ * The job outputs a matrix may take its runners from, each reviewed by security (T4656), as `<job>.<output>` to the
+ * line that job must run: ci.yml's test matrix takes `systems` from its change kind job, which runs the base commit's
+ * classifier, never the change's own (T4617), so the list is TEST_SYSTEMS or a part of it.
+ */
+const REVIEWED_RUNNER_OUTPUTS: ReadonlyMap<string, string> = new Map([
+  ['changes.systems', 'node "$RUNNER_TEMP/base/tools/ci/change-kind-cli.ts" --github'],
+]);
+
+/** The labels of a JSON list of strings, or undefined for any other value. */
+function stringList(json: string): readonly string[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) && parsed.every((item): item is string => typeof item === 'string') ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The runner labels a reviewed job output can hold: TEST_SYSTEMS, from the reviewed classifier, and each literal list
+ * the producing job writes as `<output>=` itself. An output with no review, a producer that is not one job or does not
+ * run the reviewed classifier, and a write of anything but a literal list come back as faults the label check reports.
+ */
+function outputLabels(value: string, job: string, output: string, lines: readonly WorkflowLine[]): readonly string[] {
+  const classifier = REVIEWED_RUNNER_OUTPUTS.get(`${job}.${output}`);
+  if (classifier === undefined) return [`${value} from an unreviewed job output`];
+  const kept = lines.map((line) => line.kept);
+  // A job's id reads in any case, as a context's key does, so a second id in another case is no single producer.
+  const ids = kept.flatMap((line, at) => (line.toLowerCase() === `  ${job.toLowerCase()}:` ? [at] : []));
+  const [id] = ids;
+  if (ids.length !== 1 || id === undefined) return [`${value} with no single ${job} job`];
+  const { start, end } = jobRange(kept, id);
+  const producer = lines.slice(start, end).map((line) => line.source);
+  if (!producer.some((line) => line.trim() === classifier)) return [`${value} with ${job} not running the reviewed classifier`];
+  return [
+    ...TEST_SYSTEMS,
+    ...producer
+      .filter((line) => line.includes(`${output}=`))
+      .flatMap((line) => stringList(/'(\[[^']*\])'/.exec(line)?.[1] ?? '') ?? [`${value} with ${output} written unread`]),
+  ];
 }
 
 /** The deeper lines under the first of `lines` that `opener` matches, or undefined when none does. */
@@ -211,11 +261,11 @@ function blockUnder(lines: readonly string[], opener: RegExp): readonly string[]
 
 /**
  * The runner labels one `runs-on:` value asks for. `${{ matrix.<key> }}` is read through the `<key>: [..]` list of
- * the job's own `strategy:` `matrix:`, and nowhere else in the job; any other expression, a matrix `include:` (which
- * can add a label), a matrix with no such list, the block form and `group:` come back as they are, so the label check
- * reports them.
+ * the job's own `strategy:` `matrix:`, and nowhere else in the job, or through a reviewed job output it reads by
+ * `fromJSON(needs.<job>.outputs.<output>)`; any other expression, a matrix `include:` (which can add a label), a matrix
+ * with no such list, the block form and `group:` come back as they are, so the label check reports them.
  */
-function labelsOf(value: string, job: readonly string[]): readonly string[] {
+function labelsOf(value: string, job: readonly string[], lines: readonly WorkflowLine[]): readonly string[] {
   if (value === '') return ['runs-on in the block form'];
   const matrixKey = /^\$\{\{\s*matrix\.([\w-]+)\s*\}\}$/.exec(value)?.[1];
   if (matrixKey !== undefined) {
@@ -223,7 +273,10 @@ function labelsOf(value: string, job: readonly string[]): readonly string[] {
     if (matrix.some((line) => /^ {8}include:/i.test(line))) return [`${value} with a matrix include`];
     // A context's key reads in any case, so `OS:` and `os:` both answer matrix.os: more than one such key is unread.
     const values = matrix.flatMap((line) => new RegExp(`^ {8}${matrixKey}:(.*)$`, 'i').exec(line)?.[1] ?? []);
-    const flow = values.length === 1 ? /^\s*\[(.*)\]$/.exec(values[0] ?? '')?.[1] : undefined;
+    const only = values.length === 1 ? values[0] : undefined;
+    const fromOutput = /^\s*\$\{\{\s*fromJSON\(needs\.([\w-]+)\.outputs\.([\w-]+)\)\s*\}\}$/.exec(only ?? '');
+    if (fromOutput?.[1] !== undefined && fromOutput[2] !== undefined) return outputLabels(value, fromOutput[1], fromOutput[2], lines);
+    const flow = /^\s*\[(.*)\]$/.exec(only ?? '')?.[1];
     return flow === undefined ? [`${value} with no [..] list`] : listOf(flow);
   }
   const flow = /^\[(.*)\]$/.exec(value)?.[1];
@@ -232,12 +285,13 @@ function labelsOf(value: string, job: readonly string[]): readonly string[] {
 
 /** Each job's runner label in a workflow that is not a GitHub-hosted one, as `<job line>: <label>`. */
 function unhostedRunners(text: string): readonly string[] {
-  const lines = structuralLines(text);
+  const read = readLines(text);
+  const lines = read.map(({ kept }) => kept);
   return lines.flatMap((line, at) => {
     const value = /^\s+runs-on:(.*)$/i.exec(line)?.[1];
     if (value === undefined) return [];
     const job = jobAround(lines, at);
-    return labelsOf(value.trim(), job)
+    return labelsOf(value.trim(), job, read)
       .filter((label) => !HOSTED.test(label))
       .map((label) => `${(job[0] ?? '').trim()} ${label}`);
   });
@@ -519,6 +573,44 @@ describe("a workflow that runs a pull request's code", () => {
       'k: self-hosted',
       'l: ${{ matrix.os }} with no [..] list',
     ]);
+  });
+
+  it('reads a matrix from a job output only through a reviewed producer, whose every list is hosted', () => {
+    const classifier = '          node "$RUNNER_TEMP/base/tools/ci/change-kind-cli.ts" --github';
+    const fallback = (list: string): string => `          printf 'kind=code\\nsystems=%s\\n' '${list}' >> "$GITHUB_OUTPUT"`;
+    const workflow = (output: string, producer: readonly string[]): string =>
+      [
+        'jobs:',
+        '  changes:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - id: kind',
+        '        run: |',
+        ...producer,
+        '  test:',
+        '    strategy:',
+        '      matrix:',
+        `        os: \${{ fromJSON(needs.${output}) }}`,
+        '    runs-on: ${{ matrix.os }}',
+      ].join('\n');
+    const hosted = '["ubuntu-latest","windows-latest","macos-latest"]';
+    assert.deepEqual(unhostedRunners(workflow('changes.outputs.systems', [classifier, fallback(hosted)])), []);
+    assert.deepEqual(unhostedRunners(workflow('changes.outputs.systems', [classifier])), []);
+    const cases: ReadonlyArray<readonly [string, string, readonly string[], string]> = [
+      ['an unreviewed output', 'changes.outputs.runners', [classifier], 'test: ${{ matrix.os }} from an unreviewed job output'],
+      ['an unreviewed job', 'build.outputs.systems', [classifier], 'test: ${{ matrix.os }} from an unreviewed job output'],
+      ['no classifier', 'changes.outputs.systems', [fallback(hosted)], 'test: ${{ matrix.os }} with changes not running the reviewed classifier'],
+      ["the change's own classifier", 'changes.outputs.systems', ['          node tools/ci/change-kind-cli.ts --github'], 'test: ${{ matrix.os }} with changes not running the reviewed classifier'],
+      ['a self-hosted fallback', 'changes.outputs.systems', [classifier, fallback('["ubuntu-latest","build-box"]')], 'test: build-box'],
+      ['a write read from a variable', 'changes.outputs.systems', [classifier, '          echo "systems=$RUNNERS" >> "$GITHUB_OUTPUT"'], 'test: ${{ matrix.os }} with systems written unread'],
+      ['a write of no list', 'changes.outputs.systems', [classifier, fallback('{"os":"build-box"}')], 'test: ${{ matrix.os }} with systems written unread'],
+    ];
+    for (const [what, output, producer, fault] of cases) {
+      assert.deepEqual(unhostedRunners(workflow(output, producer)), [fault], what);
+    }
+    const twice = `${workflow('changes.outputs.systems', [classifier])}\n  CHANGES:\n    runs-on: ubuntu-latest\n`;
+    assert.deepEqual(unhostedRunners(twice), ['test: ${{ matrix.os }} with no single changes job']);
+    assert.deepEqual(TEST_SYSTEMS.filter((label) => !HOSTED.test(label)), [], `change-kind.ts TEST_SYSTEMS: ${REVIEWED}`);
   });
 
   it('calls no reusable workflow, whose runners and caches this spec cannot read', () => {
