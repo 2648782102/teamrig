@@ -15,7 +15,7 @@ import { FakeIssueHost } from '../testing/fake-issue-host.ts';
 import { connectorDeclarationData } from '../testing/manifests.ts';
 import { SRC_DIR, sourcesUnder, underSrc } from '../testing/source-files.ts';
 import { codeHostOnly, trackerOnly } from '../testing/split-hosts.ts';
-import { hostsOf, reposOf, type ConnectorLoader, type HostRuntime } from './issue-hosts.ts';
+import { hostsOf, reposOf, sectionOf, type ConnectorLoader, type HostRuntime } from './issue-hosts.ts';
 import { RefusedError } from './runtime.ts';
 
 const RESULT: GhResult = { end: { kind: 'exited', code: 0 }, stdout: 'out', stderr: '' };
@@ -38,12 +38,18 @@ function runtimeWith(gh: GhRunner): HostRuntime {
 
 /**
  * A loader that serves one adapter, whatever folder the loader asks for: its declaration is sound and names the id
- * asked for, it reports `problems` of its config section, builds `ports`, and keeps what it was handed to build them from. The real loader checks it, so the
- * adapter hostsOf gets is one the loader accepted.
+ * asked for, it reports `problems` of its config section, builds `ports`, and keeps the section it was handed and
+ * what it was handed to build them from. The real loader checks it, so the adapter hostsOf gets is one the loader
+ * accepted.
  */
-function serving(ports: ConnectorPorts, problems: readonly (readonly [string, string])[] = []): { readonly load: ConnectorLoader; readonly given: ConnectorDeps[] } {
+function serving(
+  ports: ConnectorPorts,
+  problems: readonly (readonly [string, string])[] = [],
+): { readonly load: ConnectorLoader; readonly given: ConnectorDeps[]; readonly sections: JsonRecord[] } {
   const given: ConnectorDeps[] = [];
-  const configure = (_section: JsonRecord, report: ConfigReport): ((deps: ConnectorDeps) => ConnectorPorts) => {
+  const sections: JsonRecord[] = [];
+  const configure = (section: JsonRecord, report: ConfigReport): ((deps: ConnectorDeps) => ConnectorPorts) => {
+    sections.push(section);
     for (const [key, problem] of problems) {
       report(key, problem);
     }
@@ -52,7 +58,7 @@ function serving(ports: ConnectorPorts, problems: readonly (readonly [string, st
       return ports;
     };
   };
-  return { load: (id) => loadConnector(id, () => Promise.resolve({ default: { declaration: connectorDeclarationData({ id }), configure } })), given };
+  return { load: (id) => loadConnector(id, () => Promise.resolve({ default: { declaration: connectorDeclarationData({ id }), configure } })), given, sections };
 }
 
 /** What `serving` was handed on its one build. */
@@ -71,7 +77,7 @@ describe('hostsOf', () => {
   it('gives the tracker and the code host its connector adapter builds', async () => {
     const ports = bothPorts();
     const { load } = serving(ports);
-    const hosts = await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, load);
+    const hosts = await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, {}, load);
     assert.equal(hosts.tracker, ports.tracker);
     assert.equal(hosts.codeHost, ports.codeHost);
   });
@@ -81,7 +87,7 @@ describe('hostsOf', () => {
       const { load, given } = serving(bothPorts());
       const runtime = runtimeWith(new RecordingGh());
       const scanner = new SecretScanner();
-      await hostsOf(GITHUB_REPOS_HOST, runtime, scanner, stamp, load);
+      await hostsOf(GITHUB_REPOS_HOST, runtime, scanner, stamp, {}, load);
       const deps = onlyDeps(given);
       assert.equal(deps.http, runtime.http);
       assert.equal(deps.credentials, runtime.credentials);
@@ -94,7 +100,7 @@ describe('hostsOf', () => {
   it("hands the adapter the run's own gh runner as its program runner, so each gh run passes that runner's rules", async () => {
     const gh = new RecordingGh();
     const { load, given } = serving(bothPorts());
-    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(gh), new SecretScanner(), true, load);
+    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(gh), new SecretScanner(), true, {}, load);
     const { run } = onlyDeps(given);
     assert.equal(await run({ program: GH_PROGRAM, args: ['api', 'user'], env: { GH_TOKEN: 'a-key' } }), RESULT);
     await run({ program: GH_PROGRAM, args: ['issue', 'list'] });
@@ -107,14 +113,14 @@ describe('hostsOf', () => {
   it('lets the adapter run no program but gh', async () => {
     const gh = new RecordingGh();
     const { load, given } = serving(bothPorts());
-    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(gh), new SecretScanner(), true, load);
+    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(gh), new SecretScanner(), true, {}, load);
     await assert.rejects(onlyDeps(given).run({ program: 'git', args: ['status'] }), new NotGhError('git'));
     assert.deepEqual(gh.ran, []);
   });
 
   it('fails, naming every reason, when the loader refuses the adapter', async () => {
     const load: ConnectorLoader = (id) => Promise.resolve({ kind: 'refused', id, notices: ['it needs a name', 'its kinds must list tracker, codehost or both, each once'] });
-    await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, load), {
+    await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, {}, load), {
       name: 'HostAdapterError',
       message: 'the github connector adapter gave no host: it needs a name; its kinds must list tracker, codehost or both, each once',
     });
@@ -122,7 +128,7 @@ describe('hostsOf', () => {
 
   it('fails as a failure and not a refusal, since no caller asked wrongly', async () => {
     const load: ConnectorLoader = (id) => Promise.resolve({ kind: 'refused', id, notices: ['it needs a name'] });
-    await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, load), (error) => error instanceof Error && !(error instanceof RefusedError));
+    await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, {}, load), (error) => error instanceof Error && !(error instanceof RefusedError));
   });
 
   it('fails, naming each port it lacks, when the adapter builds no tracker or no code host', async () => {
@@ -133,7 +139,7 @@ describe('hostsOf', () => {
       [{ codeHost }, 'it builds no tracker'],
     ];
     for (const [ports, reasons] of cases) {
-      await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, serving(ports).load), {
+      await assert.rejects(hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, {}, serving(ports).load), {
         name: 'HostAdapterError',
         message: `the github connector adapter gave no host: ${reasons}`,
       });
@@ -146,14 +152,41 @@ describe('hostsOf', () => {
       ['projects', 'must list a project key'],
     ]);
     await assert.rejects(
-      hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, load),
+      hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, {}, load),
       new RefusedError('connectors.github.site must be a host name; connectors.github.projects must list a project key'),
     );
     assert.deepEqual(given, []);
   });
 
+  it("hands the adapter the section the team wrote under its id, as written, and no other connector's (T4766)", async () => {
+    const own = { site: 'acme', projects: ['WEB'] };
+    const { load, sections } = serving(bothPorts());
+    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, { other: { site: 'globex' }, [GITHUB_REPOS_HOST]: own }, load);
+    assert.deepEqual(sections, [own]);
+  });
+
+  it('hands the adapter an empty section, its defaults, when the team wrote none under its id (T4766)', async () => {
+    const { load, sections } = serving(bothPorts());
+    await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new RecordingGh()), new SecretScanner(), true, { other: { site: 'globex' } }, load);
+    assert.deepEqual(sections, [{}]);
+  });
+
+});
+
+describe('sectionOf', () => {
+  it("gives the section written under an id, and an empty one for an id the team wrote none under (T4766)", () => {
+    const own = { site: 'acme' };
+    assert.equal(sectionOf({ tracker: own }, 'tracker'), own);
+    assert.deepEqual(sectionOf({ tracker: own }, 'other'), {});
+  });
+
+  it('reads no section for an id that only names what every object holds (T4766)', () => {
+    assert.deepEqual(sectionOf({}, 'constructor'), {});
+    assert.deepEqual(sectionOf({}, 'valueOf'), {});
+  });
+
   it('loads the GitHub adapter teamrig ships when no loader is given', async () => {
-    const hosts = await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new FakeGh()), new SecretScanner(), true);
+    const hosts = await hostsOf(GITHUB_REPOS_HOST, runtimeWith(new FakeGh()), new SecretScanner(), true, {});
     assert.equal(hosts.tracker.name, 'GitHub');
     assert.equal(hosts.codeHost.name, 'GitHub');
     assert.equal((await hosts.tracker.reach('acme/web', 'read')).kind, 'reached');
